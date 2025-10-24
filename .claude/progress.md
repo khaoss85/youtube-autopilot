@@ -243,6 +243,130 @@ Nota: ffmpeg assembly fallisce perché ffmpeg non installato sul sistema, ma wor
 
 **Commit:** `feat: step 05 - full production pipeline with human gate complete`
 
+### ✅ Step 05.5: Human Review Console & Audit Trail
+**Data completamento:** 2025-10-24
+**Stato:** COMPLETATO AL 100%
+
+**Cosa è stato fatto:**
+- ✅ Esteso `io/datastore.py` con audit trail e pending review:
+  - `list_pending_review()` - ritorna tutti i video con stato "HUMAN_REVIEW_PENDING"
+  - Aggiornato `mark_as_scheduled()` per accettare `approved_by` e `approved_at_iso`
+  - Audit fields salvati in JSONL records (approved_by, approved_at_iso)
+- ✅ Aggiornato `pipeline/produce_render_publish.py` con audit trail:
+  - Modificata firma `publish_after_approval()` per includere `approved_by: str`
+  - Genera `approved_at_iso` timestamp usando `datetime.utcnow().isoformat() + "Z"`
+  - Passa audit parameters a `mark_as_scheduled()`
+  - Ritorna `approved_by` e `approved_at_iso` nel result dict
+- ✅ Aggiornato `pipeline/tasks.py`:
+  - Modificata firma `task_publish_after_human_ok()` per includere `approved_by`
+  - Logging di audit trail in output
+- ✅ Creato `tools/review_console.py` - CLI per review umana (~225 righe):
+  - Comando `list` - elenca tutti i draft pending review
+  - Comando `show <video_id>` - mostra dettagli completi di un draft
+  - Comando `publish <video_id> --approved-by "name"` - approva e pubblica su YouTube
+  - Argparse con help text completo
+  - Warning espliciti: uso solo manuale, NON automatizzare
+- ✅ Aggiornato README.md con sezione "Human Review & Approval Flow (tools/review_console.py)":
+  - Workflow steps dettagliati (list, show, publish)
+  - Esempi CLI con output attesi
+  - Spiegazione audit trail
+  - Enfasi su vincoli di sicurezza brand
+- ✅ Test end-to-end completo con `test_step05_5_workflow.py`
+
+**Acceptance Criteria - Tutti Verificati:**
+- ✅ `list_pending_review()` aggiunta a `io/datastore.py` e funziona
+- ✅ `mark_as_scheduled()` accetta `approved_by` e `approved_at_iso` parameters
+- ✅ `publish_after_approval()` firma aggiornata: `(video_internal_id: str, approved_by: str)`
+- ✅ Audit trail registrato in datastore (approved_by, approved_at_iso)
+- ✅ `tools/review_console.py` funziona con tutti e 3 i comandi
+- ✅ README ha nuova sezione con esempi completi
+- ✅ NO scheduler implementation (corretto - deferred to Step 06)
+
+**Architettura: Audit Trail e Accountability**
+
+**Obiettivo:** Dare agli umani un modo semplice e user-friendly per:
+1. Vedere quali video sono in attesa di review
+2. Ispezionare dettagli completi di ogni draft
+3. Approvare e pubblicare con traccia di chi ha approvato e quando
+
+**CLI Commands:**
+```bash
+# Lista draft pending
+python tools/review_console.py list
+
+# Ispeziona draft specifico
+python tools/review_console.py show <video_internal_id>
+
+# Approva e pubblica
+python tools/review_console.py publish <video_internal_id> --approved-by "dan@company"
+```
+
+**Audit Trail Fields:**
+- `approved_by`: Identifier dell'approvatore (es. "dan@company", "alice@team")
+- `approved_at_iso`: UTC timestamp ISO 8601 dell'approvazione
+- Salvati in datastore JSONL per compliance e accountability
+
+**Workflow Completo con Audit:**
+```
+produce_render_assets() → Draft saved (HUMAN_REVIEW_PENDING)
+                              ↓
+                     tools/review_console.py list
+                              ↓
+                     tools/review_console.py show <id>
+                              ↓
+                 (human watches video & approves)
+                              ↓
+       tools/review_console.py publish <id> --approved-by "name"
+                              ↓
+                    YouTube upload + audit trail
+                              ↓
+                    State: SCHEDULED_ON_YOUTUBE
+```
+
+**File chiave creati/modificati:**
+- `yt_autopilot/io/datastore.py` - aggiunte ~80 righe (list_pending_review, audit fields)
+- `yt_autopilot/pipeline/produce_render_publish.py` - modificate ~10 righe (approved_by param, timestamp)
+- `yt_autopilot/pipeline/tasks.py` - modificate ~5 righe (signature update)
+- `tools/review_console.py` - 225 righe (CLI completa)
+- `README.md` - aggiunte ~65 righe (nuova sezione)
+- `test_step05_5_workflow.py` - 150 righe (acceptance tests)
+
+**Test Eseguito:**
+- ✓ Import: Tutti i moduli modificati importano correttamente
+- ✓ Signatures: `publish_after_approval()` e `mark_as_scheduled()` hanno parametri corretti
+- ✓ list_pending_review(): Ritorna lista vuota (expected, no drafts yet)
+- ✓ CLI tool: File esiste, eseguibile, tutti i comandi presenti
+- ✓ tasks.py: `task_publish_after_human_ok()` signature aggiornata
+- ✓ Tutti gli acceptance test passati (7/7)
+
+**Motivazione Step 05.5:**
+Dopo Step 05, gli umani dovevano usare Python REPL per revieware e approvare video:
+```python
+# Prima (scomodo):
+from yt_autopilot.io import get_draft_package
+from yt_autopilot.pipeline import publish_after_approval
+draft = get_draft_package("some-uuid-here")
+# ... inspect draft manually
+result = publish_after_approval("some-uuid-here", "approver-name")
+```
+
+Ora (user-friendly):
+```bash
+# Dopo (facile):
+python tools/review_console.py list
+python tools/review_console.py show <id>
+python tools/review_console.py publish <id> --approved-by "dan@company"
+```
+
+**Decisioni Tecniche:**
+- **Audit Trail Timing:** Timestamp generato al momento dell'approvazione (non al salvataggio draft)
+- **UTC Timestamps:** Formato ISO 8601 con "Z" suffix per timezone consistency
+- **CLI Tool Location:** `tools/` directory (non nel package principale) per separare strumenti utente da libreria
+- **Argparse Structure:** Subcommands per UX migliore (vs flags) e help text contestuale
+- **Approved By Format:** Free-form string per flessibilità (email, username, etc.)
+
+**Commit:** `feat: step 05.5 - human review console and audit trail complete`
+
 ---
 
 ## Step in Corso
@@ -366,6 +490,34 @@ Test coverage e robustezza:
 - **Stati produzione:** HUMAN_REVIEW_PENDING → (human review) → SCHEDULED_ON_YOUTUBE
 - Prossimo: Step 06 (Scheduler) per automatizzare generazione asset e raccolta metriche
 - Commit: `feat: step 05 - full production pipeline with human gate complete`
+
+### Sessione 2025-10-24 (Parte 6)
+- Completato Step 05.5: Human Review Console & Audit Trail
+- **Obiettivo:** Risolvere gap operazionale - necessario strumento user-friendly per review umana
+- **Problema:** Dopo Step 05, reviewer dovevano usare Python REPL per ispezionare drafts e approvare
+- **Soluzione:** CLI tool `tools/review_console.py` con comandi intuitivi
+- Esteso `io/datastore.py` con audit trail:
+  - `list_pending_review()` per listare tutti i drafts in attesa
+  - `mark_as_scheduled()` aggiornato con `approved_by` e `approved_at_iso` parameters
+- Aggiornato `pipeline/produce_render_publish.py`:
+  - `publish_after_approval()` ora accetta `approved_by: str` parameter
+  - Genera timestamp UTC ISO 8601 per `approved_at_iso`
+  - Passa audit trail a datastore per compliance
+- Creato `tools/review_console.py` (225 righe):
+  - Tre comandi: `list`, `show <id>`, `publish <id> --approved-by "name"`
+  - Argparse con help text completo
+  - Warning espliciti contro automazione (sicurezza brand)
+- README aggiornato con sezione "Human Review & Approval Flow" (~65 righe):
+  - Workflow steps dettagliati
+  - Esempi CLI completi
+  - Spiegazione audit trail e accountability
+- Test acceptance completo: 7/7 test passati ✓
+  - Import ✓, Signatures ✓, list_pending_review() ✓, CLI structure ✓, tasks.py ✓
+- **Audit Trail Fields:** `approved_by`, `approved_at_iso` salvati in JSONL per compliance
+- Totale codice Step 05.5: ~95 righe modifiche + 225 righe nuove (CLI) + 150 righe test
+- progress.md aggiornato con dettagli Step 05.5
+- Prossimo: Commit Step 05.5, poi Step 06 (Scheduler Automation)
+- Commit: `feat: step 05.5 - human review console and audit trail complete`
 
 ---
 

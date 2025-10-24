@@ -18,6 +18,7 @@ This ensures ZERO risk of publishing inappropriate content automatically.
 The system generates content, but humans gate publication.
 """
 
+from datetime import datetime
 from typing import Dict, Any
 from yt_autopilot.core.logger import logger
 from yt_autopilot.core.schemas import ReadyForFactory, UploadResult, PublishingPackage
@@ -201,18 +202,20 @@ def produce_render_assets(publish_datetime_iso: str) -> Dict[str, Any]:
     }
 
 
-def publish_after_approval(video_internal_id: str) -> Dict[str, Any]:
+def publish_after_approval(video_internal_id: str, approved_by: str) -> Dict[str, Any]:
     """
-    Phase 2: Publish approved video package to YouTube.
+    Phase 2: Publish approved video package to YouTube with audit trail.
 
     This function should ONLY be called after human review and approval.
-    It uploads the video to YouTube with scheduled publication.
+    It uploads the video to YouTube with scheduled publication and records
+    who approved the publication and when.
 
     ⚠️ BRAND SAFETY: This is the ONLY point where content is uploaded to YouTube.
     ⚠️ This function must NEVER be called automatically by a scheduler.
 
     Args:
         video_internal_id: UUID from produce_render_assets()
+        approved_by: Identifier of approver (e.g., "dan@company", "alice")
 
     Returns:
         Dict with keys:
@@ -220,6 +223,8 @@ def publish_after_approval(video_internal_id: str) -> Dict[str, Any]:
         - video_id: YouTube video ID (if SCHEDULED)
         - publishAt: Actual publish datetime (if SCHEDULED)
         - title: Video title (if SCHEDULED)
+        - approved_by: Approver identifier (if SCHEDULED)
+        - approved_at_iso: Approval timestamp (if SCHEDULED)
         - reason: Error message (if ERROR)
 
     Raises:
@@ -228,10 +233,13 @@ def publish_after_approval(video_internal_id: str) -> Dict[str, Any]:
 
     Example:
         >>> # After human reviews and approves
-        >>> result = publish_after_approval("123e4567-e89b-12d3-a456-426614174000")
+        >>> result = publish_after_approval(
+        ...     "123e4567-e89b-12d3-a456-426614174000",
+        ...     approved_by="dan@company"
+        ... )
         >>> if result["status"] == "SCHEDULED":
         ...     print(f"Scheduled: {result['video_id']}")
-        ...     print(f"Publish at: {result['publishAt']}")
+        ...     print(f"Approved by: {result['approved_by']}")
     """
     logger.info("=" * 70)
     logger.info("PUBLISH PIPELINE: Phase 2 - Upload to YouTube")
@@ -277,6 +285,7 @@ def publish_after_approval(video_internal_id: str) -> Dict[str, Any]:
     # Upload to YouTube
     logger.info("")
     logger.info("Uploading to YouTube...")
+    logger.info(f"  Approved by: {approved_by}")
 
     try:
         upload_result = upload_and_schedule(
@@ -292,10 +301,13 @@ def publish_after_approval(video_internal_id: str) -> Dict[str, Any]:
         logger.error(f"✗ Upload failed: {e}")
         raise RuntimeError(f"YouTube upload failed: {e}")
 
+    # Generate approval timestamp
+    approved_at_iso = datetime.utcnow().isoformat() + "Z"
+
     # Update datastore: HUMAN_REVIEW_PENDING → SCHEDULED_ON_YOUTUBE
     logger.info("")
-    logger.info("Updating datastore...")
-    mark_as_scheduled(video_internal_id, upload_result)
+    logger.info("Updating datastore with audit trail...")
+    mark_as_scheduled(video_internal_id, upload_result, approved_by, approved_at_iso)
 
     logger.info("")
     logger.info("=" * 70)
@@ -305,11 +317,14 @@ def publish_after_approval(video_internal_id: str) -> Dict[str, Any]:
     logger.info(f"YouTube Video ID: {upload_result.youtube_video_id}")
     logger.info(f"Publish at: {upload_result.published_at}")
     logger.info(f"Title: {upload_result.title}")
+    logger.info(f"Approved by: {approved_by} at {approved_at_iso}")
     logger.info("=" * 70)
 
     return {
         "status": "SCHEDULED",
         "video_id": upload_result.youtube_video_id,
         "publishAt": upload_result.published_at,
-        "title": upload_result.title
+        "title": upload_result.title,
+        "approved_by": approved_by,
+        "approved_at_iso": approved_at_iso
     }

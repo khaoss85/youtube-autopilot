@@ -454,6 +454,71 @@ The system is **semi-autonomous**: it automates content creation but requires hu
 
 ---
 
+## Human Review & Approval Flow (tools/review_console.py)
+
+After running `produce_render_assets()`, the video is in state **"HUMAN_REVIEW_PENDING"** and saved to the datastore with a UUID identifier. At this point, the system has generated all physical assets (final video, thumbnail, voiceover) but has NOT uploaded anything to YouTube.
+
+The human reviewer uses the **review console CLI** to inspect drafts and approve publication.
+
+### Workflow Steps
+
+**Step 1: List all pending drafts**
+```bash
+python tools/review_console.py list
+```
+
+This displays all videos awaiting review:
+- `video_internal_id` (UUID for approval)
+- Proposed title
+- File paths (video, thumbnail)
+- Suggested publish time
+- Saved timestamp
+
+**Step 2: Inspect a specific draft**
+```bash
+python tools/review_console.py show <video_internal_id>
+```
+
+This shows detailed information:
+- Final video path (watch before approving)
+- Thumbnail path (verify quality)
+- Proposed title, description, tags
+- Suggested publish datetime
+- Scene count and files
+
+**Step 3: Approve and publish**
+
+After watching the video and verifying brand compliance:
+```bash
+python tools/review_console.py publish <video_internal_id> --approved-by "dan@company"
+```
+
+This will:
+1. Upload the video to YouTube
+2. Set the custom thumbnail
+3. Schedule publication at the proposed datetime
+4. Update datastore state to **"SCHEDULED_ON_YOUTUBE"**
+5. Record audit trail (`approved_by`, `approved_at_iso`)
+
+**Audit Trail:**
+Every publication includes:
+- `approved_by`: Identifier of approver (e.g., "dan@company")
+- `approved_at_iso`: UTC timestamp of approval
+- `youtube_video_id`: Final YouTube video ID
+- `actual_publish_at`: Scheduled publish datetime
+
+This ensures full accountability and compliance tracking.
+
+### Important Constraints
+
+⚠️ **The `publish` command is the ONLY way to upload videos to YouTube.**
+
+⚠️ **This command must NEVER be automated or scheduled.**
+
+The review console is the final brand safety gate. Humans must explicitly approve every video before it reaches the public.
+
+---
+
 ## Services & IO Layer: The Factory
 
 The `services/` and `io/` layers handle all **external operations and data persistence**. These are the "physical hands" of the system - they transform editorial packages (`ReadyForFactory`) into real videos and manage historical data.

@@ -75,7 +75,7 @@ def task_generate_assets_for_review(publish_datetime_iso: str) -> Dict[str, Any]
     return result
 
 
-def task_publish_after_human_ok(video_internal_id: str) -> Dict[str, Any]:
+def task_publish_after_human_ok(video_internal_id: str, approved_by: str) -> Dict[str, Any]:
     """
     Task 2: Publish approved video to YouTube (MANUAL TRIGGER ONLY).
 
@@ -87,29 +87,34 @@ def task_publish_after_human_ok(video_internal_id: str) -> Dict[str, Any]:
 
     Args:
         video_internal_id: UUID from task_generate_assets_for_review()
+        approved_by: Identifier of approver (e.g., "dan@company", "alice")
 
     Returns:
-        Dict from publish_after_approval() with YouTube video ID and status
+        Dict from publish_after_approval() with YouTube video ID, status,
+        and audit trail
 
     Example (manual usage):
         >>> # Human reviews video and approves
         >>> video_id = "123e4567-e89b-12d3-a456-426614174000"
-        >>> result = task_publish_after_human_ok(video_id)
+        >>> result = task_publish_after_human_ok(video_id, "dan@company")
         >>> if result["status"] == "SCHEDULED":
         ...     print(f"Published: {result['video_id']}")
+        ...     print(f"Approved by: {result['approved_by']}")
     """
     logger.info("=" * 70)
     logger.info("TASK: Publish after human approval")
     logger.info("=" * 70)
     logger.info(f"Internal ID: {video_internal_id}")
+    logger.info(f"Approved by: {approved_by}")
     logger.info("⚠️  This task requires manual human approval")
 
-    result = publish_after_approval(video_internal_id)
+    result = publish_after_approval(video_internal_id, approved_by)
 
     if result["status"] == "SCHEDULED":
         logger.info("✓ Task complete: Video scheduled on YouTube")
         logger.info(f"  YouTube ID: {result['video_id']}")
         logger.info(f"  Publish at: {result['publishAt']}")
+        logger.info(f"  Approved by: {result['approved_by']} at {result['approved_at_iso']}")
     else:
         logger.error(f"✗ Task failed: {result.get('reason')}")
 

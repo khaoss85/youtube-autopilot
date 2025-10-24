@@ -19,7 +19,8 @@ from yt_autopilot.io.datastore import (
     save_draft_package,
     get_draft_package,
     mark_as_scheduled,
-    list_scheduled_videos
+    list_scheduled_videos,
+    list_pending_review
 )
 from yt_autopilot.io.exports import (
     export_report_csv,
@@ -37,6 +38,7 @@ __all__ = [
     "get_draft_package",
     "mark_as_scheduled",
     "list_scheduled_videos",
+    "list_pending_review",
     # Exports
     "export_report_csv",
     "export_metrics_timeseries_csv",

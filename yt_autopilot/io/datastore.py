@@ -343,18 +343,26 @@ def get_draft_package(video_internal_id: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def mark_as_scheduled(video_internal_id: str, upload_result: UploadResult) -> None:
+def mark_as_scheduled(
+    video_internal_id: str,
+    upload_result: UploadResult,
+    approved_by: str,
+    approved_at_iso: str
+) -> None:
     """
-    Marks a draft package as scheduled on YouTube.
+    Marks a draft package as scheduled on YouTube with audit trail.
 
     Updates the record to production_state="SCHEDULED_ON_YOUTUBE" and
-    adds YouTube video ID and actual publish time.
+    adds YouTube video ID, actual publish time, and approval audit trail.
 
-    This function should ONLY be called after successful YouTube upload.
+    This function should ONLY be called after successful YouTube upload
+    and explicit human approval.
 
     Args:
         video_internal_id: UUID from save_draft_package()
         upload_result: Result from YouTube upload service
+        approved_by: Identifier of approver (e.g., "dan@company", "alice")
+        approved_at_iso: ISO 8601 timestamp of approval (UTC)
 
     Raises:
         ValueError: If draft not found or not in HUMAN_REVIEW_PENDING state
@@ -366,7 +374,12 @@ def mark_as_scheduled(video_internal_id: str, upload_result: UploadResult) -> No
         ...     title="Test Video",
         ...     upload_timestamp="2025-10-24T12:00:00Z"
         ... )
-        >>> mark_as_scheduled("123e4567-...", upload_result)
+        >>> mark_as_scheduled(
+        ...     "123e4567-...",
+        ...     upload_result,
+        ...     approved_by="dan@company",
+        ...     approved_at_iso="2025-10-24T20:11:52Z"
+        ... )
     """
     logger.info(f"Marking package as scheduled: {video_internal_id}...")
 
@@ -401,10 +414,14 @@ def mark_as_scheduled(video_internal_id: str, upload_result: UploadResult) -> No
                 record["actual_publish_at"] = upload_result.published_at
                 record["upload_timestamp"] = upload_result.upload_timestamp
                 record["upload_result"] = upload_result.model_dump()
+                # Audit trail
+                record["approved_by"] = approved_by
+                record["approved_at_iso"] = approved_at_iso
 
                 logger.info(f"✓ Record updated")
                 logger.info(f"  Video ID: {upload_result.youtube_video_id}")
                 logger.info(f"  Publish at: {upload_result.published_at}")
+                logger.info(f"  Approved by: {approved_by} at {approved_at_iso}")
 
             records.append(record)
 
@@ -464,4 +481,53 @@ def list_scheduled_videos() -> List[Dict[str, Any]]:
                 })
 
     logger.info(f"✓ Found {len(videos)} scheduled videos")
+    return videos
+
+
+def list_pending_review() -> List[Dict[str, Any]]:
+    """
+    Returns list of all videos pending human review.
+
+    Only includes videos with production_state="HUMAN_REVIEW_PENDING".
+    These are videos that have been generated but not yet approved for
+    publication to YouTube.
+
+    Returns:
+        List of video records with metadata needed for review
+
+    Example:
+        >>> pending = list_pending_review()
+        >>> for video in pending:
+        ...     print(f"{video['video_internal_id']}: {video['proposed_title']}")
+        123e4567-...: AI Video Generation 2025
+    """
+    logger.info("Listing videos pending review from datastore...")
+
+    datastore_path = _get_datastore_path()
+
+    if not datastore_path.exists():
+        logger.warning("Datastore file does not exist yet")
+        return []
+
+    videos = []
+    with open(datastore_path, "r", encoding="utf-8") as f:
+        for line in f:
+            record = json.loads(line.strip())
+
+            # Only include pending review videos
+            if record.get("production_state") == "HUMAN_REVIEW_PENDING":
+                files = record.get("files", {})
+                videos.append({
+                    "video_internal_id": record.get("video_internal_id"),
+                    "production_state": record["production_state"],
+                    "final_video_path": files.get("final_video_path"),
+                    "thumbnail_path": files.get("thumbnail_path"),
+                    "proposed_title": record.get("title"),
+                    "proposed_description": record.get("publishing", {}).get("description"),
+                    "proposed_tags": record.get("publishing", {}).get("tags"),
+                    "suggested_publishAt": record.get("proposed_publish_at"),
+                    "saved_at": record.get("saved_at")
+                })
+
+    logger.info(f"✓ Found {len(videos)} videos pending review")
     return videos
