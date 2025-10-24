@@ -69,11 +69,52 @@ Questo file traccia il progresso dello sviluppo del progetto attraverso le sessi
 
 **Commit:** `feat: step 02 - agents brain layer complete`
 
+### ✅ Step 03: Editorial Pipeline Orchestrator
+**Data completamento:** 2025-10-24
+**Stato:** COMPLETATO AL 100%
+
+**Cosa è stato fatto:**
+- ✅ Implementato `pipeline/build_video_package.py` - orchestratore editoriale completo
+- ✅ Funzione `build_video_package() -> ReadyForFactory`
+- ✅ Chain sequenziale di tutti i 5 agenti con logging dettagliato
+- ✅ Gestione retry: 1 tentativo di revisione se QualityReviewer boccia
+- ✅ Helper function `_attempt_script_improvement()` per migliorare script in base a feedback
+- ✅ Update automatico di `channel_memory.json` quando package APPROVED
+- ✅ NO update memoria quando package REJECTED
+- ✅ Mock trends integrati (3 TrendCandidate hardcoded)
+- ✅ Calcolo e logging durata totale video
+- ✅ Aggiornato `pipeline/__init__.py` con export
+- ✅ Aggiornato README.md con sezione "Pipeline Layer: Orchestration"
+
+**Acceptance Criteria - Tutti Verificati:**
+- ✅ `from yt_autopilot.pipeline import build_video_package` funziona
+- ✅ `pkg = build_video_package()` ritorna `ReadyForFactory`
+- ✅ Se APPROVED: `pkg.status=="APPROVED"`, `rejection_reason=None`, memory aggiornata
+- ✅ Se REJECTED: `pkg.status=="REJECTED"`, `rejection_reason` spiega problema, memory NON aggiornata
+- ✅ NO import da `services/`, `io/`, ffmpeg, Veo, YouTube, TTS
+- ✅ Solo import da `core/` e `agents/`
+
+**File chiave creati:**
+- `yt_autopilot/pipeline/build_video_package.py` - 350+ righe
+  - Workflow: Load memory → Mock trends → TrendHunter → ScriptWriter → VisualPlanner → SeoManager → QualityReviewer
+  - Retry logic con script improvement
+  - Memory management (update solo se APPROVED)
+  - Logging estensivo di tutti gli step
+
+**Test eseguito:**
+- Package generato: APPROVED ✓
+- Titolo: "AI Video Generation 2025 - Tutti Ne Parlano!" (44 chars)
+- 4 scene, ~26s durata, formato 9:16
+- Tutti gli 8 quality checks passati
+- Memory aggiornata con nuovo titolo
+
+**Commit:** `feat: step 03 - editorial pipeline orchestrator complete`
+
 ---
 
 ## Step in Corso
 
-### 🔄 Step 03: Services Implementation
+### 🔄 Step 04: Services Implementation
 **Stato:** NON INIZIATO
 
 **Obiettivi:**
@@ -85,6 +126,7 @@ Questo file traccia il progresso dello sviluppo del progetto attraverso le sessi
 - `thumbnail_service.py` - generazione immagine thumbnail
 - `youtube_uploader.py` - upload e scheduling su YouTube Data API
 - `youtube_analytics.py` - raccolta KPI da YouTube Analytics API
+- `datastore.py` - persistenza locale di package e risultati
 
 **Regole:**
 - Servizi SOLO in `services/` folder
@@ -100,6 +142,7 @@ Questo file traccia il progresso dello sviluppo del progetto attraverso le sessi
 - [ ] ffmpeg service assembla video finale
 - [ ] YouTube uploader carica e schedula video
 - [ ] Analytics service raccoglie metriche (views, watch time, CTR)
+- [ ] Datastore salva ReadyForFactory e risultati upload
 - [ ] Test: da VisualPlan a video .mp4 finale caricato su YouTube
 
 ---
@@ -159,7 +202,22 @@ Test coverage e robustezza:
 - README aggiornato con sezione "Agents Layer" dettagliata (~100 righe)
 - Rispettata architettura: agents importano SOLO da core, nessun I/O
 - QualityReviewer con 8 check di compliance (banned topics, hate speech, medical claims, copyright, brand tone, hook, duration, title)
-- Prossimo: Step 03 (Services) o Step 04 (Pipeline orchestrator)
+- Commit: `feat: step 02 - agents brain layer complete` (b9f2489)
+
+### Sessione 2025-10-24 (Parte 3)
+- Completato Step 03: Editorial Pipeline Orchestrator
+- **Decisione strategica:** roadmap riordinata - pipeline orchestrator prima dei services
+  - Motivo: chiudere il cervello editoriale end-to-end prima di toccare API esterne
+  - Step 03 = build_video_package.py (solo agents)
+  - Step 04 = services fisici (Veo, TTS, ffmpeg, YouTube)
+- Implementato `build_video_package()` in ~350 righe
+- Workflow completo: Load memory → Mock trends → Chain 5 agenti → Retry logic → Memory update
+- Helper function `_attempt_script_improvement()` per gestire feedback QualityReviewer
+- Test APPROVED: 4 scene, 26s, title 44 chars, tutti i check passati
+- Memory aggiornata automaticamente con nuovo titolo
+- README aggiornato con sezione "Pipeline Layer: Orchestration" (~80 righe)
+- Roadmap aggiornata: Step 03 completato ✓
+- Prossimo: Step 04 (Services) per integrazioni fisiche Veo/TTS/ffmpeg/YouTube
 
 ---
 

@@ -158,6 +158,84 @@ TrendCandidate[] → TrendHunter → VideoPlan
 
 ---
 
+## Pipeline Layer: Orchestration
+
+The `pipeline/` layer coordinates agents (and eventually services) to execute complete workflows. This is the **only layer allowed to import from both agents and services**.
+
+### build_video_package.py - Editorial Brain Orchestrator
+
+**Function:** `build_video_package() -> ReadyForFactory`
+
+**Purpose:**
+The main orchestrator for the editorial pipeline. Coordinates all AI agents in sequence to produce a complete, quality-approved content package ready for production.
+
+**What it does:**
+1. **Loads channel memory** - retrieves brand tone, banned topics, recent titles
+2. **Gets trending topics** - currently uses mock data, will integrate with trend services later
+3. **Runs TrendHunter** - selects best topic avoiding banned content and duplicates
+4. **Runs ScriptWriter** - generates engaging script with hook, bullets, and CTA
+5. **Runs VisualPlanner** - creates scene-by-scene visual plan for video generation
+6. **Runs SeoManager** - optimizes title, description, tags, and thumbnail concept
+7. **Runs QualityReviewer** - performs 8-point compliance and quality check
+8. **Handles rejection** - if rejected, attempts ONE revision:
+   - Improves script based on feedback
+   - Regenerates visual plan and publishing metadata
+   - Re-runs quality review
+9. **Updates memory** - if approved, adds title to `recent_titles` to avoid repetition
+10. **Returns package** - `ReadyForFactory` with status "APPROVED" or "REJECTED"
+
+**What is ReadyForFactory?**
+
+`ReadyForFactory` is the complete editorial package that contains:
+- **status**: "APPROVED" or "REJECTED"
+- **video_plan**: Strategic video concept
+- **script**: Complete voiceover script
+- **visuals**: Scene-by-scene visual plan
+- **publishing**: SEO-optimized metadata (title, description, tags, thumbnail)
+- **rejection_reason**: Explanation if rejected (None if approved)
+
+**Memory Management:**
+
+When a package is **APPROVED**:
+- The final title is added to `channel_memory.json` → `recent_titles[]`
+- This prevents future videos from being too similar
+- Memory is persisted via `save_memory()`
+
+When a package is **REJECTED**:
+- Memory is **NOT** updated
+- The rejected content does not pollute the title history
+- Logs contain detailed rejection reasons for debugging
+
+**Key Features:**
+- ✅ Fully automated editorial decision-making
+- ✅ Built-in quality control with retry mechanism
+- ✅ Compliance enforcement before production
+- ✅ Memory management for content diversity
+- ❌ Does NOT call external APIs (Veo, YouTube, etc.)
+- ❌ Does NOT generate video files
+- ❌ Does NOT upload content
+
+**This is the final step of the "editorial brain" before physical video production.**
+
+**Example Usage:**
+```python
+from yt_autopilot.pipeline import build_video_package
+
+# Generate complete editorial package
+package = build_video_package()
+
+if package.status == "APPROVED":
+    print(f"✓ Approved: {package.publishing.final_title}")
+    print(f"  Duration: ~{sum(s.est_duration_seconds for s in package.visuals.scenes)}s")
+    print(f"  Scenes: {len(package.visuals.scenes)}")
+    # Ready for video production (Step 04)
+else:
+    print(f"✗ Rejected: {package.rejection_reason}")
+    # Can analyze and improve based on feedback
+```
+
+---
+
 ## Content Compliance & Brand Safety
 
 All content generation **MUST** follow these rules:
@@ -320,11 +398,12 @@ python -m yt_autopilot.pipeline.scheduler
 
 - [x] Step 01: Core foundation (schemas, config, logger, memory)
 - [x] Step 02: Implement agents (TrendHunter, ScriptWriter, VisualPlanner, SeoManager, QualityReviewer)
-- [ ] Step 03: Implement services (Veo, TTS, ffmpeg, YouTube)
-- [ ] Step 04: Build pipeline orchestrators
-- [ ] Step 05: Implement scheduler for automation
-- [ ] Step 06: Analytics feedback loop
-- [ ] Step 07: Quality improvements and testing
+- [x] Step 03: Editorial pipeline orchestrator (build_video_package)
+- [ ] Step 04: Implement services (Veo, TTS, ffmpeg, YouTube, analytics, datastore)
+- [ ] Step 05: Full production pipeline (produce_render_publish)
+- [ ] Step 06: Implement scheduler for automation
+- [ ] Step 07: Analytics feedback loop and continuous improvement
+- [ ] Step 08: Quality improvements and testing
 
 ---
 

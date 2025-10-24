@@ -1,0 +1,322 @@
+"""
+Editorial Pipeline Orchestrator: Coordinates AI agents to produce video packages.
+
+This module orchestrates the complete editorial workflow from trend selection
+to quality-approved content packages, managing the multi-agent system and
+memory updates.
+"""
+
+from typing import List, Dict
+from yt_autopilot.core.schemas import (
+    TrendCandidate,
+    ReadyForFactory,
+    VideoPlan,
+    VideoScript,
+    VisualPlan,
+    PublishingPackage
+)
+from yt_autopilot.core.memory_store import (
+    load_memory,
+    save_memory,
+    append_recent_title
+)
+from yt_autopilot.core.logger import logger
+
+# Import agents
+from yt_autopilot.agents.trend_hunter import generate_video_plan
+from yt_autopilot.agents.script_writer import write_script
+from yt_autopilot.agents.visual_planner import generate_visual_plan
+from yt_autopilot.agents.seo_manager import generate_publishing_package
+from yt_autopilot.agents.quality_reviewer import review
+
+
+def _get_mock_trends() -> List[TrendCandidate]:
+    """
+    Returns mock trending topics for testing the editorial pipeline.
+
+    In production, this would be replaced by a service that fetches
+    real trends from external APIs (Google Trends, social media, etc.).
+
+    Returns:
+        List of mock TrendCandidate objects
+    """
+    return [
+        TrendCandidate(
+            keyword="AI Video Generation 2025",
+            why_hot="Google Veo 3.x just released and everybody is talking about AI-generated short form content",
+            region="global",
+            language="it",
+            momentum_score=0.92,
+            source="mock_trends"
+        ),
+        TrendCandidate(
+            keyword="TikTok alternative income hacks",
+            why_hot="Creators are looking for new monetization strategies outside traditional platforms",
+            region="IT",
+            language="it",
+            momentum_score=0.74,
+            source="mock_trends"
+        ),
+        TrendCandidate(
+            keyword="Promesse di cure mediche garantite Bitcoin",
+            why_hot="Scam trend mixing crypto with medical claims",
+            region="IT",
+            language="it",
+            momentum_score=0.88,  # High momentum but should be filtered
+            source="mock_trends"
+        ),
+    ]
+
+
+def _calculate_total_duration(visuals: VisualPlan) -> int:
+    """
+    Calculates total estimated video duration from visual plan.
+
+    Args:
+        visuals: Visual plan with scenes
+
+    Returns:
+        Total duration in seconds
+    """
+    return sum(scene.est_duration_seconds for scene in visuals.scenes)
+
+
+def _attempt_script_improvement(
+    script: VideoScript,
+    reason: str,
+    plan: VideoPlan,
+    memory: Dict
+) -> VideoScript:
+    """
+    Attempts to improve script based on quality reviewer feedback.
+
+    This is a simplified improvement strategy. In production, this could
+    use LLM to intelligently revise content based on specific issues.
+
+    Args:
+        script: Original script that was rejected
+        reason: Rejection reason from quality reviewer
+        plan: Video plan for context
+        memory: Channel memory
+
+    Returns:
+        Improved VideoScript
+    """
+    logger.info(f"Attempting script improvement based on feedback: {reason[:100]}...")
+
+    # Create improved version based on common rejection patterns
+    improved_hook = script.hook
+    improved_bullets = script.bullets.copy()
+    improved_cta = script.outro_cta
+
+    # If hook is weak, make it stronger
+    if "hook" in reason.lower() or "attention" in reason.lower():
+        improved_hook = f"ATTENZIONE: {plan.working_title} sta esplodendo! Ecco cosa devi sapere ORA."
+        logger.debug("Strengthened hook for better attention capture")
+
+    # If too long, trim content
+    if "too long" in reason.lower() or "duration" in reason.lower() or "durata" in reason.lower():
+        # Keep only first 3 bullets to reduce duration
+        if len(improved_bullets) > 3:
+            improved_bullets = improved_bullets[:3]
+            logger.debug(f"Trimmed bullets from {len(script.bullets)} to {len(improved_bullets)}")
+
+    # If medical/legal claims detected, soften language
+    if "medical" in reason.lower() or "claim" in reason.lower():
+        # Add disclaimer language
+        improved_cta = "Ricorda: consulta sempre un professionista. " + improved_cta
+        logger.debug("Added disclaimer language for compliance")
+
+    # If title/clickbait issues, keep content but let SEO manager handle title
+    if "title" in reason.lower() or "spam" in reason.lower():
+        logger.debug("Title issues detected - will be addressed in SEO regeneration")
+
+    # Rebuild voiceover
+    sections = [improved_hook, "Ecco i punti chiave."]
+    sections.extend(improved_bullets)
+    sections.append("Questo è ciò che conta davvero.")
+    sections.append(improved_cta)
+
+    improved_voiceover = " ".join(sections)
+
+    # Create improved script
+    improved_script = VideoScript(
+        hook=improved_hook,
+        bullets=improved_bullets,
+        outro_cta=improved_cta,
+        full_voiceover_text=improved_voiceover
+    )
+
+    logger.info("Script improvement completed")
+    return improved_script
+
+
+def build_video_package() -> ReadyForFactory:
+    """
+    Orchestrates the full editorial pipeline to produce a ReadyForFactory package.
+
+    This is the main orchestrator for the editorial brain. It coordinates all
+    AI agents in sequence, handles quality review with one retry attempt,
+    and updates channel memory when content is approved.
+
+    Workflow:
+        1. Load channel memory
+        2. Get trending topics (currently mocked)
+        3. TrendHunter selects best topic → VideoPlan
+        4. ScriptWriter generates script → VideoScript
+        5. VisualPlanner creates scenes → VisualPlan
+        6. SeoManager optimizes metadata → PublishingPackage
+        7. QualityReviewer checks compliance → APPROVED/REJECTED
+        8. If REJECTED: attempt ONE revision and re-check
+        9. If APPROVED: update memory with new title
+        10. Return ReadyForFactory package
+
+    Returns:
+        ReadyForFactory object with status "APPROVED" or "REJECTED"
+
+    Notes:
+        - Does NOT call external APIs (Veo, YouTube, etc.)
+        - Does NOT generate actual video files
+        - Does NOT upload anything
+        - Only coordinates editorial decisions and memory management
+    """
+    logger.info("=" * 70)
+    logger.info("STARTING EDITORIAL PIPELINE: build_video_package()")
+    logger.info("=" * 70)
+
+    # Step 1: Load channel memory
+    logger.info("Step 1: Loading channel memory...")
+    memory = load_memory()
+    logger.info(f"Memory loaded successfully (recent titles: {len(memory.get('recent_titles', []))})")
+
+    # Step 2: Get trending topics (mocked for now)
+    logger.info("Step 2: Collecting trending topics...")
+    trends = _get_mock_trends()
+    logger.info(f"Collected {len(trends)} trend candidates (source: mock)")
+
+    # Step 3: TrendHunter - select best topic
+    logger.info("Step 3: Running TrendHunter to select best topic...")
+    video_plan = generate_video_plan(trends, memory)
+    logger.info(f"✓ Selected trend: '{video_plan.working_title}'")
+    logger.info(f"  Target audience: {video_plan.target_audience}")
+    logger.info(f"  Compliance notes: {len(video_plan.compliance_notes)} checks")
+
+    # Step 4: ScriptWriter - generate script
+    logger.info("Step 4: Running ScriptWriter to generate script...")
+    script = write_script(video_plan, memory)
+    logger.info(f"✓ Script generated: {len(script.bullets)} content points")
+    logger.info(f"  Hook: '{script.hook[:60]}...'")
+    logger.info(f"  Voiceover length: {len(script.full_voiceover_text)} chars")
+
+    # Step 5: VisualPlanner - create visual scenes
+    logger.info("Step 5: Running VisualPlanner to create visual plan...")
+    visual_plan = generate_visual_plan(video_plan, script, memory)
+    total_duration = _calculate_total_duration(visual_plan)
+    logger.info(f"✓ Visual plan created: {len(visual_plan.scenes)} scenes")
+    logger.info(f"  Total estimated duration: {total_duration}s")
+    logger.info(f"  Aspect ratio: {visual_plan.aspect_ratio}")
+
+    if total_duration > 60:
+        logger.warning(f"Duration ({total_duration}s) exceeds typical Shorts length (60s)")
+
+    # Step 6: SeoManager - optimize metadata
+    logger.info("Step 6: Running SeoManager to optimize metadata...")
+    publishing = generate_publishing_package(video_plan, script)
+    logger.info(f"✓ Publishing package created")
+    logger.info(f"  Title: '{publishing.final_title}' ({len(publishing.final_title)} chars)")
+    logger.info(f"  Tags: {len(publishing.tags)} tags")
+    logger.info(f"  Description: {len(publishing.description)} chars")
+
+    # Step 7: QualityReviewer - first pass
+    logger.info("Step 7: Running QualityReviewer (first pass)...")
+    approved, reason = review(video_plan, script, visual_plan, publishing, memory)
+
+    if approved:
+        logger.info("✓ Quality check PASSED on first attempt")
+    else:
+        logger.warning(f"✗ Quality check FAILED on first attempt")
+        logger.warning(f"  Rejection reason: {reason[:200]}...")
+
+        # Step 8: Attempt ONE revision
+        logger.info("Step 8: Attempting revision to address feedback...")
+
+        # Improve script based on feedback
+        revised_script = _attempt_script_improvement(script, reason, video_plan, memory)
+
+        # Regenerate dependent components
+        logger.info("  Regenerating visual plan with improved script...")
+        revised_visual_plan = generate_visual_plan(video_plan, revised_script, memory)
+        revised_duration = _calculate_total_duration(revised_visual_plan)
+        logger.info(f"  Revised duration: {revised_duration}s (was {total_duration}s)")
+
+        logger.info("  Regenerating publishing package with improved script...")
+        revised_publishing = generate_publishing_package(video_plan, revised_script)
+        logger.info(f"  Revised title: '{revised_publishing.final_title}'")
+
+        # Re-run quality review
+        logger.info("  Re-running QualityReviewer (second pass)...")
+        approved, reason = review(
+            video_plan,
+            revised_script,
+            revised_visual_plan,
+            revised_publishing,
+            memory
+        )
+
+        if approved:
+            logger.info("✓ Quality check PASSED after revision")
+            # Use revised components
+            script = revised_script
+            visual_plan = revised_visual_plan
+            publishing = revised_publishing
+            total_duration = revised_duration
+        else:
+            logger.error("✗ Quality check FAILED after revision - package REJECTED")
+            logger.error(f"  Final rejection reason: {reason}")
+
+            # Return REJECTED package (do NOT update memory)
+            rejected_package = ReadyForFactory(
+                status="REJECTED",
+                video_plan=video_plan,
+                script=revised_script,  # Use revised version for transparency
+                visuals=revised_visual_plan,
+                publishing=revised_publishing,
+                rejection_reason=reason
+            )
+
+            logger.info("=" * 70)
+            logger.info("EDITORIAL PIPELINE COMPLETE: STATUS = REJECTED")
+            logger.info("=" * 70)
+
+            return rejected_package
+
+    # Step 9: Package APPROVED - update memory
+    logger.info("Step 9: Package APPROVED - updating channel memory...")
+
+    # Add title to recent titles to avoid repetition
+    append_recent_title(memory, publishing.final_title)
+    save_memory(memory)
+
+    logger.info(f"✓ Memory updated with new title: '{publishing.final_title}'")
+    logger.info(f"  Total recent titles in memory: {len(memory['recent_titles'])}")
+
+    # Step 10: Create final APPROVED package
+    approved_package = ReadyForFactory(
+        status="APPROVED",
+        video_plan=video_plan,
+        script=script,
+        visuals=visual_plan,
+        publishing=publishing,
+        rejection_reason=None
+    )
+
+    logger.info("=" * 70)
+    logger.info("EDITORIAL PIPELINE COMPLETE: STATUS = APPROVED")
+    logger.info(f"Final package ready for production:")
+    logger.info(f"  Title: '{publishing.final_title}'")
+    logger.info(f"  Duration: ~{total_duration}s")
+    logger.info(f"  Scenes: {len(visual_plan.scenes)}")
+    logger.info(f"  Language: {video_plan.language}")
+    logger.info("=" * 70)
+
+    return approved_package
