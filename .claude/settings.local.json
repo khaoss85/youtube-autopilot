@@ -14,7 +14,9 @@
       "Bash(cat:*)",
       "Bash(tree:*)",
       "Bash(git init:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nfeat: step 01 - core foundation setup complete\n\nImplements complete foundation layer for yt_autopilot project.\n\nCore Components:\n- Created layered architecture (core/agents/services/pipeline/io)\n- Implemented all Pydantic data models in core/schemas.py\n- Built configuration system with environment variable management\n- Added centralized logging system\n- Implemented brand memory store with compliance tracking\n\nData Models (10 total):\n- TrendCandidate, VideoPlan, VideoScript\n- VisualScene, VisualPlan, PublishingPackage\n- ReadyForFactory, UploadResult, VideoMetrics, ChannelMemory\n\nInfrastructure:\n- .env.example with all required API keys\n- .gitignore protecting credentials and generated files\n- requirements.txt with APScheduler (chosen over Celery for simplicity)\n- README.md documenting architecture and compliance rules\n\nDocumentation:\n- .claude/project_context.md for global project context\n- .claude/progress.md for step-by-step progress tracking\n\nVerification:\n- All acceptance criteria tested and passing\n- Schema imports work correctly\n- Memory store functions correctly\n- Layer separation enforced (no cross-dependencies)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git config:*)"
     ],
     "deny": [],
     "ask": []

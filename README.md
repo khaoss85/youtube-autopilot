@@ -47,6 +47,117 @@ yt_autopilot/
 
 ---
 
+## Agents Layer: The Editorial Brain
+
+The `agents/` layer contains five specialized AI agents that work together to generate video concepts and scripts. All agents are **pure functions** - they take structured inputs and return structured outputs with **zero side effects**.
+
+### Agent Roles
+
+#### 1. TrendHunter (`trend_hunter.py`)
+**Function:** `generate_video_plan(trends: List[TrendCandidate], memory: Dict) -> VideoPlan`
+
+**Responsibilities:**
+- Analyzes trending topics from multiple sources
+- Filters out banned topics and content too similar to recent videos
+- Ranks trends by momentum score and strategic fit
+- Selects the most promising topic for the day
+- Generates strategic video plan with compliance notes
+
+**Key Features:**
+- Avoids repetition by checking recent titles
+- Respects brand safety rules
+- Infers target audience based on topic characteristics
+
+#### 2. ScriptWriter (`script_writer.py`)
+**Function:** `write_script(plan: VideoPlan, memory: Dict) -> VideoScript`
+
+**Responsibilities:**
+- Creates engaging hook for first 3 seconds
+- Generates content bullets covering key points
+- Writes compelling call-to-action
+- Composes complete voiceover text
+
+**Key Features:**
+- Respects channel's brand tone
+- Optimizes for viewer retention
+- Structures content for YouTube Shorts format
+
+#### 3. VisualPlanner (`visual_planner.py`)
+**Function:** `generate_visual_plan(plan: VideoPlan, script: VideoScript, memory: Dict) -> VisualPlan`
+
+**Responsibilities:**
+- Divides script into visual scenes
+- Generates Veo API prompts for each scene
+- Estimates duration per scene
+- Ensures consistent visual style
+
+**Key Features:**
+- Optimized for 9:16 vertical format
+- Applies channel's visual style consistently
+- Warns if total duration exceeds Shorts limits (~60s)
+
+#### 4. SeoManager (`seo_manager.py`)
+**Function:** `generate_publishing_package(plan: VideoPlan, script: VideoScript) -> PublishingPackage`
+
+**Responsibilities:**
+- Optimizes title for CTR (max 100 chars)
+- Generates SEO-rich description with keywords
+- Extracts relevant tags (max 500 chars total)
+- Creates thumbnail concept for visual appeal
+- Adds placeholder affiliate links
+
+**Key Features:**
+- Balances curiosity and clarity in titles
+- Avoids clickbait spam patterns
+- Includes timestamps and CTAs in description
+
+#### 5. QualityReviewer (`quality_reviewer.py`)
+**Function:** `review(plan, script, visuals, publishing, memory) -> Tuple[bool, str]`
+
+**Responsibilities:**
+- **Final gatekeeper before production**
+- Checks for banned topics and hate speech
+- Verifies no prohibited medical/legal claims
+- Ensures copyright compliance
+- Validates brand tone consistency
+- Checks hook quality and title standards
+- Verifies video duration is appropriate
+
+**Returns:**
+- `(True, "OK")` if all checks pass → APPROVED
+- `(False, "reason")` if issues found → REJECTED
+
+**Key Features:**
+- Comprehensive compliance verification
+- Multi-point quality checks
+- Detailed rejection reasons for improvement
+
+### Agent Workflow
+
+```
+TrendCandidate[] → TrendHunter → VideoPlan
+                                     ↓
+                    ScriptWriter ← VideoPlan + Memory
+                         ↓
+                   VideoScript
+                         ↓
+              VisualPlanner ← VideoScript + VideoPlan + Memory
+                         ↓
+                   VisualPlan
+                         ↓
+             SeoManager ← VideoScript + VideoPlan
+                         ↓
+              PublishingPackage
+                         ↓
+        QualityReviewer ← ALL components + Memory
+                         ↓
+                 APPROVED / REJECTED
+```
+
+**Important:** Agents never touch the filesystem, call external APIs, or perform I/O operations. They only reason and generate structured data using models from `core/schemas.py`.
+
+---
+
 ## Content Compliance & Brand Safety
 
 All content generation **MUST** follow these rules:
@@ -208,7 +319,7 @@ python -m yt_autopilot.pipeline.scheduler
 ## Roadmap
 
 - [x] Step 01: Core foundation (schemas, config, logger, memory)
-- [ ] Step 02: Implement agents (TrendHunter, ScriptWriter, VisualPlanner, etc.)
+- [x] Step 02: Implement agents (TrendHunter, ScriptWriter, VisualPlanner, SeoManager, QualityReviewer)
 - [ ] Step 03: Implement services (Veo, TTS, ffmpeg, YouTube)
 - [ ] Step 04: Build pipeline orchestrators
 - [ ] Step 05: Implement scheduler for automation
