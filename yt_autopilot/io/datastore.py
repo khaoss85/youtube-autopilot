@@ -3,12 +3,17 @@ Datastore Module: Local persistence for video packages and metrics.
 
 This module handles storage of video packages, upload results, and analytics
 in a local JSONL database for historical tracking and analysis.
+
+Production States:
+- HUMAN_REVIEW_PENDING: Video assets generated, waiting for human approval
+- SCHEDULED_ON_YOUTUBE: Video uploaded and scheduled on YouTube
 """
 
 import json
+import uuid
 from pathlib import Path
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from yt_autopilot.core.schemas import ReadyForFactory, UploadResult, VideoMetrics
 from yt_autopilot.core.config import get_config
 from yt_autopilot.core.logger import logger
@@ -217,3 +222,246 @@ def get_metrics_history(video_id: str) -> List[VideoMetrics]:
 
     logger.info(f"✓ Found {len(history)} metric snapshots")
     return history
+
+
+def save_draft_package(
+    ready: ReadyForFactory,
+    scene_paths: List[str],
+    voiceover_path: str,
+    final_video_path: str,
+    thumbnail_path: str,
+    publish_datetime_iso: str
+) -> str:
+    """
+    Saves a draft video package pending human review.
+
+    Creates a record with production_state="HUMAN_REVIEW_PENDING" and
+    generates a unique video_internal_id for future reference.
+
+    This function is called AFTER physical assets are generated but BEFORE
+    uploading to YouTube. Human must review and approve before publication.
+
+    Args:
+        ready: Editorial package that was approved by quality reviewer
+        scene_paths: List of generated scene video file paths
+        voiceover_path: Path to generated voiceover audio file
+        final_video_path: Path to final assembled video
+        thumbnail_path: Path to generated thumbnail image
+        publish_datetime_iso: Proposed publish datetime in ISO format
+
+    Returns:
+        video_internal_id: Unique identifier for this draft (UUID4 string)
+
+    Example:
+        >>> video_id = save_draft_package(
+        ...     ready=package,
+        ...     scene_paths=["scene1.mp4", "scene2.mp4"],
+        ...     voiceover_path="voice.wav",
+        ...     final_video_path="final.mp4",
+        ...     thumbnail_path="thumb.png",
+        ...     publish_datetime_iso="2025-10-25T18:00:00Z"
+        ... )
+        >>> print(f"Draft saved: {video_id}")
+        Draft saved: 123e4567-e89b-12d3-a456-426614174000
+    """
+    logger.info("Saving draft package to datastore (HUMAN_REVIEW_PENDING)...")
+
+    # Generate unique internal ID
+    video_internal_id = str(uuid.uuid4())
+
+    datastore_path = _get_datastore_path()
+
+    record = {
+        "video_internal_id": video_internal_id,
+        "production_state": "HUMAN_REVIEW_PENDING",
+        "saved_at": datetime.now().isoformat(),
+        "youtube_video_id": None,  # Not uploaded yet
+        "status": ready.status,  # APPROVED from quality reviewer
+        "title": ready.publishing.final_title,
+        "proposed_publish_at": publish_datetime_iso,
+        "actual_publish_at": None,  # Will be set after upload
+        "video_plan": ready.video_plan.model_dump(),
+        "script": ready.script.model_dump(),
+        "visuals": ready.visuals.model_dump(),
+        "publishing": ready.publishing.model_dump(),
+        "files": {
+            "scene_paths": scene_paths,
+            "voiceover_path": voiceover_path,
+            "final_video_path": final_video_path,
+            "thumbnail_path": thumbnail_path
+        }
+    }
+
+    # Append to JSONL file
+    with open(datastore_path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    logger.info(f"✓ Draft package saved to {datastore_path}")
+    logger.info(f"  Internal ID: {video_internal_id}")
+    logger.info(f"  Title: '{ready.publishing.final_title}'")
+    logger.info(f"  State: HUMAN_REVIEW_PENDING")
+    logger.info(f"  Final video: {final_video_path}")
+    logger.info(f"  Thumbnail: {thumbnail_path}")
+
+    return video_internal_id
+
+
+def get_draft_package(video_internal_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Retrieves a draft package by its internal ID.
+
+    Args:
+        video_internal_id: UUID string from save_draft_package()
+
+    Returns:
+        Full record dict if found, None otherwise
+
+    Example:
+        >>> draft = get_draft_package("123e4567-e89b-12d3-a456-426614174000")
+        >>> if draft:
+        ...     print(f"State: {draft['production_state']}")
+        State: HUMAN_REVIEW_PENDING
+    """
+    logger.info(f"Retrieving draft package: {video_internal_id}...")
+
+    datastore_path = _get_datastore_path()
+
+    if not datastore_path.exists():
+        logger.warning("Datastore file does not exist yet")
+        return None
+
+    with open(datastore_path, "r", encoding="utf-8") as f:
+        for line in f:
+            record = json.loads(line.strip())
+            if record.get("video_internal_id") == video_internal_id:
+                logger.info(f"✓ Found draft package")
+                logger.info(f"  State: {record.get('production_state')}")
+                logger.info(f"  Title: '{record.get('title')}'")
+                return record
+
+    logger.warning(f"Draft package not found: {video_internal_id}")
+    return None
+
+
+def mark_as_scheduled(video_internal_id: str, upload_result: UploadResult) -> None:
+    """
+    Marks a draft package as scheduled on YouTube.
+
+    Updates the record to production_state="SCHEDULED_ON_YOUTUBE" and
+    adds YouTube video ID and actual publish time.
+
+    This function should ONLY be called after successful YouTube upload.
+
+    Args:
+        video_internal_id: UUID from save_draft_package()
+        upload_result: Result from YouTube upload service
+
+    Raises:
+        ValueError: If draft not found or not in HUMAN_REVIEW_PENDING state
+
+    Example:
+        >>> upload_result = UploadResult(
+        ...     youtube_video_id="abc123",
+        ...     published_at="2025-10-25T18:00:00Z",
+        ...     title="Test Video",
+        ...     upload_timestamp="2025-10-24T12:00:00Z"
+        ... )
+        >>> mark_as_scheduled("123e4567-...", upload_result)
+    """
+    logger.info(f"Marking package as scheduled: {video_internal_id}...")
+
+    datastore_path = _get_datastore_path()
+
+    if not datastore_path.exists():
+        raise ValueError(f"Datastore does not exist: {datastore_path}")
+
+    # Read all records
+    records = []
+    found = False
+
+    with open(datastore_path, "r", encoding="utf-8") as f:
+        for line in f:
+            record = json.loads(line.strip())
+
+            # Update the matching record
+            if record.get("video_internal_id") == video_internal_id:
+                found = True
+
+                # Validate state
+                if record.get("production_state") != "HUMAN_REVIEW_PENDING":
+                    current_state = record.get("production_state")
+                    raise ValueError(
+                        f"Cannot mark as scheduled: video is in state '{current_state}', "
+                        f"expected 'HUMAN_REVIEW_PENDING'"
+                    )
+
+                # Update record
+                record["production_state"] = "SCHEDULED_ON_YOUTUBE"
+                record["youtube_video_id"] = upload_result.youtube_video_id
+                record["actual_publish_at"] = upload_result.published_at
+                record["upload_timestamp"] = upload_result.upload_timestamp
+                record["upload_result"] = upload_result.model_dump()
+
+                logger.info(f"✓ Record updated")
+                logger.info(f"  Video ID: {upload_result.youtube_video_id}")
+                logger.info(f"  Publish at: {upload_result.published_at}")
+
+            records.append(record)
+
+    if not found:
+        raise ValueError(f"Draft package not found: {video_internal_id}")
+
+    # Rewrite entire file with updated records
+    with open(datastore_path, "w", encoding="utf-8") as f:
+        for record in records:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    logger.info(f"✓ Datastore updated: {datastore_path}")
+    logger.info(f"  State: SCHEDULED_ON_YOUTUBE")
+
+
+def list_scheduled_videos() -> List[Dict[str, Any]]:
+    """
+    Returns list of all videos that have been scheduled on YouTube.
+
+    Only includes videos with production_state="SCHEDULED_ON_YOUTUBE"
+    and a valid youtube_video_id.
+
+    Returns:
+        List of video records with metadata
+
+    Example:
+        >>> videos = list_scheduled_videos()
+        >>> for video in videos:
+        ...     print(f"{video['youtube_video_id']}: {video['title']}")
+        abc123: Test Video
+    """
+    logger.info("Listing scheduled videos from datastore...")
+
+    datastore_path = _get_datastore_path()
+
+    if not datastore_path.exists():
+        logger.warning("Datastore file does not exist yet")
+        return []
+
+    videos = []
+    with open(datastore_path, "r", encoding="utf-8") as f:
+        for line in f:
+            record = json.loads(line.strip())
+
+            # Only include scheduled videos with YouTube ID
+            if (record.get("production_state") == "SCHEDULED_ON_YOUTUBE" and
+                record.get("youtube_video_id") and
+                record["youtube_video_id"] not in [None, "PENDING_HUMAN_REVIEW"]):
+
+                videos.append({
+                    "video_internal_id": record.get("video_internal_id"),
+                    "youtube_video_id": record["youtube_video_id"],
+                    "title": record["title"],
+                    "actual_publish_at": record.get("actual_publish_at"),
+                    "saved_at": record["saved_at"],
+                    "production_state": record["production_state"]
+                })
+
+    logger.info(f"✓ Found {len(videos)} scheduled videos")
+    return videos

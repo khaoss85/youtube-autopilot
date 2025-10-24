@@ -234,6 +234,224 @@ else:
     # Can analyze and improve based on feedback
 ```
 
+### produce_render_publish.py - Full Production Pipeline with Human Gate
+
+**Functions:** `produce_render_assets()`, `publish_after_approval()`
+
+**Purpose:**
+Complete production pipeline that transforms editorial packages into published YouTube videos. Includes a **mandatory human approval step** to ensure brand safety.
+
+⚠️ **CRITICAL BRAND SAFETY FEATURE:**
+This pipeline has a **human-in-the-loop gate** before publication. The system generates content but **NEVER uploads to YouTube automatically**. Human review and explicit approval are required.
+
+**Two-Phase Workflow:**
+
+#### Phase 1: `produce_render_assets(publish_datetime_iso: str)` → HUMAN_REVIEW_PENDING
+
+Generates all physical assets and saves them for human review.
+
+**Steps:**
+1. Run editorial brain (`build_video_package()`)
+2. If REJECTED by quality reviewer → abort
+3. If APPROVED → generate physical assets:
+   - Generate video scenes (Veo API)
+   - Generate voiceover (TTS)
+   - Assemble final video (ffmpeg)
+   - Generate thumbnail image
+4. Save to datastore with state **"HUMAN_REVIEW_PENDING"**
+5. Return draft package info
+
+**Output:**
+```python
+{
+    "status": "READY_FOR_REVIEW",
+    "video_internal_id": "123e4567-...",  # UUID for this draft
+    "final_video_path": "./output/final_video.mp4",
+    "thumbnail_path": "./output/thumbnail.png",
+    "proposed_title": "Video Title",
+    "proposed_description": "SEO description...",
+    "proposed_tags": ["tag1", "tag2"],
+    "suggested_publishAt": "2025-10-25T18:00:00Z"
+}
+```
+
+**At this point:**
+- ✅ Video is fully produced and ready to watch
+- ✅ All assets saved locally
+- ❌ **NOT uploaded to YouTube**
+- ⏸️ Waiting for human review
+
+#### Phase 2: `publish_after_approval(video_internal_id: str)` → SCHEDULED_ON_YOUTUBE
+
+Uploads approved video to YouTube (MANUAL TRIGGER ONLY).
+
+**Steps:**
+1. Retrieve draft package from datastore
+2. Validate state is "HUMAN_REVIEW_PENDING"
+3. Upload video to YouTube with scheduled publication
+4. Set custom thumbnail
+5. Update datastore state to **"SCHEDULED_ON_YOUTUBE"**
+
+**Output:**
+```python
+{
+    "status": "SCHEDULED",
+    "video_id": "abc123xyz",  # YouTube video ID
+    "publishAt": "2025-10-25T18:00:00Z",
+    "title": "Video Title"
+}
+```
+
+**Security:**
+- ⚠️ This function MUST NEVER be called automatically by a scheduler
+- ⚠️ Only called after explicit human approval
+- ⚠️ Single point of YouTube upload in entire system
+
+**Example Usage:**
+```python
+from yt_autopilot.pipeline import produce_render_assets, publish_after_approval
+
+# Phase 1: Generate assets
+result = produce_render_assets("2025-10-25T18:00:00Z")
+
+if result["status"] == "READY_FOR_REVIEW":
+    # Human reviews video at: result["final_video_path"]
+    # Human checks thumbnail, title, description, tags
+    # Human decides: approve or reject
+
+    # If approved:
+    upload = publish_after_approval(result["video_internal_id"])
+    print(f"Scheduled: {upload['video_id']}")
+else:
+    print(f"Rejected: {result['reason']}")
+```
+
+### tasks.py - Reusable Tasks for Scheduler
+
+**Functions:** `task_generate_assets_for_review()`, `task_publish_after_human_ok()`, `task_collect_metrics()`
+
+**Purpose:**
+Atomic task wrappers for the automation scheduler (Step 06). These tasks can be scheduled to run at specific times.
+
+#### Task 1: `task_generate_assets_for_review(publish_datetime_iso: str)`
+
+**Can be automated:** ✅ YES (does NOT publish publicly)
+
+Generates video assets and saves as draft for human review. This task is safe to automate because it only creates drafts in "HUMAN_REVIEW_PENDING" state.
+
+**Scheduler usage:**
+```python
+# Runs daily at 10:00 AM
+result = task_generate_assets_for_review("2025-10-25T18:00:00Z")
+# → Sends notification to human reviewer
+```
+
+#### Task 2: `task_publish_after_human_ok(video_internal_id: str)`
+
+**Can be automated:** ❌ NO (requires manual trigger)
+
+Uploads approved video to YouTube. This task MUST NEVER be scheduled automatically. It must only be called manually after human approval.
+
+**Manual usage:**
+```python
+# Human approves, then manually triggers:
+result = task_publish_after_human_ok("123e4567-...")
+```
+
+#### Task 3: `task_collect_metrics()`
+
+**Can be automated:** ✅ YES (read-only operation)
+
+Collects analytics metrics for all scheduled videos. Safe to automate because it only reads data from YouTube Analytics.
+
+**Scheduler usage:**
+```python
+# Runs daily at midnight
+task_collect_metrics()
+# → Updates datastore with latest views, CTR, watch time
+```
+
+### Video Lifecycle: From Idea to Published
+
+Complete workflow showing how a video goes from trending topic to published content:
+
+**Step 1: Editorial Brain**
+```
+build_video_package() → ReadyForFactory (status: APPROVED)
+```
+- AI agents generate content package
+- Quality reviewer performs 8-point compliance check
+- Memory updated with new title to avoid duplicates
+
+**Step 2: Asset Generation**
+```
+produce_render_assets() → Draft Package (state: HUMAN_REVIEW_PENDING)
+```
+- Veo generates video scenes
+- TTS generates voiceover
+- ffmpeg assembles final video
+- Image gen creates thumbnail
+- Saved to datastore with UUID
+
+**Step 3: Human Review** ⚠️ **CRITICAL GATE**
+```
+Human reviews:
+- Watches final video
+- Checks thumbnail quality
+- Reviews title, description, tags
+- Verifies brand compliance
+- Decides: APPROVE or REJECT
+```
+
+**Step 4: Publication** (only if approved)
+```
+publish_after_approval() → YouTube Upload (state: SCHEDULED_ON_YOUTUBE)
+```
+- Uploads video to YouTube
+- Sets custom thumbnail
+- Schedules publication time
+- Returns YouTube video ID
+
+**Step 5: Analytics Collection**
+```
+task_collect_metrics() → VideoMetrics saved to datastore
+```
+- Fetches views, watch time, CTR from YouTube Analytics
+- Saves time-series metrics for historical tracking
+- Runs daily to keep KPIs updated
+
+**Step 6: Reporting**
+```
+export_report_csv() → CSV file for analysis
+```
+- Exports performance report with latest metrics
+- Used for strategy optimization and ROI analysis
+
+**Data Flow:**
+```
+TrendCandidate → VideoPlan → VideoScript → VisualPlan → PublishingPackage
+                                                              ↓
+                                                        (APPROVED)
+                                                              ↓
+Scene clips + Voiceover + Thumbnail → Final Video → HUMAN_REVIEW_PENDING
+                                                              ↓
+                                                        (HUMAN OK)
+                                                              ↓
+                                        YouTube Upload → SCHEDULED_ON_YOUTUBE
+                                                              ↓
+                                        Analytics → VideoMetrics → CSV Report
+```
+
+**Why Human-in-the-Loop?**
+
+1. **Brand Safety:** Prevents publishing inappropriate or off-brand content
+2. **Legal Compliance:** Human verifies no copyright, medical claims, hate speech
+3. **Quality Control:** Final check for production quality and messaging
+4. **Reputation Management:** Zero risk of automated reputational damage
+5. **Regulatory Compliance:** Meets content platform policies
+
+The system is **semi-autonomous**: it automates content creation but requires human judgment for publication.
+
 ---
 
 ## Services & IO Layer: The Factory
@@ -584,8 +802,8 @@ python -m yt_autopilot.pipeline.scheduler
 - [x] Step 02: Implement agents (TrendHunter, ScriptWriter, VisualPlanner, SeoManager, QualityReviewer)
 - [x] Step 03: Editorial pipeline orchestrator (build_video_package)
 - [x] Step 04: Implement services (Veo, TTS, ffmpeg, YouTube, analytics) + I/O (datastore, exports)
-- [ ] Step 05: Full production pipeline (produce_render_publish)
-- [ ] Step 06: Implement scheduler for automation
+- [x] Step 05: Full production pipeline with human gate (produce_render_publish, tasks)
+- [ ] Step 06: Implement scheduler for automation (APScheduler, task scheduling)
 - [ ] Step 07: Analytics feedback loop and continuous improvement
 - [ ] Step 08: Quality improvements and testing
 
