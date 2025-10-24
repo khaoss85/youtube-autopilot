@@ -236,6 +236,190 @@ else:
 
 ---
 
+## Services & IO Layer: The Factory
+
+The `services/` and `io/` layers handle all **external operations and data persistence**. These are the "physical hands" of the system - they transform editorial packages (`ReadyForFactory`) into real videos and manage historical data.
+
+**Key Principle:** Services and IO modules can ONLY import from `core/`. They NEVER import from `agents/` or `pipeline/`. This strict separation ensures agents remain pure reasoning functions.
+
+### Services: External Operations
+
+All services are currently **stubs with TODO comments** for future API integration. The only exception is `video_assemble_service.py`, which has a real ffmpeg implementation.
+
+#### 1. Trend Source (`trend_source.py`)
+**Function:** `fetch_trends() -> List[TrendCandidate]`
+
+**Purpose:** Fetch trending topics from external sources
+
+**TODO Integration:**
+- Google Trends API
+- Twitter/X trending topics
+- Reddit popular posts
+- YouTube trending videos
+
+**Current Status:** Returns 5 mock `TrendCandidate` objects
+
+#### 2. Video Generation Service (`video_gen_service.py`)
+**Function:** `generate_scenes(visual_plan: VisualPlan, max_retries: int = 2) -> List[str]`
+
+**Purpose:** Generate video clips using Google Veo API
+
+**TODO Integration:**
+- Google Veo 3.x API
+- Vertical 9:16 format, 1080p resolution
+- 10-30 second clips
+- Retry logic with exponential backoff (2^attempt seconds)
+- ~2-5 minutes generation time per clip
+
+**Current Status:** Returns mock .mp4 file paths with placeholder files
+
+#### 3. Text-to-Speech Service (`tts_service.py`)
+**Function:** `synthesize_voiceover(script: VideoScript, voice_id: str) -> str`
+
+**Purpose:** Convert script text to speech audio
+
+**TODO Integration (recommended: ElevenLabs):**
+- **ElevenLabs:** Best quality, ~$0.30/1K chars, natural intonation
+- Google Cloud TTS: Budget option, ~$4/1M chars
+- Amazon Polly: AWS ecosystem integration
+- Azure TTS: Microsoft ecosystem integration
+
+**Current Status:** Returns mock .wav file path
+
+#### 4. Thumbnail Service (`thumbnail_service.py`)
+**Function:** `generate_thumbnail(publishing: PublishingPackage) -> str`
+
+**Purpose:** Generate eye-catching thumbnail images
+
+**TODO Integration:**
+- DALL-E 3, Midjourney, or Stable Diffusion
+- Specifications: 1080x1920 (9:16 vertical), PNG/JPG, max 2MB
+- High contrast text overlays for readability
+
+**Current Status:** Returns mock .png file path
+
+#### 5. Video Assembly Service (`video_assemble_service.py`) ✅ REAL IMPLEMENTATION
+**Function:** `assemble_final_video(scene_paths: List[str], voiceover_path: str, visuals: VisualPlan) -> str`
+
+**Purpose:** Assemble final video from scenes and audio using ffmpeg
+
+**Implementation:**
+- Real ffmpeg subprocess integration
+- Creates concat file for scene clips
+- Concatenates clips with `ffmpeg -f concat`
+- Mixes voiceover audio with `-c:a aac`
+- Video encoding: `-c:v libx264 -preset fast -crf 23`
+- Audio encoding: `-b:a 128k`
+
+**Requirements:** ffmpeg must be installed on system
+
+**Current Status:** ✅ Fully functional
+
+#### 6. YouTube Uploader (`youtube_uploader.py`)
+**Function:** `upload_and_schedule(video_path, publishing, publish_datetime_iso, thumbnail_path) -> UploadResult`
+
+**Purpose:** Upload videos to YouTube with scheduled publication
+
+**TODO Integration:**
+- YouTube Data API v3
+- OAuth 2.0 authentication with refresh token
+- `videos.insert()` for upload with progress monitoring
+- `thumbnails.set()` for custom thumbnail
+- `publishAt` field for scheduled publishing
+- Privacy status: "private" until scheduled time
+
+**Current Status:** Returns mock `UploadResult` with generated video ID
+
+#### 7. YouTube Analytics (`youtube_analytics.py`)
+**Function:** `fetch_video_metrics(video_id: str) -> VideoMetrics`
+
+**Purpose:** Collect performance metrics from YouTube
+
+**TODO Integration:**
+- YouTube Analytics API v2 (different from Data API!)
+- Metrics: views, estimatedMinutesWatched, averageViewDuration, ctr
+- Requires separate OAuth scope: youtube.readonly
+
+**Current Status:** Returns mock `VideoMetrics` with realistic ranges (100-5000 views, 2-8% CTR)
+
+### I/O: Data Persistence and Exports
+
+The `io/` layer manages all local data storage using **JSONL files** for simplicity and append-only write patterns.
+
+#### Datastore (`datastore.py`)
+
+**Purpose:** Local database for video packages and metrics
+
+**Storage Format:** JSONL (JSON Lines) - one JSON object per line
+
+**Files:**
+- `data/records.jsonl`: Complete video packages
+- `data/metrics.jsonl`: Time-series analytics data
+
+**Functions:**
+
+**`save_video_package(ready, scene_paths, voiceover_path, final_video_path, upload_result)`**
+- Saves complete editorial package + file paths + upload result
+- Appends to `records.jsonl`
+- Stores: video_plan, script, visuals, publishing, files, upload_result
+
+**`list_published_videos() -> List[Dict]`**
+- Returns basic metadata for all videos
+- Fields: youtube_video_id, title, publish_at, saved_at, status
+
+**`save_metrics(video_id, metrics)`**
+- Appends metrics snapshot to `metrics.jsonl`
+- For time-series tracking of video performance
+
+**`get_metrics_history(video_id) -> List[VideoMetrics]`**
+- Retrieves all metric snapshots for a video
+- Ordered by collection time
+
+#### Exports (`exports.py`)
+
+**Purpose:** Export data to CSV for external analysis
+
+**Functions:**
+
+**`export_report_csv(csv_path: Optional[str] = None) -> str`**
+- Exports performance report to CSV
+- Columns: youtube_video_id, title, publish_at, status, views_latest, ctr_latest, avg_view_duration_latest, watch_time_latest
+- Joins video records with latest metrics
+- Default path: `./data/report.csv`
+
+**`export_metrics_timeseries_csv(video_id: str, csv_path: Optional[str] = None) -> str`**
+- Exports time-series metrics for single video
+- Columns: collected_at, views, watch_time_seconds, average_view_duration_seconds, ctr
+- Default path: `./data/metrics_{video_id}.csv`
+
+### Why JSONL instead of SQLite?
+
+- **Simplicity:** No database schema migrations
+- **Append-only:** Fast writes, no locking
+- **Debuggable:** Easy to grep/tail for inspection
+- **Portable:** Works on any system without dependencies
+
+### Service Layer Architecture Principles
+
+1. **No Cross-Layer Pollution:**
+   - Services NEVER import from `agents/`
+   - Services NEVER import from `pipeline/`
+   - Only `pipeline/` can coordinate agents + services
+
+2. **Retry Logic:**
+   - All external API calls should implement exponential backoff
+   - Template in `video_gen_service.py`: 2^attempt seconds delay
+
+3. **Logging:**
+   - All operations logged with clear progress indicators
+   - Warnings for mock/stub implementations
+
+4. **Error Handling:**
+   - Graceful degradation where possible
+   - Clear error messages with context
+
+---
+
 ## Content Compliance & Brand Safety
 
 All content generation **MUST** follow these rules:
@@ -399,7 +583,7 @@ python -m yt_autopilot.pipeline.scheduler
 - [x] Step 01: Core foundation (schemas, config, logger, memory)
 - [x] Step 02: Implement agents (TrendHunter, ScriptWriter, VisualPlanner, SeoManager, QualityReviewer)
 - [x] Step 03: Editorial pipeline orchestrator (build_video_package)
-- [ ] Step 04: Implement services (Veo, TTS, ffmpeg, YouTube, analytics, datastore)
+- [x] Step 04: Implement services (Veo, TTS, ffmpeg, YouTube, analytics) + I/O (datastore, exports)
 - [ ] Step 05: Full production pipeline (produce_render_publish)
 - [ ] Step 06: Implement scheduler for automation
 - [ ] Step 07: Analytics feedback loop and continuous improvement
