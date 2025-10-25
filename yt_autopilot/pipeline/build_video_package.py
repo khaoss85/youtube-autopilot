@@ -49,27 +49,27 @@ def _get_mock_trends() -> List[TrendCandidate]:
     """
     return [
         TrendCandidate(
-            keyword="AI Video Generation 2025",
-            why_hot="Google Veo 3.x just released and everybody is talking about AI-generated short form content",
-            region="global",
+            keyword="Programmazione Python per principianti 2025",
+            why_hot="Python rimane il linguaggio più richiesto, boom di corsi online e tutorial",
+            region="IT",
             language="it",
-            momentum_score=0.92,
+            momentum_score=0.87,
             source="mock_trends"
         ),
         TrendCandidate(
-            keyword="TikTok alternative income hacks",
-            why_hot="Creators are looking for new monetization strategies outside traditional platforms",
+            keyword="Strategie di produttività con AI tools",
+            why_hot="ChatGPT e AI assistants stanno rivoluzionando il modo di lavorare",
             region="IT",
             language="it",
-            momentum_score=0.74,
+            momentum_score=0.91,
             source="mock_trends"
         ),
         TrendCandidate(
-            keyword="Promesse di cure mediche garantite Bitcoin",
-            why_hot="Scam trend mixing crypto with medical claims",
+            keyword="Home office setup professionale",
+            why_hot="Lavoro da remoto continua a crescere, setup ergonomico è trend 2025",
             region="IT",
             language="it",
-            momentum_score=0.88,  # High momentum but should be filtered
+            momentum_score=0.78,
             source="mock_trends"
         ),
     ]

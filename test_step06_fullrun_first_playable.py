@@ -134,8 +134,8 @@ try:
     video_id = result["video_internal_id"]
     draft_package = get_draft_package(video_id)
 
-    if "voiceover_path" in draft_package:
-        voiceover_path = Path(draft_package["voiceover_path"])
+    if "files" in draft_package and "voiceover_path" in draft_package["files"]:
+        voiceover_path = Path(draft_package["files"]["voiceover_path"])
         if voiceover_path.exists():
             voiceover_size = voiceover_path.stat().st_size
             print(f"✓ voiceover.wav exists: {voiceover_path}")
@@ -190,17 +190,16 @@ try:
     # Check required fields
     assert draft_package["video_internal_id"] == video_id
     assert draft_package["production_state"] == "HUMAN_REVIEW_PENDING"
-    assert "final_video_path" in draft_package
-    assert "thumbnail_path" in draft_package
-    assert "proposed_title" in draft_package
-    assert "proposed_description" in draft_package
-    assert "suggested_tags" in draft_package
-    assert "suggested_publishAt" in draft_package
+    assert "files" in draft_package
+    assert "final_video_path" in draft_package["files"]
+    assert "thumbnail_path" in draft_package["files"]
+    assert "title" in draft_package
+    assert "proposed_publish_at" in draft_package
 
     print(f"✓ Draft package found in datastore: {video_id}")
     print(f"  production_state: {draft_package['production_state']}")
-    print(f"  proposed_title: {draft_package['proposed_title']}")
-    print(f"  suggested_tags: {len(draft_package['suggested_tags'])} tags")
+    print(f"  title: {draft_package['title']}")
+    print(f"  tags: {len(draft_package['publishing']['tags'])} tags")
     print()
 
     print("✓ Datastore state verified")
