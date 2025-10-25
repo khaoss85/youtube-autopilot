@@ -3,6 +3,29 @@ SeoManager Agent: Optimizes video metadata for YouTube discovery and CTR.
 
 This agent generates SEO-optimized titles, descriptions, tags, and
 thumbnail concepts to maximize video visibility and click-through rate.
+
+==============================================================================
+LLM Integration Strategy (Step 06-pre)
+==============================================================================
+
+CURRENT: Rule-based SEO optimization (keyword extraction, template-based)
+FUTURE: LLM-powered title/description via services/llm_router
+
+INTEGRATION APPROACH:
+- Pipeline calls llm_router for creative SEO optimization
+- LLM generates click-worthy titles, engaging descriptions, relevant tags
+- Agent validates output (length limits, keyword presence, compliance)
+- No direct import from services/ (maintains architecture)
+
+Example:
+    seo_title = generate_text(
+        role="seo_manager",
+        task="Create viral YouTube Shorts title (under 60 chars)",
+        context=f"Video about: {plan.topic}, Hook: {script.hook_line}",
+        style_hints={"target_ctr": "high", "keywords": plan.keywords}
+    )
+
+==============================================================================
 """
 
 from typing import List

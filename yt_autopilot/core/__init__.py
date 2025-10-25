@@ -3,7 +3,17 @@ Core module: Shared data models, configuration, logging, and channel memory.
 This module has no dependencies on other yt_autopilot modules.
 """
 
-from yt_autopilot.core.config import get_config, validate_config, get_memory_path
+from yt_autopilot.core.config import (
+    get_config,
+    validate_config,
+    get_memory_path,
+    get_output_dir,
+    get_temp_dir,
+    get_llm_anthropic_key,
+    get_llm_openai_key,
+    get_veo_api_key,
+    get_env,
+)
 from yt_autopilot.core.logger import logger
 from yt_autopilot.core import schemas
 from yt_autopilot.core.memory_store import (
@@ -21,6 +31,12 @@ __all__ = [
     "get_config",
     "validate_config",
     "get_memory_path",
+    "get_output_dir",
+    "get_temp_dir",
+    "get_llm_anthropic_key",
+    "get_llm_openai_key",
+    "get_veo_api_key",
+    "get_env",
     # Logger
     "logger",
     # Schemas (export the module)

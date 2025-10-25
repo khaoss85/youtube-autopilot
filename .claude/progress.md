@@ -516,8 +516,171 @@ Test coverage e robustezza:
 - **Audit Trail Fields:** `approved_by`, `approved_at_iso` salvati in JSONL per compliance
 - Totale codice Step 05.5: ~95 righe modifiche + 225 righe nuove (CLI) + 150 righe test
 - progress.md aggiornato con dettagli Step 05.5
-- Prossimo: Commit Step 05.5, poi Step 06 (Scheduler Automation)
+- Prossimo: Commit Step 05.5, poi Step 06-pre (Provider Integration)
 - Commit: `feat: step 05.5 - human review console and audit trail complete`
+
+### ✅ Step 06-pre: Provider Integration & Live Test
+**Data completamento:** 2025-10-25
+**Stato:** COMPLETATO AL 100%
+
+**Obiettivo:** Portare il sistema da "mock intelligence" a "ready for live" integrando provider LLM e Veo reali, senza rompere nulla.
+
+**Cosa è stato fatto:**
+- ✅ Esteso `core/config.py` con getter multi-provider (~90 righe nuove):
+  - `get_llm_anthropic_key()` per Anthropic Claude
+  - `get_llm_openai_key()` per OpenAI GPT
+  - `get_veo_api_key()` per Google Veo/Vertex AI
+  - `get_temp_dir()`, `get_output_dir()`, `get_env()` utility
+  - Python 3.9 compatibility: usato `Optional[str]` invece di `str | None`
+- ✅ Creato `services/llm_router.py` (~330 righe):
+  - `generate_text()` funzione unificata per chiamate LLM
+  - Supporto multi-provider: Anthropic Claude 3.5 Sonnet, OpenAI GPT-4o
+  - Fallback automatico: Anthropic → OpenAI → `[LLM_FALLBACK]` placeholder
+  - Gestione errori graceful, logging completo
+  - TODO documentati per future enhancement (per-agent models, caching, rate limiting)
+- ✅ Aggiornato `services/video_gen_service.py` (~100 righe modifiche):
+  - `_call_veo()` ora legge `VEO_API_KEY` da config
+  - Preparata struttura chiamata Vertex AI realistica:
+    - Endpoint: `https://us-central1-aiplatform.googleapis.com/v1/...`
+    - Headers: `Authorization: Bearer {api_key}`
+    - Payload: prompt, duration, aspect_ratio (9:16), quality (1080p)
+  - Nuova funzione `_generate_placeholder_video()` per fallback
+  - TODO chiaramente indicato per job polling e binary download
+  - Firma pubblica `generate_scenes()` INVARIATA (backward compatibility)
+- ✅ Aggiornati TUTTI i 5 agenti con TODO strutturati:
+  - `trend_hunter.py`: LLM integration strategy (~40 righe TODO)
+  - `script_writer.py`, `visual_planner.py`, `seo_manager.py`, `quality_reviewer.py`: TODO concisi
+  - Documentato che LLM calls avvengono in PIPELINE, non direttamente negli agenti
+  - Mantenuto principio architetturale: agents NON importano da services/
+- ✅ Aggiornato `requirements.txt`:
+  - Aggiunti: `openai>=1.0.0`, `anthropic>=0.5.0`, `google-cloud-aiplatform>=1.38.0`
+  - Installati su sistema con `pip3 install`
+- ✅ Creato `test_step06_pre_live_generation.py` (~220 righe):
+  - Test 1: Config module con nuovi getter ✓
+  - Test 2: LLM Router import e basic call ✓
+  - Test 3: Video Gen Service con mock VisualPlan ✓
+  - Test 4: Full integration - no breaking changes ✓
+  - TUTTI I 4 TEST PASSATI
+- ✅ Aggiornato `.env.example` con nuove chiavi multi-provider
+- ✅ Creato `.env` con chiavi reali fornite:
+  - `LLM_ANTHROPIC_API_KEY`: sk-ant-api03-... (Claude)
+  - `LLM_OPENAI_API_KEY`: sk-proj-... (GPT)
+  - `VEO_API_KEY`: AQ.Ab8RN6JI_... (Vertex AI)
+- ✅ README aggiornato con sezione "🔌 Provider Integration (Step 06-pre)" (~160 righe):
+  - LLM Router usage examples
+  - Video Generation integration status
+  - Configuration instructions
+  - Agent integration strategy
+  - Testing instructions
+  - Architecture notes
+  - Aggiornato Roadmap con Step 05.5 e Step 06-pre
+
+**Acceptance Criteria - Tutti Verificati:**
+- ✓ `services/llm_router.py` esiste con `generate_text()`
+- ✓ Supporta routing Anthropic/OpenAI con fallback graceful
+- ✓ `core/config.py` espone getter dedicati per tutti i provider
+- ✓ Vecchie funzioni continuano a funzionare (no breaking changes)
+- ✓ `services/video_gen_service.py` ha `_call_veo()` stub realistico
+- ✓ Legge chiave VEO_API_KEY, prepara chiamata POST, gestisce fallback
+- ✓ Mantiene firma pubblica `generate_scenes()` invariata
+- ✓ Agenti hanno TODO chiari su integrazione LLM futura
+- ✓ `test_step06_pre_live_generation.py` passa tutti i test
+- ✓ README aggiornato con sezione Provider Integration
+- ✓ Nessun scheduler (corretto, rimandato a Step 07)
+- ✓ Nessun cambiamento a tools/review_console.py o human gate
+
+**Architettura: Wiring senza Breaking Changes**
+
+**Principi Rispettati:**
+1. NON rotte firme pubbliche esistenti
+2. NON duplicata logica esistente
+3. NON spostato codice tra file
+4. NON creati nuovi modelli Pydantic fuori da core/schemas.py
+5. NON toccato lo scheduler (rimandato)
+6. NON cambiato comportamento publish/CLI review
+
+**LLM Router Design:**
+- Service layer centralizzato per chiamate LLM
+- Nasconde differenze tra provider (Anthropic vs OpenAI)
+- Gestisce fallback automatico e logging
+- Agents NON lo importano direttamente (violazione architettura)
+- Pipeline layer farà da mediatore: llm_router → agents
+
+**Veo Integration Status:**
+- Struttura API call pronta (endpoint, headers, payload)
+- TODO: job polling (Veo è async, richiede 2-5 minuti)
+- TODO: binary download del video generato
+- Fallback: genera file placeholder `.mp4` per testing
+- Ready for: inserire chiave VEO_API_KEY e completare TODO
+
+**Code Statistics:**
+
+Nuovi File:
+- `yt_autopilot/services/llm_router.py`: 330 righe
+- `test_step06_pre_live_generation.py`: 220 righe
+- `.env`: 60 righe (con chiavi reali)
+
+File Modificati:
+- `yt_autopilot/core/config.py`: +90 righe (getter multi-provider)
+- `yt_autopilot/core/__init__.py`: +6 export
+- `yt_autopilot/services/video_gen_service.py`: ~100 righe modificate
+- `yt_autopilot/services/__init__.py`: +1 export (generate_text)
+- `yt_autopilot/agents/trend_hunter.py`: +45 righe TODO
+- `yt_autopilot/agents/script_writer.py`: +25 righe TODO
+- `yt_autopilot/agents/visual_planner.py`: +23 righe TODO
+- `yt_autopilot/agents/seo_manager.py`: +23 righe TODO
+- `yt_autopilot/agents/quality_reviewer.py`: +25 righe TODO
+- `.env.example`: +15 righe (nuove chiavi)
+- `requirements.txt`: +3 librerie
+- `README.md`: +160 righe (nuova sezione Provider Integration)
+
+Totale nuovo codice: ~550 righe
+Totale modifiche: ~290 righe
+Totale documentazione: ~160 righe README + ~140 righe TODO agents
+
+**Testing:**
+
+Tutti i test passati:
+```bash
+$ python3 test_step06_pre_live_generation.py
+======================================================================
+ALL STEP 06-PRE TESTS PASSED ✓
+======================================================================
+```
+
+**Risultati Test:**
+- Config getters funzionano (Anthropic, OpenAI, Veo)
+- LLM Router importa e chiama (ritorna fallback se no keys)
+- Video Gen Service genera 2 placeholder scenes
+- Nessun breaking change: services, agents, pipeline funzionano tutti
+
+**Next Run Scenarios:**
+
+**Con chiavi LLM in .env:**
+- LLM Router fa chiamate reali a Anthropic Claude 3.5 Sonnet o GPT-4o
+- Genera testo creativo invece di `[LLM_FALLBACK]`
+- Costo: ~$0.01-0.05 per chiamata
+
+**Con chiave VEO in .env:**
+- Video Gen Service prepara chiamata Vertex AI
+- Attualmente usa placeholder (job polling TODO)
+- Prossimo step: completare polling e download
+
+**Prossimi Step:**
+
+Step 06: Completare integrazione Veo
+- Implementare job polling (`_poll_veo_job`)
+- Implementare video download (`_download_video`)
+- Testare generazione video reale (~2-5 min per clip)
+- Costo stimato: ~$0.10-0.30 per secondo di video
+
+Step 07: Scheduler Automation
+- Implementare `pipeline/scheduler.py` con APScheduler
+- Automatizzare `task_generate_assets_for_review()` (daily 10:00 AM)
+- Automatizzare `task_collect_metrics()` (daily midnight)
+- MAI automatizzare `task_publish_after_human_ok()` (manual only)
+
+**Commit:** `feat: step 06-pre - provider integration and live test ready`
 
 ---
 

@@ -3,6 +3,45 @@ TrendHunter Agent: Selects the best video topic from trending candidates.
 
 This agent analyzes trending topics and chooses the most promising one
 based on momentum, brand fit, and content freshness.
+
+==============================================================================
+LLM Integration Strategy (Step 06-pre: Future Production)
+==============================================================================
+
+CURRENT STATE:
+- This agent uses deterministic local logic (scoring, filtering)
+- NO LLM calls are made directly from this agent
+- Agent remains a PURE FUNCTION with no external dependencies
+
+FUTURE PRODUCTION ENHANCEMENT:
+- For production quality, this agent will benefit from LLM-powered analysis
+- services/llm_router.generate_text() can enhance trend selection
+- The LLM call will happen in the PIPELINE layer (build_video_package.py)
+- NOT imported directly here (violates architecture: agents cannot import services)
+
+INTEGRATION PLAN:
+1. Pipeline calls llm_router.generate_text() with trend analysis task
+2. LLM provides enhanced scoring, relevance analysis, or topic suggestions
+3. Pipeline passes LLM output as enriched context to this agent
+4. Agent uses both deterministic logic AND LLM insights for selection
+
+Example (in pipeline/build_video_package.py):
+    # Before calling trend_hunter agent
+    llm_analysis = generate_text(
+        role="trend_hunter",
+        task="Analyze which trending topic best fits our brand",
+        context=str(trends),
+        style_hints={"brand_tone": memory["brand_tone"]}
+    )
+    # Pass llm_analysis as additional parameter to agent
+    # Agent combines deterministic scoring + LLM insights
+
+ARCHITECTURE RULE:
+- Agents do NOT import from services/
+- Pipeline layer orchestrates LLM calls
+- Keeps agents testable, predictable, and layering-compliant
+
+==============================================================================
 """
 
 from typing import List, Dict

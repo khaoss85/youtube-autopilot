@@ -3,6 +3,30 @@ QualityReviewer Agent: Final quality control and compliance verification.
 
 This agent performs comprehensive review of the complete video package
 before production, ensuring brand safety, compliance, and quality standards.
+
+==============================================================================
+LLM Integration Strategy (Step 06-pre)
+==============================================================================
+
+CURRENT: Rule-based compliance checks (8-point checklist)
+FUTURE: LLM-enhanced content analysis via services/llm_router
+
+INTEGRATION APPROACH:
+- Pipeline can use llm_router for nuanced content review
+- LLM analyzes tone, potential issues, edge cases
+- Agent combines deterministic checks + LLM insights
+- Final approval remains with agent logic (brand safety)
+
+Example:
+    content_review = generate_text(
+        role="quality_reviewer",
+        task="Analyze content for brand safety and compliance issues",
+        context=f"Script: {script.full_voiceover_text}, Title: {publishing.final_title}",
+        style_hints={"banned_topics": banned_topics, "brand_tone": brand_tone}
+    )
+    # Agent uses LLM feedback to enhance its deterministic checks
+
+==============================================================================
 """
 
 from typing import Dict, Tuple, List

@@ -1,23 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Read(//Users/danielepelleri/Library/**)",
-      "WebSearch",
-      "Bash(claude mcp add context7 -- npx -y @upstash/context7-mcp@latest)",
-      "Bash(claude mcp add:*)",
-      "Bash(claude mcp list:*)",
-      "WebFetch(domain:github.com)",
-      "Bash(mkdir:*)",
-      "Bash(python3:*)",
-      "Bash(pip install:*)",
-      "Bash(pip3 install:*)",
-      "Bash(cat:*)",
-      "Bash(tree:*)",
-      "Bash(git init:*)",
-      "Bash(git add:*)",
-      "Bash(git commit -m \"$(cat <<''EOF''\nfeat: step 01 - core foundation setup complete\n\nImplements complete foundation layer for yt_autopilot project.\n\nCore Components:\n- Created layered architecture (core/agents/services/pipeline/io)\n- Implemented all Pydantic data models in core/schemas.py\n- Built configuration system with environment variable management\n- Added centralized logging system\n- Implemented brand memory store with compliance tracking\n\nData Models (10 total):\n- TrendCandidate, VideoPlan, VideoScript\n- VisualScene, VisualPlan, PublishingPackage\n- ReadyForFactory, UploadResult, VideoMetrics, ChannelMemory\n\nInfrastructure:\n- .env.example with all required API keys\n- .gitignore protecting credentials and generated files\n- requirements.txt with APScheduler (chosen over Celery for simplicity)\n- README.md documenting architecture and compliance rules\n\nDocumentation:\n- .claude/project_context.md for global project context\n- .claude/progress.md for step-by-step progress tracking\n\nVerification:\n- All acceptance criteria tested and passing\n- Schema imports work correctly\n- Memory store functions correctly\n- Layer separation enforced (no cross-dependencies)\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
-      "Bash(git config:*)",
-      "Bash(git commit -m \"$(cat <<''EOF''\nfeat: step 02 - agents brain layer complete\n\nImplements complete multi-agent editorial system for content generation.\n\nAgents Implemented (5 total):\n- TrendHunter: Selects best trending topic, filters banned content\n- ScriptWriter: Generates hook, bullets, CTA, and full voiceover\n- VisualPlanner: Creates scene-by-scene visual plans for Veo API\n- SeoManager: Optimizes titles, descriptions, tags, thumbnails\n- QualityReviewer: Final compliance and quality gatekeeper\n\nKey Features:\n- All agents are pure functions (zero side effects)\n- Import ONLY from core layer (strict layering enforced)\n- Type-hinted with Pydantic models from core.schemas\n- Comprehensive logging throughout\n- 8-point compliance checking (banned topics, hate speech, medical claims, copyright, brand tone, hook quality, duration, title quality)\n\nAgent Workflow:\nTrendCandidate[] → TrendHunter → VideoPlan\nVideoPlan + Memory → ScriptWriter → VideoScript\nVideoPlan + VideoScript + Memory → VisualPlanner → VisualPlan\nVideoPlan + VideoScript → SeoManager → PublishingPackage\nAll components + Memory → QualityReviewer → APPROVED/REJECTED\n\nCode Statistics:\n- 5 agent files, ~1070 lines total\n- trend_hunter.py: 200+ lines (filtering, scoring, selection)\n- script_writer.py: 150+ lines (content generation)\n- visual_planner.py: 200+ lines (scene creation, Veo prompts)\n- seo_manager.py: 220+ lines (metadata optimization)\n- quality_reviewer.py: 300+ lines (8 compliance checks)\n\nDocumentation:\n- Updated README.md with \"Agents Layer: The Editorial Brain\" section\n- Updated .claude/progress.md marking Step 02 complete\n- All agents exported via agents/__init__.py\n\nTesting:\n- End-to-end test passed: TrendCandidate → APPROVED package\n- Test output: 4 scenes, ~25s video, 19 tags, 44-char title\n- All 8 quality checks passed\n\nCompliance & Brand Safety:\n- Banned topics filtering active\n- Hate speech detection\n- Medical claim prohibition\n- Copyright violation checking\n- Brand tone validation\n- Hook strength verification\n- Duration limits for Shorts\n- Title quality standards\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")"
+      "Bash(chmod:*)",
+      "Bash(brew install:*)"
     ],
     "deny": [],
     "ask": []

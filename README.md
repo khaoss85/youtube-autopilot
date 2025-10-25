@@ -861,6 +861,165 @@ python -m yt_autopilot.pipeline.scheduler
 
 ---
 
+## 🔌 Provider Integration (Step 06-pre)
+
+**Status:** Ready for live use with real API keys
+
+Step 06-pre introduces **multi-provider LLM support** and **Veo/Vertex AI video generation** with graceful fallback when keys are missing.
+
+### LLM Router (`services/llm_router.py`)
+
+Centralized LLM access with automatic provider selection:
+
+```python
+from yt_autopilot.services.llm_router import generate_text
+
+result = generate_text(
+    role="script_writer",
+    task="Generate viral hook for YouTube Shorts",
+    context="Topic: AI automation tools",
+    style_hints={"brand_tone": "casual", "target_audience": "creators"}
+)
+```
+
+**Provider Priority:**
+1. **Anthropic Claude** (if `LLM_ANTHROPIC_API_KEY` set) - Uses `claude-3-5-sonnet-20241022`
+2. **OpenAI GPT** (if `LLM_OPENAI_API_KEY` set) - Uses `gpt-4o`
+3. **Fallback** - Returns `[LLM_FALLBACK]` placeholder if no keys available
+
+**Features:**
+- Automatic provider failover
+- Graceful degradation (system works without LLM)
+- Consistent interface across providers
+- Error handling and logging
+
+### Video Generation (`services/video_gen_service.py`)
+
+Enhanced with Veo/Vertex AI integration structure:
+
+```python
+from yt_autopilot.services.video_gen_service import generate_scenes
+
+# Public API unchanged - maintains backward compatibility
+scene_paths = generate_scenes(visual_plan, max_retries=2)
+```
+
+**Integration Status:**
+- ✓ Reads `VEO_API_KEY` from config
+- ✓ Prepares realistic Vertex AI API calls
+- ✓ Endpoint structure ready: `https://us-central1-aiplatform.googleapis.com/v1/...`
+- ✓ Payload includes prompt, duration, aspect ratio (9:16 for Shorts)
+- ✓ Graceful fallback to placeholder files if key missing
+- TODO: Complete job polling and binary download logic
+
+**Current Behavior:**
+- With VEO_API_KEY: Logs API readiness, uses placeholder (job polling TODO)
+- Without VEO_API_KEY: Generates placeholder `.mp4` files for testing
+
+### Configuration
+
+Add keys to `.env`:
+
+```bash
+# Copy from .env.example
+cp .env.example .env
+
+# Edit .env with your keys
+LLM_ANTHROPIC_API_KEY=sk-ant-api03-...  # Anthropic Claude
+LLM_OPENAI_API_KEY=sk-proj-...          # OpenAI GPT
+VEO_API_KEY=...                         # Google Vertex AI / Veo
+```
+
+**Config Getters:**
+```python
+from yt_autopilot.core.config import (
+    get_llm_anthropic_key,
+    get_llm_openai_key,
+    get_veo_api_key
+)
+```
+
+### Agent Integration Strategy
+
+Agents remain **pure functions** and do NOT import from `services/`. LLM integration happens in the **pipeline layer**:
+
+```python
+# Future enhancement in pipeline/build_video_package.py
+
+from yt_autopilot.services.llm_router import generate_text
+from yt_autopilot.agents import write_script
+
+# Pipeline calls LLM
+llm_script = generate_text(
+    role="script_writer",
+    task="Write viral YouTube Shorts script",
+    context=f"Topic: {plan.topic}",
+    style_hints={"brand_tone": memory["brand_tone"]}
+)
+
+# Pipeline passes LLM output to agent
+script = write_script(plan, memory, llm_suggestions=llm_script)
+```
+
+This maintains architectural layering: agents stay testable and deterministic.
+
+### Testing Provider Integration
+
+Run the integration test:
+
+```bash
+python test_step06_pre_live_generation.py
+```
+
+**Test Verifies:**
+- ✓ Config module with new LLM provider getters
+- ✓ LLM Router import and basic call (fallback if no keys)
+- ✓ Video Generation Service import and mock call
+- ✓ No breaking changes to existing code
+
+**With API Keys:**
+Test makes real LLM calls and prepares for real Veo calls.
+
+**Without API Keys:**
+Test uses fallback mode - system continues to work with mock intelligence.
+
+### Architecture Notes
+
+**Why llm_router is a service:**
+- Services handle external API calls
+- Agents remain pure reasoning functions
+- Pipeline layer orchestrates LLM → Agent flow
+
+**Why agents don't import llm_router:**
+- Maintains strict layering (agents → core only)
+- Keeps agents testable without API dependencies
+- Pipeline injects LLM-generated context into agents
+
+**Fallback Strategy:**
+- Missing keys don't crash the system
+- Deterministic fallback allows testing without APIs
+- Production deployment requires real keys for quality
+
+### Next Steps
+
+1. **For Local Testing:**
+   - Add at least one LLM key to `.env`
+   - Run `test_step06_pre_live_generation.py`
+   - Verify LLM calls work
+
+2. **For Video Generation:**
+   - Add `VEO_API_KEY` to `.env`
+   - Complete TODO: job polling logic in `video_gen_service.py`
+   - Test real video generation
+
+3. **For Production:**
+   - Configure all provider keys
+   - Integrate LLM calls into pipeline (build_video_package.py)
+   - Complete Veo job polling and download
+   - Remove fallback warnings from logs
+
+---
+
 ## Roadmap
 
 - [x] Step 01: Core foundation (schemas, config, logger, memory)
@@ -868,9 +1027,12 @@ python -m yt_autopilot.pipeline.scheduler
 - [x] Step 03: Editorial pipeline orchestrator (build_video_package)
 - [x] Step 04: Implement services (Veo, TTS, ffmpeg, YouTube, analytics) + I/O (datastore, exports)
 - [x] Step 05: Full production pipeline with human gate (produce_render_publish, tasks)
-- [ ] Step 06: Implement scheduler for automation (APScheduler, task scheduling)
-- [ ] Step 07: Analytics feedback loop and continuous improvement
-- [ ] Step 08: Quality improvements and testing
+- [x] **Step 05.5:** Human review console & audit trail (tools/review_console.py)
+- [x] **Step 06-pre:** Provider integration & live test (LLM router, Veo wiring)
+- [ ] **Step 06:** Complete Veo integration (job polling, real video generation)
+- [ ] **Step 07:** Scheduler automation (APScheduler, task scheduling)
+- [ ] **Step 08:** Analytics feedback loop and continuous improvement
+- [ ] **Step 09:** Quality improvements and testing
 
 ---
 

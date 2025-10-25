@@ -15,6 +15,9 @@ google-auth-httplib2>=0.1.1
 # Install ffmpeg: brew install ffmpeg (macOS) or apt-get install ffmpeg (Linux)
 ffmpeg-python>=0.2.0
 
+# Video generation (Step 06-pre: Veo/Vertex AI integration)
+google-cloud-aiplatform>=1.38.0  # For Google Vertex AI / Veo video generation
+
 # Scheduling (using APScheduler for simplicity - no external dependencies like Redis)
 # APScheduler chosen over Celery because:
 # - Simpler setup (no broker/backend required)
@@ -22,9 +25,9 @@ ffmpeg-python>=0.2.0
 # - Built-in persistent job stores (SQLite)
 APScheduler>=3.10.0
 
-# Optional: LLM clients (uncomment based on your LLM provider)
-# openai>=1.0.0              # For OpenAI GPT models
-# anthropic>=0.5.0           # For Anthropic Claude models
+# LLM clients (Step 06-pre: Provider Integration)
+openai>=1.0.0              # For OpenAI GPT models
+anthropic>=0.5.0           # For Anthropic Claude models
 
 # Optional: TTS services
 # elevenlabs>=0.2.0          # ElevenLabs TTS

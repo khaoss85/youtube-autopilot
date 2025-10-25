@@ -3,6 +3,29 @@ VisualPlanner Agent: Creates scene-by-scene visual plans for video generation.
 
 This agent transforms scripts into detailed visual plans with prompts
 for Veo video generation API, optimized for YouTube Shorts vertical format.
+
+==============================================================================
+LLM Integration Strategy (Step 06-pre)
+==============================================================================
+
+CURRENT: Deterministic visual scene breakdown (rule-based)
+FUTURE: LLM-enhanced Veo prompts via services/llm_router
+
+INTEGRATION APPROACH:
+- Pipeline calls llm_router to enhance Veo prompts for each scene
+- LLM generates creative, Veo-optimized visual descriptions
+- Agent combines LLM prompts + brand visual style
+- Architecture maintained: no direct import from services/
+
+Example:
+    veo_prompt = generate_text(
+        role="visual_planner",
+        task="Create Veo prompt for scene showing tech innovation",
+        context=f"Script line: {bullet}, Visual style: {visual_style}",
+        style_hints={"aspect_ratio": "9:16", "format": "YouTube Shorts"}
+    )
+
+==============================================================================
 """
 
 from typing import Dict, List, Tuple

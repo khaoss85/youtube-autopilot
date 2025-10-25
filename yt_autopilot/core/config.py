@@ -5,7 +5,7 @@ Loads environment variables and provides centralized config access.
 
 import os
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from dotenv import load_dotenv
 
 # Load .env file from project root
@@ -89,3 +89,97 @@ def get_memory_path() -> Path:
     """
     config = get_config()
     return config["PROJECT_ROOT"] / config["MEMORY_FILE"]
+
+
+def get_output_dir() -> Path:
+    """
+    Returns the output directory path for final videos.
+
+    Returns:
+        Path object pointing to OUTPUT_DIR
+    """
+    config = get_config()
+    return config["OUTPUT_DIR"]
+
+
+def get_temp_dir() -> Path:
+    """
+    Returns the temporary directory path for processing files.
+
+    Returns:
+        Path object pointing to TEMP_DIR
+    """
+    config = get_config()
+    return config["TEMP_DIR"]
+
+
+# ============================================================================
+# LLM Provider Configuration (Step 06-pre: Multi-Provider Support)
+# ============================================================================
+
+def get_llm_anthropic_key() -> Optional[str]:
+    """
+    Returns the Anthropic Claude API key if configured.
+
+    Returns:
+        API key string if LLM_ANTHROPIC_API_KEY is set in .env, None otherwise
+
+    Usage:
+        Used by services/llm_router.py for Anthropic Claude API calls
+    """
+    key = os.getenv("LLM_ANTHROPIC_API_KEY", "")
+    if not key:
+        return None
+    return key
+
+
+def get_llm_openai_key() -> Optional[str]:
+    """
+    Returns the OpenAI API key if configured.
+
+    Returns:
+        API key string if LLM_OPENAI_API_KEY is set in .env, None otherwise
+
+    Usage:
+        Used by services/llm_router.py for OpenAI GPT API calls
+    """
+    key = os.getenv("LLM_OPENAI_API_KEY", "")
+    if not key:
+        return None
+    return key
+
+
+def get_veo_api_key() -> Optional[str]:
+    """
+    Returns the Veo/Vertex AI API key if configured.
+
+    Returns:
+        API key string if VEO_API_KEY is set in .env, None otherwise
+
+    Usage:
+        Used by services/video_gen_service.py for Google Veo/Vertex AI video generation
+
+    Note:
+        This can be either:
+        - A direct API key (e.g., from Google AI Studio)
+        - A service account key for Vertex AI
+        - Path to a service account JSON file
+    """
+    key = os.getenv("VEO_API_KEY", "")
+    if not key:
+        return None
+    return key
+
+
+def get_env(key: str, default: str = "") -> str:
+    """
+    Generic environment variable getter.
+
+    Args:
+        key: Environment variable name
+        default: Default value if key is not set
+
+    Returns:
+        Environment variable value or default
+    """
+    return os.getenv(key, default)

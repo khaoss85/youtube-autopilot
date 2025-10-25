@@ -3,6 +3,31 @@ ScriptWriter Agent: Generates engaging video scripts from video plans.
 
 This agent transforms strategic video plans into complete scripts with
 hooks, content bullets, CTAs, and full voiceover text.
+
+==============================================================================
+LLM Integration Strategy (Step 06-pre)
+==============================================================================
+
+CURRENT: Deterministic script generation (local logic)
+FUTURE: LLM-powered creative writing via services/llm_router
+
+INTEGRATION APPROACH:
+- Pipeline (build_video_package.py) calls llm_router.generate_text()
+- LLM generates hook, bullets, CTA based on video plan
+- Pipeline passes LLM output to this agent as enriched input
+- Agent validates/refines LLM output using deterministic rules
+- Maintains architecture: agents do NOT import from services/
+
+Example enhancement:
+    llm_script = generate_text(
+        role="script_writer",
+        task="Write viral hook and bullets for YouTube Short",
+        context=f"Topic: {plan.topic}, Target: {plan.target_cta}",
+        style_hints={"brand_tone": memory["brand_tone"]}
+    )
+    # Pass llm_script to agent for validation and formatting
+
+==============================================================================
 """
 
 from typing import Dict, List
