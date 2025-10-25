@@ -4,9 +4,14 @@ Datastore Module: Local persistence for video packages and metrics.
 This module handles storage of video packages, upload results, and analytics
 in a local JSONL database for historical tracking and analysis.
 
-Production States:
-- HUMAN_REVIEW_PENDING: Video assets generated, waiting for human approval
+Production States (Step 07.3: 2-Gate Workflow):
+- SCRIPT_PENDING_REVIEW: Script generated, awaiting human approval to proceed
+- READY_FOR_GENERATION: Script approved, ready to generate video assets
+- VIDEO_PENDING_REVIEW: Video assets generated, awaiting human approval to publish
 - SCHEDULED_ON_YOUTUBE: Video uploaded and scheduled on YouTube
+
+Legacy States (backward compatibility):
+- HUMAN_REVIEW_PENDING: Equivalent to VIDEO_PENDING_REVIEW (pre-Step 07.3)
 """
 
 import json
@@ -236,16 +241,21 @@ def save_draft_package(
     thumbnail_prompt: Optional[str] = None,
     video_provider_used: Optional[str] = None,
     voice_provider_used: Optional[str] = None,
-    thumb_provider_used: Optional[str] = None
+    thumb_provider_used: Optional[str] = None,
+    script_internal_id: Optional[str] = None
 ) -> str:
     """
-    Saves a draft video package pending human review.
+    Saves a draft video package pending human review (Step 07.3: Gate 2).
 
-    Creates a record with production_state="HUMAN_REVIEW_PENDING" and
+    Creates a record with production_state="VIDEO_PENDING_REVIEW" and
     generates a unique video_internal_id for future reference.
 
+    Step 07.3 2-Gate Workflow:
+    - This is Gate 2: Video assets are generated and ready for review
+    - Optionally linked to script_internal_id from Gate 1 approval
+
     This function is called AFTER physical assets are generated but BEFORE
-    uploading to YouTube. Human must review and approve before publication.
+    uploading to YouTube. Human must review video and approve before publication.
 
     Args:
         ready: Editorial package that was approved by quality reviewer
@@ -260,23 +270,26 @@ def save_draft_package(
         video_provider_used: (Optional) Step 07.2: Video provider (OPENAI_VIDEO/VEO/FALLBACK_PLACEHOLDER)
         voice_provider_used: (Optional) Step 07.2: Voice provider (REAL_TTS/FALLBACK_SILENT)
         thumb_provider_used: (Optional) Step 07.2: Thumbnail provider (OPENAI_IMAGE/FALLBACK_PLACEHOLDER)
+        script_internal_id: (Optional) Step 07.3: Link to approved script from Gate 1
 
     Returns:
         video_internal_id: Unique identifier for this draft (UUID4 string)
 
     Example:
+        >>> # Step 07.3: After script approval
         >>> video_id = save_draft_package(
         ...     ready=package,
         ...     scene_paths=["scene1.mp4", "scene2.mp4"],
         ...     voiceover_path="voice.wav",
         ...     final_video_path="final.mp4",
         ...     thumbnail_path="thumb.png",
-        ...     publish_datetime_iso="2025-10-25T18:00:00Z"
+        ...     publish_datetime_iso="2025-10-25T18:00:00Z",
+        ...     script_internal_id="script-uuid-from-gate-1"
         ... )
-        >>> print(f"Draft saved: {video_id}")
-        Draft saved: 123e4567-e89b-12d3-a456-426614174000
+        >>> print(f"Video draft saved: {video_id}")
+        Video draft saved: 123e4567-e89b-12d3-a456-426614174000
     """
-    logger.info("Saving draft package to datastore (HUMAN_REVIEW_PENDING)...")
+    logger.info("Saving draft package to datastore (VIDEO_PENDING_REVIEW)...")
 
     # Generate unique internal ID
     video_internal_id = str(uuid.uuid4())
@@ -285,7 +298,8 @@ def save_draft_package(
 
     record = {
         "video_internal_id": video_internal_id,
-        "production_state": "HUMAN_REVIEW_PENDING",
+        "script_internal_id": script_internal_id,  # Step 07.3: Link to script from Gate 1
+        "production_state": "VIDEO_PENDING_REVIEW",  # Step 07.3: Updated state name
         "saved_at": datetime.now().isoformat(),
         "youtube_video_id": None,  # Not uploaded yet
         "status": ready.status,  # APPROVED from quality reviewer
@@ -318,7 +332,9 @@ def save_draft_package(
     logger.info(f"✓ Draft package saved to {datastore_path}")
     logger.info(f"  Internal ID: {video_internal_id}")
     logger.info(f"  Title: '{ready.publishing.final_title}'")
-    logger.info(f"  State: HUMAN_REVIEW_PENDING")
+    logger.info(f"  State: VIDEO_PENDING_REVIEW")  # Step 07.3: Updated state
+    if script_internal_id:
+        logger.info(f"  Linked script: {script_internal_id}")  # Step 07.3: Track link
     logger.info(f"  Final video: {final_video_path}")
     logger.info(f"  Thumbnail: {thumbnail_path}")
 
@@ -374,6 +390,8 @@ def mark_as_scheduled(
     Updates the record to production_state="SCHEDULED_ON_YOUTUBE" and
     adds YouTube video ID, actual publish time, and approval audit trail.
 
+    Step 07.3: Supports both VIDEO_PENDING_REVIEW and HUMAN_REVIEW_PENDING.
+
     This function should ONLY be called after successful YouTube upload
     and explicit human approval.
 
@@ -384,7 +402,7 @@ def mark_as_scheduled(
         approved_at_iso: ISO 8601 timestamp of approval (UTC)
 
     Raises:
-        ValueError: If draft not found or not in HUMAN_REVIEW_PENDING state
+        ValueError: If draft not found or not in correct state for publishing
 
     Example:
         >>> upload_result = UploadResult(
@@ -419,12 +437,13 @@ def mark_as_scheduled(
             if record.get("video_internal_id") == video_internal_id:
                 found = True
 
-                # Validate state
-                if record.get("production_state") != "HUMAN_REVIEW_PENDING":
-                    current_state = record.get("production_state")
+                # Validate state (Step 07.3: Support both new and legacy states)
+                current_state = record.get("production_state")
+                valid_states = ["VIDEO_PENDING_REVIEW", "HUMAN_REVIEW_PENDING"]
+                if current_state not in valid_states:
                     raise ValueError(
                         f"Cannot mark as scheduled: video is in state '{current_state}', "
-                        f"expected 'HUMAN_REVIEW_PENDING'"
+                        f"expected one of {valid_states}"
                     )
 
                 # Update record
@@ -505,11 +524,14 @@ def list_scheduled_videos() -> List[Dict[str, Any]]:
 
 def list_pending_review() -> List[Dict[str, Any]]:
     """
-    Returns list of all videos pending human review.
+    Returns list of all videos pending human review (Step 07.3: Gate 2).
 
-    Only includes videos with production_state="HUMAN_REVIEW_PENDING".
+    Step 07.3: Supports both VIDEO_PENDING_REVIEW and legacy HUMAN_REVIEW_PENDING.
     These are videos that have been generated but not yet approved for
     publication to YouTube.
+
+    Backward compatibility: Includes both new (VIDEO_PENDING_REVIEW) and
+    legacy (HUMAN_REVIEW_PENDING) states.
 
     Returns:
         List of video records with metadata needed for review
@@ -533,8 +555,9 @@ def list_pending_review() -> List[Dict[str, Any]]:
         for line in f:
             record = json.loads(line.strip())
 
-            # Only include pending review videos
-            if record.get("production_state") == "HUMAN_REVIEW_PENDING":
+            # Step 07.3: Include both new and legacy states for backward compatibility
+            state = record.get("production_state")
+            if state in ["VIDEO_PENDING_REVIEW", "HUMAN_REVIEW_PENDING"]:
                 files = record.get("files", {})
                 videos.append({
                     "video_internal_id": record.get("video_internal_id"),
@@ -550,3 +573,241 @@ def list_pending_review() -> List[Dict[str, Any]]:
 
     logger.info(f"✓ Found {len(videos)} videos pending review")
     return videos
+
+
+# ==============================================================================
+# Step 07.3: Script Review Workflow Functions (2-Gate)
+# ==============================================================================
+
+def save_script_draft(
+    ready: ReadyForFactory,
+    publish_datetime_iso: str
+) -> str:
+    """
+    Saves script draft package pending human review (Step 07.3: Gate 1).
+
+    Creates a record with production_state="SCRIPT_PENDING_REVIEW" containing
+    only the editorial package (script, plan, visuals, publishing metadata).
+    NO physical assets are generated yet.
+
+    This is the FIRST gate in the 2-gate workflow. After human approval,
+    the script will transition to READY_FOR_GENERATION and trigger asset creation.
+
+    Args:
+        ready: Editorial package from build_video_package()
+        publish_datetime_iso: Proposed publish datetime (e.g., "2025-11-01T18:00:00Z")
+
+    Returns:
+        script_internal_id: UUID for this script draft
+
+    Example:
+        >>> ready = build_video_package()
+        >>> script_id = save_script_draft(ready, "2025-11-01T18:00:00Z")
+        >>> # Human reviews script via review_console.py
+        >>> # If approved: approve_script_for_generation(script_id, "dan@company")
+    """
+    logger.info("Saving script draft to datastore (SCRIPT_PENDING_REVIEW)...")
+
+    datastore_path = _get_datastore_path()
+    script_internal_id = str(uuid.uuid4())
+
+    record = {
+        "script_internal_id": script_internal_id,
+        "production_state": "SCRIPT_PENDING_REVIEW",
+        "saved_at": datetime.now().isoformat(),
+        "status": ready.status,  # APPROVED from quality reviewer
+        "title": ready.publishing.final_title,
+        "proposed_publish_at": publish_datetime_iso,
+
+        # Editorial content (for review)
+        "video_plan": ready.video_plan.model_dump(),
+        "script": ready.script.model_dump(),
+        "visuals": ready.visuals.model_dump(),
+        "publishing": ready.publishing.model_dump(),
+
+        # Audit trail (Step 07)
+        "llm_raw_script": ready.llm_raw_script,
+        "final_script": ready.final_script_text,
+
+        # Placeholders (will be filled after Gate 2)
+        "video_internal_id": None,  # Assigned when assets generated
+        "youtube_video_id": None,
+        "files": {},
+        "video_provider_used": None,
+        "voice_provider_used": None,
+        "thumb_provider_used": None,
+        "thumbnail_prompt": ready.publishing.thumbnail_concept
+    }
+
+    # Append to JSONL
+    with open(datastore_path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    logger.info(f"✓ Script draft saved to {datastore_path}")
+    logger.info(f"  Script ID: {script_internal_id}")
+    logger.info(f"  Title: '{ready.publishing.final_title}'")
+    logger.info(f"  State: SCRIPT_PENDING_REVIEW")
+    logger.info(f"  Next: Human review via review_console.py")
+
+    return script_internal_id
+
+
+def list_pending_script_review() -> List[Dict[str, Any]]:
+    """
+    Returns list of all scripts pending human review (Step 07.3: Gate 1).
+
+    Only includes scripts with production_state="SCRIPT_PENDING_REVIEW".
+    These are scripts that have passed QualityReviewer but not yet approved
+    by human to proceed with expensive asset generation.
+
+    Returns:
+        List of script draft dicts with metadata for review
+
+    Example:
+        >>> scripts = list_pending_script_review()
+        >>> for script in scripts:
+        ...     print(f"{script['script_internal_id']}: {script['proposed_title']}")
+    """
+    logger.info("Listing scripts pending review from datastore...")
+
+    datastore_path = _get_datastore_path()
+
+    if not datastore_path.exists():
+        logger.warning(f"Datastore file not found: {datastore_path}")
+        return []
+
+    scripts = []
+
+    with open(datastore_path, "r", encoding="utf-8") as f:
+        for line in f:
+            if not line.strip():
+                continue
+
+            record = json.loads(line.strip())
+
+            # Only include pending script review
+            if record.get("production_state") == "SCRIPT_PENDING_REVIEW":
+                scripts.append({
+                    "script_internal_id": record.get("script_internal_id"),
+                    "production_state": record["production_state"],
+                    "proposed_title": record.get("title"),
+                    "proposed_description": record.get("publishing", {}).get("description"),
+                    "script": record.get("script"),  # Full script for display
+                    "visuals": record.get("visuals"),  # Visual plan for display
+                    "suggested_publishAt": record.get("proposed_publish_at"),
+                    "saved_at": record.get("saved_at")
+                })
+
+    logger.info(f"✓ Found {len(scripts)} scripts pending review")
+    return scripts
+
+
+def get_script_draft(script_internal_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Retrieves a specific script draft by ID (Step 07.3).
+
+    Args:
+        script_internal_id: UUID of the script draft
+
+    Returns:
+        Script draft record dict, or None if not found
+
+    Example:
+        >>> draft = get_script_draft("123e4567-e89b-12d3-a456-426614174000")
+        >>> if draft:
+        ...     print(f"Script: {draft['script']}")
+    """
+    logger.info(f"Retrieving script draft: {script_internal_id}...")
+
+    datastore_path = _get_datastore_path()
+
+    if not datastore_path.exists():
+        logger.warning(f"Datastore file not found: {datastore_path}")
+        return None
+
+    with open(datastore_path, "r", encoding="utf-8") as f:
+        for line in f:
+            if not line.strip():
+                continue
+
+            record = json.loads(line.strip())
+            if record.get("script_internal_id") == script_internal_id:
+                logger.info(f"✓ Found script draft")
+                logger.info(f"  State: {record.get('production_state')}")
+                logger.info(f"  Title: '{record.get('title')}'")
+                return record
+
+    logger.warning(f"Script draft not found: {script_internal_id}")
+    return None
+
+
+def approve_script_for_generation(
+    script_internal_id: str,
+    approved_by: str
+) -> None:
+    """
+    Approves script and marks ready for asset generation (Step 07.3: Gate 1 → Gate 2).
+
+    Changes production_state from SCRIPT_PENDING_REVIEW to READY_FOR_GENERATION.
+    Records who approved and when for audit trail.
+
+    After this approval, the script is ready for produce_render_assets() to
+    generate expensive video/audio/thumbnail assets.
+
+    Args:
+        script_internal_id: UUID of the script draft
+        approved_by: Identifier of approver (e.g., "dan@company")
+
+    Raises:
+        ValueError: If script not found or not in correct state
+
+    Example:
+        >>> approve_script_for_generation(
+        ...     "123e4567-e89b-12d3-a456-426614174000",
+        ...     approved_by="dan@company"
+        ... )
+        >>> # Now ready for: produce_render_assets(script_id)
+    """
+    logger.info(f"Approving script for generation: {script_internal_id}")
+    logger.info(f"  Approved by: {approved_by}")
+
+    datastore_path = _get_datastore_path()
+
+    if not datastore_path.exists():
+        raise ValueError(f"Datastore file not found: {datastore_path}")
+
+    # Read all records
+    with open(datastore_path, "r", encoding="utf-8") as f:
+        records = [json.loads(line.strip()) for line in f if line.strip()]
+
+    # Find and update the target record
+    found = False
+    for record in records:
+        if record.get("script_internal_id") == script_internal_id:
+            found = True
+
+            # Validate state
+            current_state = record.get("production_state")
+            if current_state != "SCRIPT_PENDING_REVIEW":
+                raise ValueError(
+                    f"Cannot approve script: state is '{current_state}', "
+                    f"expected 'SCRIPT_PENDING_REVIEW'"
+                )
+
+            # Update state
+            record["production_state"] = "READY_FOR_GENERATION"
+            record["script_approved_by"] = approved_by
+            record["script_approved_at"] = datetime.now().isoformat()
+
+            logger.info(f"✓ Script approved and marked READY_FOR_GENERATION")
+            break
+
+    if not found:
+        raise ValueError(f"Script draft not found: {script_internal_id}")
+
+    # Write back to file (atomic)
+    with open(datastore_path, "w", encoding="utf-8") as f:
+        for record in records:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    logger.info(f"✓ Datastore updated: {datastore_path}")

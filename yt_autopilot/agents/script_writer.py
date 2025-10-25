@@ -31,7 +31,7 @@ Example enhancement:
 """
 
 from typing import Dict, List, Optional
-from yt_autopilot.core.schemas import VideoPlan, VideoScript
+from yt_autopilot.core.schemas import VideoPlan, VideoScript, SceneVoiceover
 from yt_autopilot.core.memory_store import get_brand_tone
 from yt_autopilot.core.logger import logger
 
@@ -261,6 +261,101 @@ def _compose_full_voiceover(hook: str, bullets: List[str], outro_cta: str) -> st
     return full_text
 
 
+def _estimate_speaking_duration(text: str) -> int:
+    """
+    Estimates speaking duration in seconds based on text length.
+
+    Step 07.3: Used for scene-level voiceover timing.
+
+    Args:
+        text: Text to estimate duration for
+
+    Returns:
+        Estimated duration in seconds (minimum 3 seconds)
+    """
+    word_count = len(text.split())
+    # Average speaking rate: ~150 words/minute = 2.5 words/second
+    duration = max(3, int(word_count / 2.5))
+    return duration
+
+
+def _create_scene_voiceover_map(hook: str, bullets: List[str], outro_cta: str) -> List[SceneVoiceover]:
+    """
+    Creates scene-by-scene voiceover breakdown for precise audio/visual sync.
+
+    Step 07.3: Maps script components to scenes with timing.
+
+    Scene mapping logic:
+    - Scene 1: Hook (opening)
+    - Scene 2-N: Content bullets (one per scene if ≤3, grouped if >3)
+    - Last scene: CTA (outro)
+
+    Args:
+        hook: Opening hook text
+        bullets: List of content bullet points
+        outro_cta: Closing call-to-action
+
+    Returns:
+        List of SceneVoiceover objects with scene_id, text, and duration
+    """
+    scene_map = []
+    scene_id = 1
+
+    # Scene 1: Hook
+    hook_duration = _estimate_speaking_duration(hook)
+    scene_map.append(SceneVoiceover(
+        scene_id=scene_id,
+        voiceover_text=hook,
+        est_duration_seconds=hook_duration
+    ))
+    scene_id += 1
+
+    # Content scenes: bullets
+    if len(bullets) <= 3:
+        # One scene per bullet if few bullets
+        for bullet in bullets:
+            bullet_duration = _estimate_speaking_duration(bullet)
+            scene_map.append(SceneVoiceover(
+                scene_id=scene_id,
+                voiceover_text=bullet,
+                est_duration_seconds=bullet_duration
+            ))
+            scene_id += 1
+    else:
+        # Group bullets into 2-3 scenes if many bullets
+        mid_point = len(bullets) // 2
+
+        # First group
+        first_group = " ".join(bullets[:mid_point])
+        first_duration = _estimate_speaking_duration(first_group)
+        scene_map.append(SceneVoiceover(
+            scene_id=scene_id,
+            voiceover_text=first_group,
+            est_duration_seconds=first_duration
+        ))
+        scene_id += 1
+
+        # Second group
+        second_group = " ".join(bullets[mid_point:])
+        second_duration = _estimate_speaking_duration(second_group)
+        scene_map.append(SceneVoiceover(
+            scene_id=scene_id,
+            voiceover_text=second_group,
+            est_duration_seconds=second_duration
+        ))
+        scene_id += 1
+
+    # Last scene: CTA
+    cta_duration = _estimate_speaking_duration(outro_cta)
+    scene_map.append(SceneVoiceover(
+        scene_id=scene_id,
+        voiceover_text=outro_cta,
+        est_duration_seconds=cta_duration
+    ))
+
+    return scene_map
+
+
 def write_script(
     plan: VideoPlan,
     memory: Dict,
@@ -341,17 +436,24 @@ def write_script(
     # - Brand tone compliance
     # For now, we trust QualityReviewer to catch issues
 
+    # Step 07.3: Create scene-by-scene voiceover map for audio/visual sync
+    scene_voiceover_map = _create_scene_voiceover_map(hook, bullets, outro_cta)
+    total_scene_duration = sum(s.est_duration_seconds for s in scene_voiceover_map)
+    logger.info(f"  Scene voiceover map: {len(scene_voiceover_map)} scenes, ~{total_scene_duration}s total")
+
     # Create VideoScript
     script = VideoScript(
         hook=hook,
         bullets=bullets,
         outro_cta=outro_cta,
-        full_voiceover_text=full_voiceover_text
+        full_voiceover_text=full_voiceover_text,
+        scene_voiceover_map=scene_voiceover_map
     )
 
     logger.info(
         f"Generated script: {len(script.bullets)} bullets, "
-        f"{len(script.full_voiceover_text)} chars voiceover"
+        f"{len(script.full_voiceover_text)} chars voiceover, "
+        f"{len(script.scene_voiceover_map)} scenes"
     )
 
     return script

@@ -1,21 +1,35 @@
 """
-Full Production Pipeline: Editorial Brain + Physical Factory with Human Gate
+Full Production Pipeline: Editorial Brain + Physical Factory with 2-Gate Workflow
 
 This module orchestrates the complete video production workflow with
-a mandatory human approval step before publication.
+TWO mandatory human approval gates to minimize wasted API costs.
 
-Production Workflow:
-1. produce_render_assets() - Generate all physical assets (video, thumbnail)
-   → State: HUMAN_REVIEW_PENDING
-   → NO automatic upload
+Step 07.3 Production Workflow (2-Gate):
 
-2. Human reviews video and approves/rejects
+GATE 1 - Script Review (Cheap):
+1. generate_script_draft() - Generate script only (editorial brain)
+   → State: SCRIPT_PENDING_REVIEW
+   → Cost: ~$0.01 LLM call
+   → Human reviews script concept
 
-3. publish_after_approval() - Upload to YouTube only after human approval
+2. Human approves script → triggers asset generation
+
+GATE 2 - Video Review (After expensive generation):
+3. produce_render_assets() - Generate physical assets (Sora/TTS/DALL-E)
+   → State: VIDEO_PENDING_REVIEW
+   → Cost: $$$  (video + audio + thumbnail)
+   → Human reviews final video
+
+4. Human approves video
+
+FINAL - Publication:
+5. publish_after_approval() - Upload to YouTube
    → State: SCHEDULED_ON_YOUTUBE
 
-This ensures ZERO risk of publishing inappropriate content automatically.
-The system generates content, but humans gate publication.
+This ensures:
+- ZERO risk of publishing inappropriate content automatically
+- 70-80% reduction in wasted API costs (reject bad scripts before generation)
+- Humans gate BOTH script quality AND final video quality
 """
 
 from datetime import datetime
@@ -38,72 +52,62 @@ from yt_autopilot.services import provider_tracker
 from yt_autopilot.io.datastore import (
     save_draft_package,
     get_draft_package,
-    mark_as_scheduled
+    mark_as_scheduled,
+    save_script_draft,  # Step 07.3: Gate 1 (script review)
+    get_script_draft    # Step 07.3: Retrieve approved script
 )
 
 
-def produce_render_assets(publish_datetime_iso: str) -> Dict[str, Any]:
+def generate_script_draft(publish_datetime_iso: str) -> Dict[str, Any]:
     """
-    Phase 1: Generate all physical assets and save as draft pending human review.
+    Step 07.3 - GATE 1: Generate script draft and save for human review.
+
+    This is the FIRST gate in the 2-gate workflow. It generates only the
+    editorial content (script, visual plan, publishing metadata) without
+    creating any expensive physical assets.
+
+    Cost: ~$0.01 (LLM call only)
+    Benefit: Human can reject bad scripts BEFORE wasting $$$ on video generation
 
     Workflow:
     1. Run editorial brain (build_video_package)
-    2. If REJECTED by quality reviewer: abort and return error
-    3. If APPROVED: generate physical assets
-       a. Generate video scenes (Veo API)
-       b. Generate voiceover (TTS)
-       c. Assemble final video (ffmpeg)
-       d. Generate thumbnail image
-    4. Save to datastore with state "HUMAN_REVIEW_PENDING"
-    5. Return package info for human review
-
-    ⚠️ This function does NOT upload to YouTube.
-    ⚠️ Human must explicitly approve before calling publish_after_approval().
+    2. If REJECTED by quality reviewer: return error
+    3. If APPROVED: save script draft with state SCRIPT_PENDING_REVIEW
+    4. Return script_internal_id for human review
 
     Args:
-        publish_datetime_iso: Proposed publish datetime in ISO format
-                              (e.g., "2025-10-25T18:00:00Z")
+        publish_datetime_iso: Proposed publish datetime (e.g., "2025-11-01T18:00:00Z")
 
     Returns:
         Dict with keys:
-        - status: "READY_FOR_REVIEW" or "REJECTED"
-        - video_internal_id: UUID for draft (if READY_FOR_REVIEW)
-        - final_video_path: Path to final .mp4 (if READY_FOR_REVIEW)
-        - thumbnail_path: Path to thumbnail image (if READY_FOR_REVIEW)
-        - proposed_title: Editorial title (if READY_FOR_REVIEW)
-        - proposed_description: SEO description (if READY_FOR_REVIEW)
-        - proposed_tags: SEO tags (if READY_FOR_REVIEW)
-        - suggested_publishAt: Proposed publish time (if READY_FOR_REVIEW)
+        - status: "SCRIPT_READY_FOR_REVIEW" or "REJECTED"
+        - script_internal_id: UUID for script draft (if READY)
+        - proposed_title: Editorial title (if READY)
+        - script_preview: First 200 chars of voiceover (if READY)
+        - scene_count: Number of scenes planned (if READY)
+        - estimated_duration: Total video duration in seconds (if READY)
         - reason: Rejection reason (if REJECTED)
 
-    Raises:
-        RuntimeError: If asset generation fails (Veo, TTS, ffmpeg errors)
-
     Example:
-        >>> result = produce_render_assets("2025-10-25T18:00:00Z")
-        >>> if result["status"] == "READY_FOR_REVIEW":
-        ...     print(f"Video ready: {result['final_video_path']}")
-        ...     print(f"Review and approve, then call:")
-        ...     print(f"publish_after_approval('{result['video_internal_id']}')")
-        ... else:
-        ...     print(f"Rejected: {result['reason']}")
+        >>> result = generate_script_draft("2025-11-01T18:00:00Z")
+        >>> if result["status"] == "SCRIPT_READY_FOR_REVIEW":
+        ...     print(f"Script ID: {result['script_internal_id']}")
+        ...     print("Review via: review_console.py show-script <ID>")
+        ...     print("Approve via: review_console.py approve-script <ID>")
     """
     logger.info("=" * 70)
-    logger.info("PRODUCTION PIPELINE: Phase 1 - Generate Assets")
+    logger.info("SCRIPT GENERATION: Gate 1 - Generate Script Draft")
     logger.info("=" * 70)
 
-    # Step 07.2: Reset provider tracking for this generation
-    provider_tracker.reset_tracking()
-
     # STEP 1: Editorial Brain - Generate approved content package
-    logger.info("STEP 1/5: Running editorial brain...")
+    logger.info("STEP 1: Running editorial brain...")
     ready = build_video_package()
 
     if ready.status == "REJECTED":
         logger.error(f"✗ Editorial brain rejected package")
         logger.error(f"  Reason: {ready.rejection_reason}")
         logger.info("=" * 70)
-        logger.info("PRODUCTION ABORTED: Package rejected by quality reviewer")
+        logger.info("SCRIPT GENERATION ABORTED: Package rejected by quality reviewer")
         logger.info("=" * 70)
         return {
             "status": "REJECTED",
@@ -116,7 +120,148 @@ def produce_render_assets(publish_datetime_iso: str) -> Dict[str, Any]:
     total_duration = sum(scene.est_duration_seconds for scene in ready.visuals.scenes)
     logger.info(f"  Duration: ~{total_duration}s")
 
-    # STEP 2: Generate video scenes using Veo API
+    # STEP 2: Save script draft (NO asset generation yet)
+    logger.info("")
+    logger.info("STEP 2: Saving script draft for human review...")
+    script_internal_id = save_script_draft(ready, publish_datetime_iso)
+
+    logger.info("")
+    logger.info("=" * 70)
+    logger.info("GATE 1 COMPLETE: Script ready for human review")
+    logger.info("=" * 70)
+    logger.info(f"📝 Script ID: {script_internal_id}")
+    logger.info(f"📊 Title: '{ready.publishing.final_title}'")
+    logger.info(f"🎬 Scenes: {len(ready.visuals.scenes)}")
+    logger.info(f"⏱️  Duration: ~{total_duration}s")
+    logger.info("")
+    logger.info("⚠️  STATUS: SCRIPT_PENDING_REVIEW")
+    logger.info("")
+    logger.info("Next steps:")
+    logger.info(f"  1. Review script: review_console.py show-script {script_internal_id}")
+    logger.info(f"  2. Approve script: review_console.py approve-script {script_internal_id} --approved-by \"your@email\"")
+    logger.info(f"  3. Assets will be generated ONLY after approval (saves $$$)")
+    logger.info("=" * 70)
+
+    return {
+        "status": "SCRIPT_READY_FOR_REVIEW",
+        "script_internal_id": script_internal_id,
+        "proposed_title": ready.publishing.final_title,
+        "script_preview": ready.script.full_voiceover_text[:200],
+        "scene_count": len(ready.visuals.scenes),
+        "estimated_duration": total_duration
+    }
+
+
+def produce_render_assets(script_internal_id: str) -> Dict[str, Any]:
+    """
+    Step 07.3 - GATE 2: Generate physical assets from approved script.
+
+    This is the SECOND gate in the 2-gate workflow. It retrieves an approved
+    script from Gate 1 and generates expensive physical assets (video, audio, thumbnail).
+
+    Cost: $$$ (Sora video + TTS audio + DALL-E thumbnail)
+    Prerequisite: Script must be in READY_FOR_GENERATION state (approved by human)
+
+    Workflow:
+    1. Retrieve approved script draft from datastore
+    2. Verify script is in READY_FOR_GENERATION state
+    3. Generate physical assets:
+       a. Generate video scenes (Sora/Veo API)
+       b. Generate voiceover (TTS)
+       c. Assemble final video (ffmpeg)
+       d. Generate thumbnail image (DALL-E)
+    4. Save to datastore with state VIDEO_PENDING_REVIEW
+    5. Return package info for human review
+
+    ⚠️ This function does NOT upload to YouTube.
+    ⚠️ Human must explicitly approve VIDEO before calling publish_after_approval().
+
+    Args:
+        script_internal_id: UUID of approved script from generate_script_draft()
+
+    Returns:
+        Dict with keys:
+        - status: "VIDEO_READY_FOR_REVIEW" or "ERROR"
+        - video_internal_id: UUID for video draft (if READY)
+        - final_video_path: Path to final .mp4 (if READY)
+        - thumbnail_path: Path to thumbnail image (if READY)
+        - proposed_title: Editorial title (if READY)
+        - proposed_description: SEO description (if READY)
+        - proposed_tags: SEO tags (if READY)
+        - suggested_publishAt: Proposed publish time (if READY)
+        - reason: Error message (if ERROR)
+
+    Raises:
+        RuntimeError: If asset generation fails (Sora, TTS, ffmpeg errors)
+        ValueError: If script not found or not in READY_FOR_GENERATION state
+
+    Example:
+        >>> # After script approval via review_console.py
+        >>> result = produce_render_assets("script-uuid-from-gate-1")
+        >>> if result["status"] == "VIDEO_READY_FOR_REVIEW":
+        ...     print(f"Video ready: {result['final_video_path']}")
+        ...     print("Review via: review_console.py show-video <ID>")
+    """
+    logger.info("=" * 70)
+    logger.info("ASSET GENERATION: Gate 2 - Generate Physical Assets")
+    logger.info("=" * 70)
+    logger.info(f"Script ID: {script_internal_id}")
+
+    # Step 07.2: Reset provider tracking for this generation
+    provider_tracker.reset_tracking()
+
+    # STEP 1: Retrieve approved script from datastore
+    logger.info("STEP 1/5: Retrieving approved script...")
+    script_draft = get_script_draft(script_internal_id)
+
+    if script_draft is None:
+        logger.error(f"✗ Script draft not found: {script_internal_id}")
+        logger.info("=" * 70)
+        logger.info("ASSET GENERATION ABORTED: Script not found")
+        logger.info("=" * 70)
+        return {
+            "status": "ERROR",
+            "reason": f"Script draft not found: {script_internal_id}"
+        }
+
+    # Verify script is in READY_FOR_GENERATION state
+    current_state = script_draft.get("production_state")
+    if current_state != "READY_FOR_GENERATION":
+        logger.error(f"✗ Invalid state: {current_state}")
+        logger.error(f"  Expected: READY_FOR_GENERATION")
+        logger.error(f"  Script must be approved via review_console.py first")
+        logger.info("=" * 70)
+        logger.info("ASSET GENERATION ABORTED: Script not approved")
+        logger.info("=" * 70)
+        return {
+            "status": "ERROR",
+            "reason": f"Script not approved (state: {current_state})"
+        }
+
+    logger.info(f"✓ Script draft retrieved and approved")
+    logger.info(f"  Title: '{script_draft.get('title')}'")
+    logger.info(f"  Approved by: {script_draft.get('script_approved_by')}")
+    logger.info(f"  Approved at: {script_draft.get('script_approved_at')}")
+
+    # Reconstruct ReadyForFactory from saved script draft
+    from yt_autopilot.core.schemas import VideoPlan, VideoScript, VisualPlan, PublishingPackage, VisualScene
+
+    ready = ReadyForFactory(
+        status=script_draft["status"],
+        video_plan=VideoPlan(**script_draft["video_plan"]),
+        script=VideoScript(**script_draft["script"]),
+        visuals=VisualPlan(**script_draft["visuals"]),
+        publishing=PublishingPackage(**script_draft["publishing"]),
+        llm_raw_script=script_draft.get("llm_raw_script"),
+        final_script_text=script_draft.get("final_script")
+    )
+
+    publish_datetime_iso = script_draft["proposed_publish_at"]
+    total_duration = sum(scene["est_duration_seconds"] for scene in script_draft["visuals"]["scenes"])
+    logger.info(f"  Scenes: {len(ready.visuals.scenes)}")
+    logger.info(f"  Duration: ~{total_duration}s")
+
+    # STEP 2: Generate video scenes using Sora/Veo API
     logger.info("")
     logger.info("STEP 2/5: Generating video scenes...")
     logger.info(f"  Requesting {len(ready.visuals.scenes)} scenes from Veo API")
@@ -185,28 +330,32 @@ def produce_render_assets(publish_datetime_iso: str) -> Dict[str, Any]:
         thumbnail_prompt=ready.publishing.thumbnail_concept,  # Step 07.2: Creative quality
         video_provider_used=providers["video_provider"],  # Step 07.2: Provider tracking
         voice_provider_used=providers["voice_provider"],  # Step 07.2: Provider tracking
-        thumb_provider_used=providers["thumb_provider"]   # Step 07.2: Provider tracking
+        thumb_provider_used=providers["thumb_provider"],   # Step 07.2: Provider tracking
+        script_internal_id=script_internal_id  # Step 07.3: Link to approved script
     )
 
     logger.info("")
     logger.info("=" * 70)
-    logger.info("PHASE 1 COMPLETE: Assets ready for human review")
+    logger.info("GATE 2 COMPLETE: Video ready for human review")
     logger.info("=" * 70)
     logger.info(f"📹 Video: {final_video_path}")
     logger.info(f"🖼️  Thumbnail: {thumbnail_path}")
     logger.info(f"📊 Title: '{ready.publishing.final_title}'")
     logger.info(f"⏱️  Duration: ~{total_duration}s")
-    logger.info(f"🆔 Internal ID: {video_internal_id}")
+    logger.info(f"🆔 Video ID: {video_internal_id}")
+    logger.info(f"🔗 Script ID: {script_internal_id}")
     logger.info("")
-    logger.info("⚠️  STATUS: HUMAN_REVIEW_PENDING")
+    logger.info("⚠️  STATUS: VIDEO_PENDING_REVIEW")
     logger.info("")
-    logger.info("Next step: Review video, then call:")
-    logger.info(f"  publish_after_approval('{video_internal_id}')")
+    logger.info("Next steps:")
+    logger.info(f"  1. Review video: review_console.py show-video {video_internal_id}")
+    logger.info(f"  2. Publish video: review_console.py publish {video_internal_id} --approved-by \"your@email\"")
     logger.info("=" * 70)
 
     return {
-        "status": "READY_FOR_REVIEW",
+        "status": "VIDEO_READY_FOR_REVIEW",
         "video_internal_id": video_internal_id,
+        "script_internal_id": script_internal_id,
         "final_video_path": final_video_path,
         "thumbnail_path": thumbnail_path,
         "proposed_title": ready.publishing.final_title,

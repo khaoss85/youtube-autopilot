@@ -212,18 +212,18 @@ def _download_video_file(video_url: str, output_path: Path, api_key: str) -> Non
 
 def _call_openai_video(prompt: str, duration_seconds: int, scene_id: int) -> str:
     """
-    Calls OpenAI Sora-style video generation API.
+    Calls OpenAI Sora 2 video generation API.
 
-    Step 07.2: OpenAI video provider (first tier before Veo)
+    Step 07.3: Real Sora 2 API implementation (first tier before Veo)
 
-    NOTE: OpenAI Sora API is not yet publicly available as of January 2025.
-    This implementation follows the expected async job pattern:
-    1. Submit video generation job
-    2. Poll status until complete
+    Uses async job pattern:
+    1. Submit video generation job to OpenAI
+    2. Poll status until complete (max 10 minutes)
     3. Download generated video
 
-    When API becomes available, update with real endpoint and credentials.
-    Currently raises RuntimeError to trigger fallback to Veo.
+    Endpoint: https://api.openai.com/v1/video/generations
+    Model: sora-2.0
+    Output: 1080x1920 vertical HD video (9:16 for YouTube Shorts)
 
     Args:
         prompt: Text description for video generation
@@ -234,7 +234,8 @@ def _call_openai_video(prompt: str, duration_seconds: int, scene_id: int) -> str
         Path to generated video file (.mp4) in TEMP_DIR
 
     Raises:
-        RuntimeError: If API unavailable or generation fails
+        RuntimeError: If API key not configured or generation fails
+        TimeoutError: If job doesn't complete within 10 minutes
     """
     logger.info(f"OpenAI Video: Attempting generation for scene {scene_id}...")
     logger.debug(f"  Prompt: '{prompt[:80]}...'")
@@ -247,27 +248,106 @@ def _call_openai_video(prompt: str, duration_seconds: int, scene_id: int) -> str
         logger.debug("  OPENAI_VIDEO_API_KEY not found - skipping to Veo fallback")
         raise RuntimeError("OpenAI video API key not configured")
 
-    # TODO (Step 07.2): Implement real OpenAI Sora video generation when API is public
-    #
-    # Expected pattern:
-    # 1. Submit job: POST https://api.openai.com/v1/video/generations
-    #    payload = {
-    #        "model": "sora-1.0",
-    #        "prompt": prompt,
-    #        "duration": duration_seconds,
-    #        "size": "1080x1920",  # vertical 9:16
-    #        "quality": "hd"
-    #    }
-    #
-    # 2. Poll status: GET https://api.openai.com/v1/video/generations/{job_id}
-    #    until status == "completed"
-    #
-    # 3. Download: GET {response.video_url}
-    #
-    # For now, raise to trigger Veo fallback
-    logger.info("  OpenAI Sora API not yet publicly available (as of Jan 2025)")
-    logger.info("  → Falling back to Veo provider")
-    raise RuntimeError("OpenAI Sora API not yet available - fallback to Veo")
+    # Step 07.3: Real Sora 2 API implementation
+    endpoint = "https://api.openai.com/v1/video/generations"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+
+    # Step 1: Submit video generation job
+    logger.info("  Submitting Sora 2 job...")
+    payload = {
+        "model": "sora-2.0",  # Updated model name
+        "prompt": prompt,
+        "duration": duration_seconds,
+        "size": "1080x1920",  # vertical 9:16 for YouTube Shorts
+        "quality": "hd"
+    }
+
+    try:
+        response = requests.post(endpoint, headers=headers, json=payload, timeout=30)
+        response.raise_for_status()
+        job_data = response.json()
+        job_id = job_data["id"]
+        logger.info(f"  ✓ Sora 2 job submitted: {job_id}")
+    except requests.exceptions.RequestException as e:
+        error_msg = f"Sora 2 job submission failed: {e}"
+        logger.error(f"  ✗ {error_msg}")
+        raise RuntimeError(error_msg) from e
+
+    # Step 2: Poll job status until complete
+    poll_endpoint = f"{endpoint}/{job_id}"
+    timeout_seconds = 600  # 10 minutes max
+    poll_interval = 10  # Poll every 10 seconds
+
+    logger.info(f"  Polling Sora 2 job (timeout: {timeout_seconds}s)...")
+
+    import time
+    start_time = time.time()
+
+    while True:
+        elapsed = time.time() - start_time
+        if elapsed > timeout_seconds:
+            raise TimeoutError(f"Sora 2 job polling timeout after {timeout_seconds}s")
+
+        try:
+            response = requests.get(poll_endpoint, headers=headers, timeout=30)
+            response.raise_for_status()
+            job_status = response.json()
+
+            # Check if job is done
+            status = job_status.get("status")
+            if status == "completed":
+                # Extract video URL from response
+                video_url = job_status.get("video_url")
+                if not video_url:
+                    raise RuntimeError(f"Sora 2 job complete but no video_url in response")
+                logger.info(f"  ✓ Job complete: {video_url[:50]}...")
+                break
+            elif status == "failed":
+                error_msg = job_status.get("error", "Unknown error")
+                raise RuntimeError(f"Sora 2 job failed: {error_msg}")
+            else:
+                # Job still processing
+                progress = job_status.get("progress_percent", 0)
+                logger.debug(f"    Job in progress: {progress}% (elapsed: {elapsed:.0f}s)")
+                time.sleep(poll_interval)
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"  ✗ Polling error: {e}")
+            time.sleep(poll_interval)  # Retry after delay
+
+    # Step 3: Download generated video
+    output_path = get_temp_dir() / f"scene_{scene_id:03d}.mp4"
+
+    logger.info(f"  Downloading Sora 2 video...")
+    try:
+        response = requests.get(video_url, stream=True, timeout=60)
+        response.raise_for_status()
+
+        # Write binary content to file
+        with open(output_path, "wb") as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+
+        # Verify file
+        if not output_path.exists() or output_path.stat().st_size == 0:
+            raise RuntimeError(f"Downloaded file is empty or missing: {output_path}")
+
+        file_size = output_path.stat().st_size
+        logger.info(f"  ✓ Download complete: {file_size:,} bytes ({file_size / (1024*1024):.1f} MB)")
+
+        # Track provider
+        logger.info("  VIDEO_PROVIDER=OPENAI_SORA2")
+        provider_tracker.set_video_provider("OPENAI_SORA2")
+
+        return str(output_path)
+
+    except requests.exceptions.RequestException as e:
+        error_msg = f"Sora 2 video download failed: {e}"
+        logger.error(f"  ✗ {error_msg}")
+        raise RuntimeError(error_msg) from e
 
 
 def _call_veo(prompt: str, duration_seconds: int, scene_id: int) -> str:

@@ -28,8 +28,8 @@ Example:
 ==============================================================================
 """
 
-from typing import Dict, List, Tuple
-from yt_autopilot.core.schemas import VideoPlan, VideoScript, VisualPlan, VisualScene
+from typing import Dict, List, Tuple, Optional
+from yt_autopilot.core.schemas import VideoPlan, VideoScript, VisualPlan, VisualScene, SceneVoiceover
 from yt_autopilot.core.memory_store import get_visual_style
 from yt_autopilot.core.logger import logger
 
@@ -165,16 +165,19 @@ def generate_visual_plan(
     Generates a complete visual plan with scene-by-scene prompts for Veo.
 
     This is the entry point for the VisualPlanner agent. It:
-    - Divides the script into logical visual scenes
+    - Syncs visual scenes with script's scene_voiceover_map (Step 07.3)
     - Creates Veo-compatible generation prompts for each scene
-    - Estimates duration for each scene
+    - Embeds voiceover text into each scene for precise sync
     - Applies channel's visual style consistently
+
+    Step 07.3: Now uses script.scene_voiceover_map for precise audio/visual sync.
+    Falls back to legacy scene segmentation if scene_voiceover_map is empty.
 
     Optimized for YouTube Shorts (vertical 9:16 format, ~60 seconds total).
 
     Args:
         plan: Video plan with topic and context
-        script: Complete video script
+        script: Complete video script (with scene_voiceover_map in Step 07.3+)
         memory: Channel memory dict containing visual_style
 
     Returns:
@@ -191,27 +194,70 @@ def generate_visual_plan(
     # Load visual style from memory
     visual_style = get_visual_style(memory)
 
-    # Divide script into scenes
-    segments = _create_scene_segments(script)
-
-    # Create VisualScene for each segment
+    # Step 07.3: Use scene_voiceover_map if available (new), else fall back to legacy segmentation
     scenes: List[VisualScene] = []
-    for scene_id, (segment_name, segment_text) in enumerate(segments, start=1):
-        # Generate Veo prompt
-        veo_prompt = _generate_veo_prompt(segment_name, segment_text, plan, visual_style)
 
-        # Estimate duration
-        duration = _estimate_duration_from_text(segment_text)
+    if script.scene_voiceover_map and len(script.scene_voiceover_map) > 0:
+        # NEW (Step 07.3): Use scene_voiceover_map for precise sync
+        logger.info(f"  Using scene_voiceover_map ({len(script.scene_voiceover_map)} scenes)")
 
-        # Create scene
-        scene = VisualScene(
-            scene_id=scene_id,
-            prompt_for_veo=veo_prompt,
-            est_duration_seconds=duration
+        for scene_vo in script.scene_voiceover_map:
+            # Determine segment type based on scene position
+            if scene_vo.scene_id == 1:
+                segment_name = "hook"
+            elif scene_vo.scene_id == len(script.scene_voiceover_map):
+                segment_name = "outro"
+            else:
+                segment_name = f"content_{scene_vo.scene_id - 1}"
+
+            # Generate Veo prompt for this scene
+            veo_prompt = _generate_veo_prompt(
+                segment_name,
+                scene_vo.voiceover_text,
+                plan,
+                visual_style
+            )
+
+            # Create VisualScene with embedded voiceover text (NEW in Step 07.3)
+            scene = VisualScene(
+                scene_id=scene_vo.scene_id,
+                prompt_for_veo=veo_prompt,
+                est_duration_seconds=scene_vo.est_duration_seconds,
+                voiceover_text=scene_vo.voiceover_text  # Sync with script!
+            )
+
+            scenes.append(scene)
+            logger.debug(
+                f"Scene {scene_vo.scene_id}: {scene_vo.est_duration_seconds}s - "
+                f"{segment_name} - '{scene_vo.voiceover_text[:40]}...'"
+            )
+
+    else:
+        # LEGACY: Fall back to old segmentation (for backward compatibility)
+        logger.warning(
+            "  scene_voiceover_map is empty - using legacy scene segmentation. "
+            "Consider regenerating script with Step 07.3+ for better sync."
         )
 
-        scenes.append(scene)
-        logger.debug(f"Scene {scene_id}: {duration}s - {segment_name}")
+        segments = _create_scene_segments(script)
+
+        for scene_id, (segment_name, segment_text) in enumerate(segments, start=1):
+            # Generate Veo prompt
+            veo_prompt = _generate_veo_prompt(segment_name, segment_text, plan, visual_style)
+
+            # Estimate duration
+            duration = _estimate_duration_from_text(segment_text)
+
+            # Create scene (without voiceover_text - legacy mode)
+            scene = VisualScene(
+                scene_id=scene_id,
+                prompt_for_veo=veo_prompt,
+                est_duration_seconds=duration,
+                voiceover_text=segment_text  # Use segment text as fallback
+            )
+
+            scenes.append(scene)
+            logger.debug(f"Scene {scene_id}: {duration}s - {segment_name}")
 
     # Calculate total duration
     total_duration = sum(scene.est_duration_seconds for scene in scenes)

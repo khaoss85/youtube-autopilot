@@ -6,6 +6,7 @@ to generate voiceover audio from video scripts.
 
 Step 07 Integration: Real TTS with automatic fallback to silent audio
 Step 07.2 Integration: Creator-grade Italian voice with energetic, natural tone
+Step 07.3 Integration: Scene-aware generation with timing metadata for sync
 """
 
 import os
@@ -103,24 +104,34 @@ def synthesize_voiceover(script: VideoScript, voice_id: str = "alloy") -> str:
     Converts script text to speech audio file.
 
     Step 07: Real TTS integration with automatic fallback
+    Step 07.3: Scene-aware generation with timing diagnostics
 
     Tries to use real TTS provider (OpenAI TTS, ElevenLabs, Google Cloud TTS, etc.)
     Falls back to silent WAV if TTS unavailable or fails.
 
+    Current implementation generates a single audio file from full_voiceover_text.
+    Scene timing is handled downstream during video assembly using scene_voiceover_map.
+
+    Future enhancement: Optional per-scene audio generation for maximum sync precision.
+
     Args:
-        script: Video script with full voiceover text
+        script: Video script with full voiceover text and scene_voiceover_map
         voice_id: TTS voice identifier (default: "alloy" for OpenAI)
 
     Returns:
         Path to generated audio file (.wav or .mp3)
 
     Example:
-        >>> from yt_autopilot.core.schemas import VideoScript
+        >>> from yt_autopilot.core.schemas import VideoScript, SceneVoiceover
         >>> script = VideoScript(
         ...     hook="Test hook",
         ...     bullets=["Point 1"],
         ...     outro_cta="Subscribe!",
-        ...     full_voiceover_text="This is a test."
+        ...     full_voiceover_text="This is a test.",
+        ...     scene_voiceover_map=[
+        ...         SceneVoiceover(scene_id=1, voiceover_text="Test hook", est_duration_seconds=3),
+        ...         SceneVoiceover(scene_id=2, voiceover_text="Subscribe!", est_duration_seconds=2)
+        ...     ]
         ... )
         >>> audio_path = synthesize_voiceover(script)
         >>> print(f"Audio saved to: {audio_path}")
@@ -129,6 +140,19 @@ def synthesize_voiceover(script: VideoScript, voice_id: str = "alloy") -> str:
     logger.info("Synthesizing voiceover audio...")
     logger.info(f"  Text length: {len(script.full_voiceover_text)} characters")
     logger.info(f"  Voice ID: {voice_id}")
+
+    # Step 07.3: Log scene-level timing information for diagnostics
+    if script.scene_voiceover_map and len(script.scene_voiceover_map) > 0:
+        scene_count = len(script.scene_voiceover_map)
+        total_scene_duration = sum(s.est_duration_seconds for s in script.scene_voiceover_map)
+        logger.info(f"  Scene-aware mode: {scene_count} scenes, ~{total_scene_duration}s total")
+        logger.debug("  Scene timing breakdown:")
+        for scene in script.scene_voiceover_map:
+            text_preview = scene.voiceover_text[:60] + "..." if len(scene.voiceover_text) > 60 else scene.voiceover_text
+            logger.debug(f"    Scene {scene.scene_id}: {scene.est_duration_seconds}s - \"{text_preview}\"")
+    else:
+        logger.warning("  Scene voiceover map not available - using legacy mode")
+        logger.warning("  Consider regenerating script with Step 07.3+ for better sync")
 
     config = get_config()
     temp_dir = config["TEMP_DIR"]

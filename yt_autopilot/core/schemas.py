@@ -35,23 +35,46 @@ class VideoPlan(BaseModel):
     )
 
 
+class SceneVoiceover(BaseModel):
+    """
+    Voiceover text mapped to a specific scene for scene-level synchronization.
+
+    Step 07.3: Enables precise sync between script audio and visual scenes.
+    """
+    scene_id: int = Field(..., ge=1, description="Scene number this voiceover belongs to")
+    voiceover_text: str = Field(..., description="Text to be spoken during this scene")
+    est_duration_seconds: int = Field(..., ge=1, description="Estimated speaking duration for this text")
+
+
 class VideoScript(BaseModel):
     """
     Complete script with hook, body, and CTA.
+
+    Step 07.3: Added scene_voiceover_map for scene-level audio/visual sync.
     """
     hook: str = Field(..., description="Opening hook (first 3-5 seconds) to grab attention")
     bullets: List[str] = Field(..., description="Main content points in order")
     outro_cta: str = Field(..., description="Call-to-action at the end")
     full_voiceover_text: str = Field(..., description="Complete narration text for TTS")
+    scene_voiceover_map: List[SceneVoiceover] = Field(
+        default_factory=list,
+        description="Step 07.3: Scene-by-scene voiceover breakdown for precise sync"
+    )
 
 
 class VisualScene(BaseModel):
     """
     Single visual scene for video generation.
+
+    Step 07.3: Added voiceover_text for scene-level audio/visual synchronization.
     """
     scene_id: int = Field(..., ge=1, description="Scene number in sequence")
     prompt_for_veo: str = Field(..., description="Text prompt for Veo 3.x video generation API")
     est_duration_seconds: int = Field(..., ge=1, description="Estimated duration of this scene")
+    voiceover_text: str = Field(
+        default="",
+        description="Step 07.3: Text to be spoken during this scene (synced with script)"
+    )
 
 
 class VisualPlan(BaseModel):
