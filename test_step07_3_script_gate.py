@@ -111,11 +111,11 @@ def test_scene_synchronization():
 
         # Create test video plan
         plan = VideoPlan(
-            working_title="Test AI Automation Topic",
+            working_title="Test Technology Topic",
             strategic_angle="Testing Step 07.3 scene synchronization",
             target_audience="Developers and creators",
-            target_cta="Learn more about automation",
-            compliance_notes="Test content, no compliance issues"
+            target_cta="Learn more about technology",
+            compliance_notes=["Test content, no compliance issues"]  # Must be a list
         )
 
         # Load memory
@@ -186,6 +186,16 @@ def test_datastore_functions():
             get_script_draft,
             approve_script_for_generation,
         )
+        from yt_autopilot.core.memory_store import load_memory, save_memory
+
+        # Temporarily clear recent_titles to avoid rejection
+        print("Clearing recent_titles for test...")
+        memory = load_memory()
+        original_titles = memory.get("recent_titles", []).copy()
+        memory["recent_titles"] = []
+        save_memory(memory)
+        print("✓ Recent titles cleared")
+        print()
 
         # Generate a test package
         print("Generating test editorial package...")
@@ -251,6 +261,12 @@ def test_datastore_functions():
         print()
         print("✅ TEST 3 PASSED: All new datastore functions work correctly")
         print()
+
+        # Restore original recent_titles
+        memory["recent_titles"] = original_titles
+        save_memory(memory)
+        print("✓ Recent titles restored")
+        print()
         return True
 
     except Exception as e:
@@ -258,6 +274,16 @@ def test_datastore_functions():
         import traceback
         traceback.print_exc()
         print()
+
+        # Restore original recent_titles even on failure
+        try:
+            from yt_autopilot.core.memory_store import load_memory, save_memory
+            memory = load_memory()
+            memory["recent_titles"] = original_titles
+            save_memory(memory)
+        except:
+            pass
+
         return False
 
 
@@ -274,7 +300,17 @@ def test_two_gate_workflow():
             produce_render_assets,
         )
         from yt_autopilot.io.datastore import get_script_draft, get_draft_package
+        from yt_autopilot.core.memory_store import load_memory, save_memory
         import os
+
+        # Temporarily clear recent_titles to avoid rejection
+        print("Clearing recent_titles for test...")
+        memory = load_memory()
+        original_titles = memory.get("recent_titles", []).copy()
+        memory["recent_titles"] = []
+        save_memory(memory)
+        print("✓ Recent titles cleared")
+        print()
 
         # GATE 1: Generate script draft
         print("=" * 70)
@@ -381,6 +417,12 @@ def test_two_gate_workflow():
 
         print("✅ TEST 4 PASSED: Complete 2-gate workflow executed successfully")
         print()
+
+        # Restore original recent_titles
+        memory["recent_titles"] = original_titles
+        save_memory(memory)
+        print("✓ Recent titles restored")
+        print()
         return True
 
     except Exception as e:
@@ -388,6 +430,16 @@ def test_two_gate_workflow():
         import traceback
         traceback.print_exc()
         print()
+
+        # Restore original recent_titles even on failure
+        try:
+            from yt_autopilot.core.memory_store import load_memory, save_memory
+            memory = load_memory()
+            memory["recent_titles"] = original_titles
+            save_memory(memory)
+        except:
+            pass
+
         return False
 
 

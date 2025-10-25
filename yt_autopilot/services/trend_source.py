@@ -44,44 +44,28 @@ def fetch_trends() -> List[TrendCandidate]:
 
     mock_trends = [
         TrendCandidate(
-            keyword="AI Video Generation 2025",
-            why_hot="Google Veo 3.x release making waves in creator community",
-            region="global",
+            keyword="Gardening Tips Spring 2025",
+            why_hot="Seasonal gardening interest peaking with spring approaching",
+            region="IT",
             language="it",
             momentum_score=0.92,
             source="mock_google_trends"
         ),
         TrendCandidate(
-            keyword="Remote Work Productivity Hacks",
-            why_hot="Post-pandemic work-from-home optimization trending",
+            keyword="Photography Techniques Night Sky",
+            why_hot="Astrophotography gaining popularity among hobbyists",
             region="IT",
             language="it",
-            momentum_score=0.78,
+            momentum_score=0.85,
             source="mock_twitter_trends"
         ),
         TrendCandidate(
-            keyword="Crypto Market Analysis Q1",
-            why_hot="Bitcoin volatility and new regulations creating interest",
-            region="global",
-            language="en",
-            momentum_score=0.85,
-            source="mock_reddit_trends"
-        ),
-        TrendCandidate(
-            keyword="Plant-Based Diet Benefits",
-            why_hot="Health and sustainability trends converging",
+            keyword="Cooking Mediterranean Recipes",
+            why_hot="Healthy eating and traditional cuisine trending together",
             region="IT",
             language="it",
-            momentum_score=0.71,
-            source="mock_youtube_trends"
-        ),
-        TrendCandidate(
-            keyword="Side Hustle Ideas 2025",
-            why_hot="Economic uncertainty driving creator economy",
-            region="global",
-            language="it",
             momentum_score=0.88,
-            source="mock_social_media"
+            source="mock_reddit_trends"
         ),
     ]
 
