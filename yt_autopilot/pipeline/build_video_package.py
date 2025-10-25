@@ -226,19 +226,35 @@ Brand Tone: {brand_tone}
     """.strip()
 
     llm_task = """
-Scrivi hook virale + bullets + CTA per un YouTube Short.
-Massimo 60 secondi totali.
-Tono educativo ma coinvolgente.
-NIENTE promesse mediche, NIENTE hate speech, NIENTE clickbait tossico.
+Scrivi uno script completo per un YouTube Short in formato strutturato.
 
-Formato richiesto:
-HOOK: <frase di apertura forte e coinvolgente>
+REQUISITI:
+- Massimo 60 secondi totali di video
+- Tono educativo ma coinvolgente
+- Linguaggio chiaro e diretto
+- NIENTE promesse mediche garantite
+- NIENTE hate speech o contenuti tossici
+- NIENTE clickbait ingannevole
+
+FORMATO RICHIESTO (rispetta ESATTAMENTE questa struttura):
+
+HOOK:
+<frase di apertura forte e coinvolgente per i primi 3 secondi>
+
 BULLETS:
 - <punto chiave 1>
 - <punto chiave 2>
 - <punto chiave 3>
 - <punto chiave 4>
-CTA: <call-to-action breve e non invasiva>
+
+CTA:
+<call-to-action breve e non invasiva>
+
+VOICEOVER:
+<testo completo del voiceover da leggere ad alta voce, 15-60 secondi, tono educativo e diretto, flow naturale, include hook + bullets + CTA in forma narrativa>
+
+IMPORTANTE: Il VOICEOVER deve essere il testo finale parlato, non una lista di punti.
+Deve scorrere naturalmente come una narrazione continua.
     """.strip()
 
     llm_suggestion = generate_text(
@@ -335,7 +351,9 @@ CTA: <call-to-action breve e non invasiva>
                 script=revised_script,  # Use revised version for transparency
                 visuals=revised_visual_plan,
                 publishing=revised_publishing,
-                rejection_reason=reason
+                rejection_reason=reason,
+                llm_raw_script=llm_suggestion,  # Step 07: Audit trail
+                final_script_text=revised_script.full_voiceover_text  # Step 07: Audit trail
             )
 
             logger.info("=" * 70)
@@ -361,7 +379,9 @@ CTA: <call-to-action breve e non invasiva>
         script=script,
         visuals=visual_plan,
         publishing=publishing,
-        rejection_reason=None
+        rejection_reason=None,
+        llm_raw_script=llm_suggestion,  # Step 07: Audit trail
+        final_script_text=script.full_voiceover_text  # Step 07: Audit trail
     )
 
     logger.info("=" * 70)

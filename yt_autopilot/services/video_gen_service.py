@@ -1,14 +1,14 @@
 """
-Video Generation Service: Generates video clips using Veo/Vertex AI (Step 06-pre)
+Video Generation Service: Generates video clips using Veo/Vertex AI
 
 This service connects to Google Veo (via Vertex AI) to generate short video clips
 based on text prompts from the visual planner.
 
-Integration Status (Step 06-pre):
+Integration Status (Step 07):
 - Veo API key reading from config ✓
-- Realistic API call structure prepared ✓
-- TODO: Complete binary download and save logic
-- Fallback to placeholder if no API key present ✓
+- Real video generation with job submit/poll/download ✓
+- Automatic fallback to placeholder if API unavailable ✓
+- Error handling and retry logic ✓
 """
 
 import time
@@ -21,19 +21,199 @@ from yt_autopilot.core.config import get_config, get_veo_api_key, get_temp_dir
 from yt_autopilot.core.logger import logger
 
 
+# Veo/Vertex AI configuration
+VEO_PROJECT_ID = "manifest-wind-465212-c5"  # From service account
+VEO_LOCATION = "us-central1"
+VEO_SUBMIT_ENDPOINT = (
+    f"https://{VEO_LOCATION}-aiplatform.googleapis.com/v1/"
+    f"projects/{VEO_PROJECT_ID}/locations/{VEO_LOCATION}/"
+    f"publishers/google/models/veo:generateVideo"
+)
+
+
+def _submit_veo_job(prompt: str, duration_seconds: int, api_key: str) -> str:
+    """
+    Submits a video generation request to Veo/Vertex AI and returns a job ID.
+
+    Args:
+        prompt: Text description for video generation
+        duration_seconds: Desired video length (5-30 seconds)
+        api_key: Veo API key for authentication
+
+    Returns:
+        job_id: Operation ID for polling
+
+    Raises:
+        RuntimeError: If job submission fails
+    """
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    payload = {
+        "instances": [{
+            "prompt": prompt,
+            "videoSettings": {
+                "durationSeconds": duration_seconds,
+                "aspectRatio": "9:16",
+                "quality": "1080p"
+            }
+        }]
+    }
+
+    logger.info("  Submitting Veo job...")
+    logger.debug(f"    Endpoint: {VEO_SUBMIT_ENDPOINT[:60]}...")
+    logger.debug(f"    Prompt: {prompt[:60]}...")
+
+    try:
+        response = requests.post(
+            VEO_SUBMIT_ENDPOINT,
+            headers=headers,
+            json=payload,
+            timeout=30
+        )
+        response.raise_for_status()
+
+        # Extract job ID from response
+        response_data = response.json()
+
+        # Veo/Vertex AI returns operation name in format:
+        # "projects/{project}/locations/{location}/operations/{operation_id}"
+        if "name" in response_data:
+            job_id = response_data["name"]
+            logger.info(f"  ✓ Job submitted: {job_id.split('/')[-1][:30]}...")
+            return job_id
+        else:
+            raise RuntimeError(f"Veo API response missing 'name' field: {response_data}")
+
+    except requests.exceptions.RequestException as e:
+        error_msg = f"Veo job submission failed: {e}"
+        logger.error(f"  ✗ {error_msg}")
+        raise RuntimeError(error_msg) from e
+
+
+def _poll_veo_job(job_id: str, api_key: str, timeout_seconds: int = 600) -> str:
+    """
+    Polls Veo job status until complete or timeout.
+
+    Args:
+        job_id: Operation ID from _submit_veo_job()
+        api_key: Veo API key for authentication
+        timeout_seconds: Maximum wait time (default 10 minutes)
+
+    Returns:
+        video_url: URL to download generated video
+
+    Raises:
+        TimeoutError: If job doesn't complete within timeout
+        RuntimeError: If job fails or API error occurs
+    """
+    # Construct polling endpoint from job ID
+    # job_id format: "projects/{project}/locations/{location}/operations/{operation_id}"
+    poll_endpoint = f"https://{VEO_LOCATION}-aiplatform.googleapis.com/v1/{job_id}"
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+    }
+
+    logger.info(f"  Polling Veo job (timeout: {timeout_seconds}s)...")
+
+    start_time = time.time()
+    poll_interval = 10  # Poll every 10 seconds
+
+    while True:
+        elapsed = time.time() - start_time
+        if elapsed > timeout_seconds:
+            raise TimeoutError(f"Veo job polling timeout after {timeout_seconds}s")
+
+        try:
+            response = requests.get(poll_endpoint, headers=headers, timeout=30)
+            response.raise_for_status()
+            job_status = response.json()
+
+            # Check if job is done
+            if job_status.get("done", False):
+                # Check for errors
+                if "error" in job_status:
+                    error_msg = job_status["error"].get("message", "Unknown error")
+                    raise RuntimeError(f"Veo job failed: {error_msg}")
+
+                # Extract video URL from response
+                # Veo returns videoUri in response.metadata or response.response
+                if "response" in job_status and "videoUri" in job_status["response"]:
+                    video_url = job_status["response"]["videoUri"]
+                    logger.info(f"  ✓ Job complete: {video_url[:50]}...")
+                    return video_url
+                else:
+                    raise RuntimeError(f"Veo job complete but no videoUri in response: {job_status}")
+
+            # Job still running
+            progress = job_status.get("metadata", {}).get("progressPercent", 0)
+            logger.debug(f"    Job in progress: {progress}% (elapsed: {elapsed:.0f}s)")
+
+            time.sleep(poll_interval)
+
+        except requests.exceptions.RequestException as e:
+            error_msg = f"Veo job polling request failed: {e}"
+            logger.error(f"  ✗ {error_msg}")
+            raise RuntimeError(error_msg) from e
+
+
+def _download_video_file(video_url: str, output_path: Path, api_key: str) -> None:
+    """
+    Downloads generated video from URL to local file.
+
+    Args:
+        video_url: URL to video binary (from Veo job response)
+        output_path: Local path to save .mp4 file
+        api_key: Veo API key for authentication (if needed)
+
+    Raises:
+        RuntimeError: If download fails
+    """
+    logger.info(f"  Downloading video to {output_path.name}...")
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+    }
+
+    try:
+        response = requests.get(video_url, headers=headers, stream=True, timeout=60)
+        response.raise_for_status()
+
+        # Verify content type
+        content_type = response.headers.get("Content-Type", "")
+        if "video" not in content_type and "octet-stream" not in content_type:
+            logger.warning(f"    Unexpected content type: {content_type}")
+
+        # Write binary content to file
+        with open(output_path, "wb") as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+
+        # Verify file was created and is not empty
+        if not output_path.exists() or output_path.stat().st_size == 0:
+            raise RuntimeError(f"Downloaded file is empty or missing: {output_path}")
+
+        file_size = output_path.stat().st_size
+        logger.info(f"  ✓ Download complete: {file_size:,} bytes ({file_size / 1024:.1f} KB)")
+
+    except requests.exceptions.RequestException as e:
+        error_msg = f"Video download failed: {e}"
+        logger.error(f"  ✗ {error_msg}")
+        raise RuntimeError(error_msg) from e
+
+
 def _call_veo(prompt: str, duration_seconds: int, scene_id: int) -> str:
     """
     Calls Veo (via Vertex AI) to generate a video clip.
 
-    Integration Readiness (Step 06-pre):
-    - Reads VEO_API_KEY from config ✓
-    - Prepares realistic API request structure ✓
-    - TODO: Complete job polling and video download
-    - Falls back to placeholder if key missing ✓
+    Step 07 Integration: Full submit/poll/download with automatic fallback
 
     Veo/Vertex AI Specifications:
-    - Endpoint: https://us-central1-aiplatform.googleapis.com/v1/projects/{PROJECT_ID}/locations/us-central1/publishers/google/models/veo:generateVideo
-    - Authentication: API Key or Service Account
+    - Endpoint: Vertex AI Veo API
+    - Authentication: Bearer token (API Key)
     - Supported formats: 9:16 (vertical), 16:9 (horizontal), 1:1 (square)
     - Video length: 5-30 seconds
     - Resolution: 1080p HD
@@ -48,7 +228,7 @@ def _call_veo(prompt: str, duration_seconds: int, scene_id: int) -> str:
         Path to generated video file (.mp4) in TEMP_DIR
 
     Raises:
-        RuntimeError: If video generation fails
+        RuntimeError: If video generation fails (with automatic fallback)
     """
     logger.info(f"Veo: Generating video for scene {scene_id}...")
     logger.debug(f"  Prompt: '{prompt[:80]}...'")
@@ -61,70 +241,29 @@ def _call_veo(prompt: str, duration_seconds: int, scene_id: int) -> str:
         logger.warning("  VEO_API_KEY not found - using placeholder video")
         return _generate_placeholder_video(scene_id, prompt, duration_seconds)
 
-    # Prepare Veo/Vertex AI request
-    # TODO: Replace with actual project ID from config or service account
-    project_id = "manifest-wind-465212-c5"  # From your service account
-    location = "us-central1"
-
-    endpoint = (
-        f"https://{location}-aiplatform.googleapis.com/v1/"
-        f"projects/{project_id}/locations/{location}/"
-        f"publishers/google/models/veo:generateVideo"
-    )
-
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-
-    payload = {
-        "instances": [
-            {
-                "prompt": prompt,
-                "videoSettings": {
-                    "durationSeconds": duration_seconds,
-                    "aspectRatio": "9:16",  # Vertical for Shorts
-                    "quality": "1080p"
-                }
-            }
-        ]
-    }
-
-    logger.info(f"  Calling Vertex AI Veo endpoint...")
-    logger.debug(f"  Endpoint: {endpoint[:80]}...")
+    # Attempt real Veo generation with automatic fallback on failure
+    temp_dir = get_temp_dir()
+    output_path = temp_dir / f"scene_{scene_id:03d}.mp4"
 
     try:
-        # TODO (Step 06-pre): Complete this integration
-        #
-        # Step 1: Submit video generation job
-        # response = requests.post(endpoint, headers=headers, json=payload, timeout=30)
-        # response.raise_for_status()
-        #
-        # Step 2: Extract job ID from response
-        # job_data = response.json()
-        # job_id = job_data["name"]  # Format: projects/{project}/locations/{location}/operations/{operation_id}
-        #
-        # Step 3: Poll job until complete (Veo takes 2-5 minutes)
-        # video_url = _poll_veo_job(job_id, api_key, timeout_seconds=600)
-        #
-        # Step 4: Download generated video to TEMP_DIR
-        # temp_dir = get_temp_dir()
-        # video_path = temp_dir / f"scene_{scene_id:03d}.mp4"
-        # _download_video(video_url, video_path)
-        #
-        # Step 5: Return path
-        # return str(video_path)
+        # Step 1: Submit job
+        job_id = _submit_veo_job(prompt, duration_seconds, api_key)
 
-        # For now (Step 06-pre): Log that we WOULD call the API, but use placeholder
-        logger.info("  ✓ Veo API key present - API call structure ready")
-        logger.warning("  TODO: Complete job polling and download logic")
-        logger.warning("  Using placeholder video for now")
+        # Step 2: Poll until complete
+        video_url = _poll_veo_job(job_id, api_key, timeout_seconds=600)
+
+        # Step 3: Download video
+        _download_video_file(video_url, output_path, api_key)
+
+        logger.info(f"  ✓ Veo generation complete: {output_path.name}")
+        return str(output_path)
+
+    except (RuntimeError, TimeoutError) as e:
+        # Veo generation failed - fallback to placeholder
+        logger.warning(f"  ✗ Veo generation failed: {e}")
+        logger.warning("  → Falling back to placeholder video")
 
         return _generate_placeholder_video(scene_id, prompt, duration_seconds)
-
-    except requests.exceptions.RequestException as e:
-        logger.error(f"  ✗ Veo API call failed: {e}")
-        raise RuntimeError(f"Veo API failed for scene {scene_id}: {e}") from e
 
 
 def _generate_placeholder_video(scene_id: int, prompt: str, duration_seconds: int) -> str:

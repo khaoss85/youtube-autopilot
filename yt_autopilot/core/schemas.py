@@ -81,6 +81,8 @@ class ReadyForFactory(BaseModel):
     """
     Complete editorial package approved for production.
     Output of the editorial brain (agents layer).
+
+    Step 07: Added audit trail fields for LLM script tracking.
     """
     status: str = Field(..., description="'APPROVED' or 'REJECTED'")
     video_plan: VideoPlan
@@ -90,6 +92,14 @@ class ReadyForFactory(BaseModel):
     rejection_reason: Optional[str] = Field(
         None,
         description="If REJECTED, explanation of why (e.g., compliance issue)"
+    )
+    llm_raw_script: Optional[str] = Field(
+        None,
+        description="Step 07: Raw LLM output for audit trail (unprocessed suggestion from LLM)"
+    )
+    final_script_text: Optional[str] = Field(
+        None,
+        description="Step 07: Final validated voiceover text for audit trail"
     )
 
 

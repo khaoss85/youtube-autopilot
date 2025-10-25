@@ -230,7 +230,9 @@ def save_draft_package(
     voiceover_path: str,
     final_video_path: str,
     thumbnail_path: str,
-    publish_datetime_iso: str
+    publish_datetime_iso: str,
+    llm_raw_script: Optional[str] = None,
+    final_script: Optional[str] = None
 ) -> str:
     """
     Saves a draft video package pending human review.
@@ -289,7 +291,9 @@ def save_draft_package(
             "voiceover_path": voiceover_path,
             "final_video_path": final_video_path,
             "thumbnail_path": thumbnail_path
-        }
+        },
+        "llm_raw_script": llm_raw_script,  # Step 07: LLM original output for audit
+        "final_script": final_script  # Step 07: Final validated script text
     }
 
     # Append to JSONL file

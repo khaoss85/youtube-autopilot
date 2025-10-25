@@ -40,19 +40,27 @@ def _parse_llm_suggestion(llm_text: str) -> Optional[Dict[str, any]]:
     """
     Parse LLM-generated script suggestion into components.
 
-    Attempts to extract hook, bullets, and CTA from LLM output.
-    Expects format like:
-        HOOK: <hook text>
+    Step 07: Extended to support VOICEOVER section
+
+    Expects format:
+        HOOK:
+        <hook text>
+
         BULLETS:
         - <bullet 1>
         - <bullet 2>
-        CTA: <cta text>
+
+        CTA:
+        <cta text>
+
+        VOICEOVER:
+        <complete voiceover text>
 
     Args:
         llm_text: LLM-generated script text
 
     Returns:
-        Dict with keys 'hook', 'bullets', 'outro_cta' if parsing succeeds,
+        Dict with keys 'hook', 'bullets', 'outro_cta', 'full_voiceover_text' if parsing succeeds,
         None if parsing fails
     """
     if not llm_text or len(llm_text.strip()) < 20:
@@ -63,39 +71,70 @@ def _parse_llm_suggestion(llm_text: str) -> Optional[Dict[str, any]]:
         hook = None
         bullets = []
         outro_cta = None
+        voiceover_lines = []
         current_section = None
 
         for line in lines:
-            line = line.strip()
-            if not line:
-                continue
+            line_stripped = line.strip()
 
-            # Check for section markers
-            if line.upper().startswith("HOOK:"):
+            # Check for section markers (case-insensitive)
+            line_upper = line_stripped.upper()
+
+            if line_upper.startswith("HOOK:"):
                 current_section = "hook"
-                hook = line[5:].strip()
-            elif line.upper().startswith("BULLETS:"):
+                # Extract text after "HOOK:" if present on same line
+                hook_text = line_stripped[5:].strip()
+                if hook_text:
+                    hook = hook_text
+            elif line_upper.startswith("BULLETS:"):
                 current_section = "bullets"
-            elif line.upper().startswith("CTA:"):
+            elif line_upper.startswith("CTA:"):
                 current_section = "cta"
-                outro_cta = line[4:].strip()
-            elif line.startswith("-") or line.startswith("•"):
-                # Bullet point
-                bullet_text = line[1:].strip()
-                if bullet_text and current_section == "bullets":
-                    bullets.append(bullet_text)
+                # Extract text after "CTA:" if present on same line
+                cta_text = line_stripped[4:].strip()
+                if cta_text:
+                    outro_cta = cta_text
+            elif line_upper.startswith("VOICEOVER:"):
+                current_section = "voiceover"
+                # Extract text after "VOICEOVER:" if present on same line
+                vo_text = line_stripped[10:].strip()
+                if vo_text:
+                    voiceover_lines.append(vo_text)
+            elif not line_stripped:
+                # Empty line - skip
+                continue
             elif current_section == "hook" and not hook:
-                hook = line
+                hook = line_stripped
+            elif current_section == "bullets":
+                # Bullet point
+                if line_stripped.startswith("-") or line_stripped.startswith("•"):
+                    bullet_text = line_stripped[1:].strip()
+                    if bullet_text:
+                        bullets.append(bullet_text)
+                elif line_stripped:  # Non-bullet line in bullets section
+                    # Some LLMs might not use dashes
+                    bullets.append(line_stripped)
             elif current_section == "cta" and not outro_cta:
-                outro_cta = line
+                outro_cta = line_stripped
+            elif current_section == "voiceover":
+                voiceover_lines.append(line_stripped)
 
-        # Validate we got at least hook and CTA
+        # Assemble voiceover text
+        full_voiceover_text = " ".join(voiceover_lines).strip() if voiceover_lines else None
+
+        # Validate we got required components
         if hook and outro_cta and len(bullets) >= 3:
-            return {
+            result = {
                 "hook": hook,
                 "bullets": bullets,
                 "outro_cta": outro_cta
             }
+
+            # Add voiceover if present, otherwise will be composed from hook/bullets/cta
+            if full_voiceover_text and len(full_voiceover_text) > 50:
+                result["full_voiceover_text"] = full_voiceover_text
+
+            return result
 
         return None
 
@@ -278,12 +317,20 @@ def write_script(
         hook = llm_parsed["hook"]
         bullets = llm_parsed["bullets"]
         outro_cta = llm_parsed["outro_cta"]
-        logger.info("  Using LLM-generated hook, bullets, and CTA")
+
+        # Use LLM voiceover if present, otherwise compose from components
+        if "full_voiceover_text" in llm_parsed:
+            full_voiceover_text = llm_parsed["full_voiceover_text"]
+            logger.info("  Using LLM-generated hook, bullets, CTA, and voiceover")
+        else:
+            full_voiceover_text = _compose_full_voiceover(hook, bullets, outro_cta)
+            logger.info("  Using LLM-generated hook, bullets, CTA (voiceover composed)")
     else:
         # Fallback to deterministic generation
         hook = _generate_hook(plan, brand_tone)
         bullets = _generate_content_bullets(plan)
         outro_cta = _generate_outro_cta(plan)
+        full_voiceover_text = _compose_full_voiceover(hook, bullets, outro_cta)
         logger.info("  Using deterministic script generation")
 
     # Apply safety rules (regardless of source)
@@ -293,9 +340,6 @@ def write_script(
     # - No copyright violations
     # - Brand tone compliance
     # For now, we trust QualityReviewer to catch issues
-
-    # Compose full voiceover
-    full_voiceover_text = _compose_full_voiceover(hook, bullets, outro_cta)
 
     # Create VideoScript
     script = VideoScript(

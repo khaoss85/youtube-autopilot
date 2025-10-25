@@ -116,6 +116,35 @@ def cmd_show(args):
     print(f"  {draft.get('saved_at')}")
     print()
 
+    # Step 07: Script Audit Trail
+    print("SCRIPT AUDIT TRAIL (Step 07):")
+    llm_raw = draft.get("llm_raw_script")
+    final_script = draft.get("final_script")
+
+    if llm_raw:
+        print("  LLM Raw Output:")
+        if len(llm_raw) > 400:
+            print(f"    {llm_raw[:400]}...")
+            print(f"    (Total: {len(llm_raw)} chars)")
+        else:
+            print(f"    {llm_raw}")
+    else:
+        print("  LLM Raw Output: (not available)")
+
+    print()
+
+    if final_script:
+        print("  Final Validated Script:")
+        if len(final_script) > 400:
+            print(f"    {final_script[:400]}...")
+            print(f"    (Total: {len(final_script)} chars)")
+        else:
+            print(f"    {final_script}")
+    else:
+        print("  Final Validated Script: (not available)")
+
+    print()
+
     print("=" * 70)
     print("To approve and publish this video:")
     print(f"  python tools/review_console.py publish {video_id} --approved-by \"your@email\"")

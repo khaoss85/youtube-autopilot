@@ -171,7 +171,9 @@ def produce_render_assets(publish_datetime_iso: str) -> Dict[str, Any]:
         voiceover_path=voiceover_path,
         final_video_path=final_video_path,
         thumbnail_path=thumbnail_path,
-        publish_datetime_iso=publish_datetime_iso
+        publish_datetime_iso=publish_datetime_iso,
+        llm_raw_script=ready.llm_raw_script,  # Step 07: Audit trail
+        final_script=ready.final_script_text  # Step 07: Audit trail
     )
 
     logger.info("")
