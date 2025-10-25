@@ -158,6 +158,25 @@ class VideoMetrics(BaseModel):
     )
 
 
+class AssetPaths(BaseModel):
+    """
+    Tracks file paths for all generated assets of a video.
+
+    Step 07.4: Enables organized asset management without overwriting.
+    Each video gets its own unique output directory.
+    """
+    video_id: str = Field(..., description="Unique video identifier (script_internal_id)")
+    output_dir: str = Field(..., description="Base output directory for this video")
+    final_video_path: Optional[str] = Field(None, description="Path to final assembled video")
+    thumbnail_path: Optional[str] = Field(None, description="Path to thumbnail image")
+    voiceover_path: Optional[str] = Field(None, description="Path to voiceover audio file")
+    scene_video_paths: List[str] = Field(
+        default_factory=list,
+        description="Paths to individual scene videos in order"
+    )
+    metadata_path: Optional[str] = Field(None, description="Path to metadata JSON file")
+
+
 class ChannelMemory(BaseModel):
     """
     Persistent channel brand memory and history.

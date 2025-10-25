@@ -15,6 +15,9 @@ google-auth-httplib2>=0.1.1
 # Install ffmpeg: brew install ffmpeg (macOS) or apt-get install ffmpeg (Linux)
 ffmpeg-python>=0.2.0
 
+# Image generation (Step 07.2: Thumbnail fallback)
+Pillow>=10.0.0
+
 # Video generation (Step 06-pre: Veo/Vertex AI integration)
 google-cloud-aiplatform>=1.38.0  # For Google Vertex AI / Veo video generation
 

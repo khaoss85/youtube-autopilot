@@ -12,6 +12,7 @@ Step 07.3: 2-Gate Workflow
                                         - Approva script e abilita generazione asset
 
   GATE 2 (Video Review - expensive):
+    stats                               - Mostra statistiche datastore e distribuzione stati
     list                                - Elenca video in attesa di review
     show <video_id>                     - Mostra dettagli video completo
     publish <video_id> --approved-by "name"
@@ -28,6 +29,7 @@ Example usage (Step 07.3 workflow):
   python tools/review_console.py approve-script abc123-script-id --approved-by "dan@company"
 
   # GATE 2: Video review (happens after generation, expensive)
+  python tools/review_console.py stats  # View datastore statistics
   python tools/review_console.py list
   python tools/review_console.py show 6a1b1c2d-3e4f-5a6b-7c8d-9e0f1a2b3c4d
   python tools/review_console.py publish 6a1b1c2d-3e4f-5a6b-7c8d-9e0f1a2b3c4d --approved-by "dan@company"
@@ -49,6 +51,8 @@ from yt_autopilot.io.datastore import (
     approve_script_for_generation  # Step 07.3 - Gate 1
 )
 from yt_autopilot.pipeline.produce_render_publish import publish_after_approval
+from yt_autopilot.core.config import get_config
+import json
 
 
 # ============================================================================
@@ -319,6 +323,102 @@ def cmd_approve_script(args):
 # GATE 2: VIDEO REVIEW COMMANDS (existing)
 # ============================================================================
 
+def cmd_stats(args):
+    """Show datastore statistics and state distribution."""
+    print("=" * 70)
+    print("DATASTORE STATISTICS")
+    print("=" * 70)
+    print()
+
+    config = get_config()
+    datastore_path = config["PROJECT_ROOT"] / "data" / "records.jsonl"
+
+    if not datastore_path.exists():
+        print("No datastore file found.")
+        print(f"Expected: {datastore_path}")
+        print()
+        return
+
+    # Analyze records
+    state_counts = {}
+    legacy_states = []
+    total_records = 0
+
+    with open(datastore_path, "r", encoding="utf-8") as f:
+        for line in f:
+            if not line.strip():
+                continue
+
+            total_records += 1
+            record = json.loads(line.strip())
+            state = record.get("production_state", "UNKNOWN")
+
+            state_counts[state] = state_counts.get(state, 0) + 1
+
+            # Track legacy states
+            if state == "HUMAN_REVIEW_PENDING":
+                legacy_states.append(record)
+
+    print(f"Total records: {total_records}")
+    print()
+
+    print("RECORDS BY STATE:")
+    print("-" * 70)
+
+    # Sort states by count (descending)
+    sorted_states = sorted(state_counts.items(), key=lambda x: x[1], reverse=True)
+
+    for state, count in sorted_states:
+        marker = ""
+        if state == "HUMAN_REVIEW_PENDING":
+            marker = " ⚠️  LEGACY STATE"
+        elif state == "VIDEO_PENDING_REVIEW":
+            marker = " ✓ Current (Step 07.3)"
+        elif state == "SCRIPT_PENDING_REVIEW":
+            marker = " ✓ Gate 1"
+        elif state == "READY_FOR_GENERATION":
+            marker = " → Ready for assets"
+        elif state == "SCHEDULED_ON_YOUTUBE":
+            marker = " ✓ Published"
+
+        print(f"  {state}: {count}{marker}")
+
+    print()
+
+    # Legacy state warnings
+    if legacy_states:
+        print("=" * 70)
+        print("⚠️  LEGACY STATES DETECTED")
+        print("=" * 70)
+        print()
+        print(f"Found {len(legacy_states)} record(s) with legacy state HUMAN_REVIEW_PENDING")
+        print()
+        print("These should be migrated to VIDEO_PENDING_REVIEW for consistency.")
+        print()
+        print("To migrate legacy states:")
+        print("  python tools/migrate_legacy_states.py --dry-run  # Preview")
+        print("  python tools/migrate_legacy_states.py --yes      # Apply")
+        print()
+
+    # Cleanup suggestions
+    orphan_scripts = state_counts.get("READY_FOR_GENERATION", 0)
+    if orphan_scripts > 0:
+        print("=" * 70)
+        print("💡 CLEANUP SUGGESTIONS")
+        print("=" * 70)
+        print()
+        print(f"Found {orphan_scripts} script(s) in READY_FOR_GENERATION state.")
+        print()
+        print("These may be orphaned scripts from previous runs.")
+        print("To clean up:")
+        print("  python tools/cleanup_datastore.py --list-all                    # View all")
+        print("  python tools/cleanup_datastore.py --delete-state READY_FOR_GENERATION --dry-run")
+        print("  python tools/cleanup_datastore.py --delete-state READY_FOR_GENERATION --yes")
+        print()
+
+    print("=" * 70)
+
+
 def cmd_list(args):
     """List all videos pending human review."""
     print("=" * 70)
@@ -554,6 +654,9 @@ Examples (Step 07.3 - 2-Gate Workflow):
 
   GATE 2: Video Review (expensive, happens after generation)
   -----------------------------------------------------------
+  # Show datastore statistics
+  python tools/review_console.py stats
+
   # List videos pending review
   python tools/review_console.py list
 
@@ -589,6 +692,10 @@ Examples (Step 07.3 - 2-Gate Workflow):
     # ========================================================================
     # GATE 2: VIDEO REVIEW COMMANDS
     # ========================================================================
+
+    # Stats command
+    parser_stats = subparsers.add_parser("stats", help="Show datastore statistics and state distribution")
+    parser_stats.set_defaults(func=cmd_stats)
 
     # List command
     parser_list = subparsers.add_parser("list", help="[Gate 2] List all videos pending review")

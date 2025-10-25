@@ -19,7 +19,7 @@ import uuid
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any, Optional
-from yt_autopilot.core.schemas import ReadyForFactory, UploadResult, VideoMetrics
+from yt_autopilot.core.schemas import ReadyForFactory, UploadResult, VideoMetrics, AssetPaths
 from yt_autopilot.core.config import get_config
 from yt_autopilot.core.logger import logger
 
@@ -35,6 +35,51 @@ def _get_datastore_path() -> Path:
     data_dir = config["PROJECT_ROOT"] / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     return data_dir / "records.jsonl"
+
+
+def _asset_paths_to_dict(asset_paths: AssetPaths) -> Dict[str, Any]:
+    """
+    Converts AssetPaths object to dict for datastore storage (Step 07.4).
+
+    Args:
+        asset_paths: AssetPaths object with file locations
+
+    Returns:
+        Dict suitable for datastore 'files' field
+    """
+    return {
+        "video_id": asset_paths.video_id,
+        "output_dir": asset_paths.output_dir,
+        "scene_paths": asset_paths.scene_video_paths,
+        "voiceover_path": asset_paths.voiceover_path or "",
+        "final_video_path": asset_paths.final_video_path or "",
+        "thumbnail_path": asset_paths.thumbnail_path or "",
+        "metadata_path": asset_paths.metadata_path or ""
+    }
+
+
+def _dict_to_asset_paths(files_dict: Dict[str, Any]) -> Optional[AssetPaths]:
+    """
+    Converts datastore 'files' dict to AssetPaths object (Step 07.4).
+
+    Args:
+        files_dict: Dict from datastore 'files' field
+
+    Returns:
+        AssetPaths object, or None if files_dict is empty/invalid
+    """
+    if not files_dict or "video_id" not in files_dict:
+        return None
+
+    return AssetPaths(
+        video_id=files_dict.get("video_id", ""),
+        output_dir=files_dict.get("output_dir", ""),
+        final_video_path=files_dict.get("final_video_path"),
+        thumbnail_path=files_dict.get("thumbnail_path"),
+        voiceover_path=files_dict.get("voiceover_path"),
+        scene_video_paths=files_dict.get("scene_paths", []),
+        metadata_path=files_dict.get("metadata_path")
+    )
 
 
 def save_video_package(

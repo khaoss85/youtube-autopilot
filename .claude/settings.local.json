@@ -2,7 +2,18 @@
   "permissions": {
     "allow": [
       "Bash(chmod:*)",
-      "Bash(brew install:*)"
+      "Bash(brew install:*)",
+      "Bash(python:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nfeat: step 07.2 - creator-grade quality pass complete\n\nUpgraded system from technically functional to creator YouTube quality:\n\n- TTS: Upgraded to tts-1-hd + speed=1.05 for energetic Italian voice\n- Video: Added 3-tier fallback (OpenAI → Veo → ffmpeg placeholder)\n- Thumbnails: Implemented DALL-E 3 generation with PIL fallback\n- LLM Prompts: Enhanced for creator-style (energetic, short, direct)\n- Provider Tracking: New system tracks which AI generated each asset\n- Review Console: Added CREATIVE QUALITY CHECK with quality score\n- Datastore: Extended with provider tracking fields (backward compatible)\n- Test: Comprehensive test_step07_2_quality_pass.py\n\nAll changes maintain backward compatibility and graceful degradation.\nSystem works with 0, 1, 2, or 3 API providers configured.\n\nQuality score: % of real AI providers used (0-100%)\n- 100%: Full creator-grade (all real AI)\n- 67%+: Partial creator-grade (some fallbacks)\n- <67%: Mostly fallbacks (check API keys)\n\nFiles modified: 12\nNew files: 2 (provider_tracker.py, test_step07_2_quality_pass.py)\nTotal new code: ~885 lines\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(python3:*)",
+      "Bash(pip3 install:*)",
+      "Bash(git commit:*)",
+      "WebSearch",
+      "Bash(cat:*)",
+      "Bash(tee:*)",
+      "Read(//private/tmp/**)",
+      "Bash(ffprobe:*)"
     ],
     "deny": [],
     "ask": []

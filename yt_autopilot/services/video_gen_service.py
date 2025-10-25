@@ -20,9 +20,10 @@ import subprocess
 import requests
 from pathlib import Path
 from typing import List, Optional
-from yt_autopilot.core.schemas import VisualPlan, VisualScene
+from yt_autopilot.core.schemas import VisualPlan, VisualScene, AssetPaths
 from yt_autopilot.core.config import get_config, get_veo_api_key, get_openai_video_key, get_temp_dir
 from yt_autopilot.core.logger import logger
+from yt_autopilot.core import asset_manager
 from yt_autopilot.services import provider_tracker
 
 
@@ -210,11 +211,17 @@ def _download_video_file(video_url: str, output_path: Path, api_key: str) -> Non
         raise RuntimeError(error_msg) from e
 
 
-def _call_openai_video(prompt: str, duration_seconds: int, scene_id: int) -> str:
+def _call_openai_video(
+    prompt: str,
+    duration_seconds: int,
+    scene_id: int,
+    asset_paths: AssetPaths
+) -> str:
     """
     Calls OpenAI Sora 2 video generation API.
 
     Step 07.3: Real Sora 2 API implementation (first tier before Veo)
+    Step 07.4: Updated to use AssetPaths for organized output
     FIXED: Aligned with official OpenAI Sora 2 API documentation
 
     Uses async job pattern:
@@ -232,9 +239,10 @@ def _call_openai_video(prompt: str, duration_seconds: int, scene_id: int) -> str
         prompt: Text description for video generation
         duration_seconds: Desired video length (5-30 seconds)
         scene_id: Scene identifier for file naming
+        asset_paths: AssetPaths object for organized output directory
 
     Returns:
-        Path to generated video file (.mp4) in TEMP_DIR
+        Path to generated video file (.mp4) in asset-specific directory
 
     Raises:
         RuntimeError: If API key not configured or generation fails
@@ -336,10 +344,12 @@ def _call_openai_video(prompt: str, duration_seconds: int, scene_id: int) -> str
 
     # Step 3: Download generated video
     # FIXED: Download from correct /content endpoint according to OpenAI docs
+    # Step 07.4: Use asset_manager for organized output
     download_endpoint = f"https://api.openai.com/v1/videos/{job_id}/content"
-    output_path = get_temp_dir() / f"scene_{scene_id:03d}.mp4"
+    output_path = Path(asset_manager.get_scene_path(asset_paths, scene_id))
 
     logger.info(f"  Downloading Sora 2 video from /content endpoint...")
+    logger.debug(f"  Output: {output_path}")
     try:
         response = requests.get(download_endpoint, headers=headers, stream=True, timeout=60)
         response.raise_for_status()
@@ -356,6 +366,9 @@ def _call_openai_video(prompt: str, duration_seconds: int, scene_id: int) -> str
         file_size = output_path.stat().st_size
         logger.info(f"  ✓ Download complete: {file_size:,} bytes ({file_size / (1024*1024):.1f} MB)")
 
+        # Step 07.4: Register scene path in asset tracking
+        asset_manager.register_scene_path(asset_paths, scene_id, str(output_path))
+
         # Track provider
         logger.info("  VIDEO_PROVIDER=OPENAI_SORA2")
         provider_tracker.set_video_provider("OPENAI_SORA2")
@@ -368,11 +381,17 @@ def _call_openai_video(prompt: str, duration_seconds: int, scene_id: int) -> str
         raise RuntimeError(error_msg) from e
 
 
-def _call_veo(prompt: str, duration_seconds: int, scene_id: int) -> str:
+def _call_veo(
+    prompt: str,
+    duration_seconds: int,
+    scene_id: int,
+    asset_paths: AssetPaths
+) -> str:
     """
     Calls Veo (via Vertex AI) to generate a video clip.
 
     Step 07 Integration: Full submit/poll/download with automatic fallback
+    Step 07.4: Updated to use AssetPaths for organized output
 
     Veo/Vertex AI Specifications:
     - Endpoint: Vertex AI Veo API
@@ -386,9 +405,10 @@ def _call_veo(prompt: str, duration_seconds: int, scene_id: int) -> str:
         prompt: Text description for video generation (e.g., "Modern office, camera panning")
         duration_seconds: Desired video length (5-30 seconds)
         scene_id: Scene identifier for file naming
+        asset_paths: AssetPaths object for organized output directory
 
     Returns:
-        Path to generated video file (.mp4) in TEMP_DIR
+        Path to generated video file (.mp4) in asset-specific directory
 
     Raises:
         RuntimeError: If video generation fails (with automatic fallback)
@@ -402,11 +422,11 @@ def _call_veo(prompt: str, duration_seconds: int, scene_id: int) -> str:
 
     if not api_key:
         logger.warning("  VEO_API_KEY not found - using placeholder video")
-        return _generate_placeholder_video(scene_id, prompt, duration_seconds)
+        return _generate_placeholder_video(scene_id, prompt, duration_seconds, asset_paths)
 
     # Attempt real Veo generation with automatic fallback on failure
-    temp_dir = get_temp_dir()
-    output_path = temp_dir / f"scene_{scene_id:03d}.mp4"
+    # Step 07.4: Use asset_manager for organized output
+    output_path = Path(asset_manager.get_scene_path(asset_paths, scene_id))
 
     try:
         # Step 1: Submit job
@@ -418,6 +438,9 @@ def _call_veo(prompt: str, duration_seconds: int, scene_id: int) -> str:
         # Step 3: Download video
         _download_video_file(video_url, output_path, api_key)
 
+        # Step 07.4: Register scene path in asset tracking
+        asset_manager.register_scene_path(asset_paths, scene_id, str(output_path))
+
         logger.info(f"  ✓ Veo generation complete: {output_path.name}")
         logger.info("  VIDEO_PROVIDER=VEO")
         provider_tracker.set_video_provider("VEO")
@@ -428,12 +451,19 @@ def _call_veo(prompt: str, duration_seconds: int, scene_id: int) -> str:
         logger.warning(f"  ✗ Veo generation failed: {e}")
         logger.warning("  → Falling back to placeholder video")
 
-        return _generate_placeholder_video(scene_id, prompt, duration_seconds)
+        return _generate_placeholder_video(scene_id, prompt, duration_seconds, asset_paths)
 
 
-def _generate_placeholder_video(scene_id: int, prompt: str, duration_seconds: int) -> str:
+def _generate_placeholder_video(
+    scene_id: int,
+    prompt: str,
+    duration_seconds: int,
+    asset_paths: AssetPaths
+) -> str:
     """
     Generate placeholder video file when Veo API is not available.
+
+    Step 07.4: Updated to use AssetPaths for organized output
 
     This creates a REAL .mp4 video file (not a text file) using ffmpeg:
     - Black screen 1080x1920 (9:16 vertical for Shorts)
@@ -448,18 +478,16 @@ def _generate_placeholder_video(scene_id: int, prompt: str, duration_seconds: in
         scene_id: Scene identifier
         prompt: Video generation prompt (logged but not used)
         duration_seconds: Requested duration
+        asset_paths: AssetPaths object for organized output directory
 
     Returns:
-        Path to real .mp4 file
+        Path to real .mp4 file in asset-specific directory
 
     Raises:
         RuntimeError: If ffmpeg fails to generate video
     """
-    temp_dir = get_temp_dir()
-    temp_dir.mkdir(parents=True, exist_ok=True)
-
-    # File path without "_PLACEHOLDER" suffix (clean naming for ffmpeg concat)
-    video_path = temp_dir / f"scene_{scene_id:03d}.mp4"
+    # Step 07.4: Use asset_manager for organized output
+    video_path = Path(asset_manager.get_scene_path(asset_paths, scene_id))
 
     logger.info(f"  Generating placeholder video with ffmpeg...")
     logger.debug(f"    Duration: {duration_seconds}s")
@@ -495,6 +523,9 @@ def _generate_placeholder_video(scene_id: int, prompt: str, duration_seconds: in
         # Verify file was created and is not empty
         if not video_path.exists() or video_path.stat().st_size == 0:
             raise RuntimeError(f"ffmpeg created empty or missing file: {video_path}")
+
+        # Step 07.4: Register scene path in asset tracking
+        asset_manager.register_scene_path(asset_paths, scene_id, str(video_path))
 
         logger.info(f"  ✓ Generated placeholder: {video_path.name} ({video_path.stat().st_size} bytes)")
         logger.info("  VIDEO_PROVIDER=FALLBACK_PLACEHOLDER")
@@ -550,12 +581,14 @@ def _generate_placeholder_video(scene_id: int, prompt: str, duration_seconds: in
 def _generate_video_with_provider_fallback(
     prompt: str,
     duration_seconds: int,
-    scene_id: int
+    scene_id: int,
+    asset_paths: AssetPaths
 ) -> str:
     """
     Generates video with 3-tier provider fallback chain.
 
     Step 07.2: Multi-provider strategy for creator-grade quality
+    Step 07.4: Updated to use AssetPaths for organized output
 
     Provider chain (automatic fallback):
     1. OpenAI Sora-style (if OPENAI_VIDEO_API_KEY configured)
@@ -566,9 +599,10 @@ def _generate_video_with_provider_fallback(
         prompt: Text description for video generation
         duration_seconds: Desired video length (5-30 seconds)
         scene_id: Scene identifier for file naming
+        asset_paths: AssetPaths object for organized output directory
 
     Returns:
-        Path to generated video file (.mp4)
+        Path to generated video file (.mp4) in asset-specific directory
 
     Note:
         This function never raises. It will always return a valid video path
@@ -576,28 +610,35 @@ def _generate_video_with_provider_fallback(
     """
     # Tier 1: Try OpenAI Sora-style first
     try:
-        return _call_openai_video(prompt, duration_seconds, scene_id)
+        return _call_openai_video(prompt, duration_seconds, scene_id, asset_paths)
     except RuntimeError as e:
         # OpenAI unavailable/failed - this is expected until Sora API is public
         logger.debug(f"  OpenAI video provider unavailable: {e}")
 
     # Tier 2 & 3: Veo (with built-in ffmpeg placeholder fallback)
     # _call_veo() already handles Veo → placeholder fallback internally
-    return _call_veo(prompt, duration_seconds, scene_id)
+    return _call_veo(prompt, duration_seconds, scene_id, asset_paths)
 
 
-def generate_scenes(visual_plan: VisualPlan, max_retries: int = 2) -> List[str]:
+def generate_scenes(
+    visual_plan: VisualPlan,
+    asset_paths: AssetPaths,
+    max_retries: int = 2
+) -> List[str]:
     """
     Generates all video clips for a visual plan using Veo API.
+
+    Step 07.4: Updated to use AssetPaths for organized output
 
     For each scene in the visual plan:
     1. Extracts prompt and duration
     2. Calls Veo API to generate video
-    3. Saves clip to temp directory
+    3. Saves clip to asset-specific directory
     4. Retries on failure (max 2 attempts)
 
     Args:
         visual_plan: Complete visual plan with scene list
+        asset_paths: AssetPaths object for organized output directory
         max_retries: Maximum retry attempts per scene (default: 2)
 
     Returns:
@@ -609,6 +650,7 @@ def generate_scenes(visual_plan: VisualPlan, max_retries: int = 2) -> List[str]:
 
     Example:
         >>> from yt_autopilot.core.schemas import VisualPlan, VisualScene
+        >>> from yt_autopilot.core.asset_manager import create_asset_paths
         >>> plan = VisualPlan(
         ...     aspect_ratio="9:16",
         ...     style_notes="Modern, dynamic",
@@ -620,7 +662,8 @@ def generate_scenes(visual_plan: VisualPlan, max_retries: int = 2) -> List[str]:
         ...         )
         ...     ]
         ... )
-        >>> clips = generate_scenes(plan)
+        >>> paths = create_asset_paths("video_123")
+        >>> clips = generate_scenes(plan, paths)
         >>> print(f"Generated {len(clips)} clips")
         Generated 1 clips
     """
@@ -644,10 +687,12 @@ def generate_scenes(visual_plan: VisualPlan, max_retries: int = 2) -> List[str]:
 
             try:
                 # Step 07.2: Use 3-tier fallback (OpenAI → Veo → placeholder)
+                # Step 07.4: Pass asset_paths for organized output
                 clip_path = _generate_video_with_provider_fallback(
                     prompt=scene.prompt_for_veo,
                     duration_seconds=scene.est_duration_seconds,
-                    scene_id=scene.scene_id
+                    scene_id=scene.scene_id,
+                    asset_paths=asset_paths
                 )
                 success = True
 

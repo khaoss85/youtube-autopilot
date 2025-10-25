@@ -13,7 +13,7 @@ import os
 import subprocess
 import requests
 from pathlib import Path
-from yt_autopilot.core.schemas import VideoScript
+from yt_autopilot.core.schemas import VideoScript, AssetPaths
 from yt_autopilot.core.config import get_config
 from yt_autopilot.core.logger import logger
 from yt_autopilot.services import provider_tracker
@@ -99,12 +99,17 @@ def _call_tts_provider(text: str, voice_id: str = "alloy") -> bytes:
         raise RuntimeError(error_msg) from e
 
 
-def synthesize_voiceover(script: VideoScript, voice_id: str = "alloy") -> str:
+def synthesize_voiceover(
+    script: VideoScript,
+    asset_paths: AssetPaths,
+    voice_id: str = "alloy"
+) -> str:
     """
     Converts script text to speech audio file.
 
     Step 07: Real TTS integration with automatic fallback
     Step 07.3: Scene-aware generation with timing diagnostics
+    Step 07.4: Updated to use AssetPaths for organized output
 
     Tries to use real TTS provider (OpenAI TTS, ElevenLabs, Google Cloud TTS, etc.)
     Falls back to silent WAV if TTS unavailable or fails.
@@ -116,13 +121,15 @@ def synthesize_voiceover(script: VideoScript, voice_id: str = "alloy") -> str:
 
     Args:
         script: Video script with full voiceover text and scene_voiceover_map
+        asset_paths: AssetPaths object for organized output directory
         voice_id: TTS voice identifier (default: "alloy" for OpenAI)
 
     Returns:
-        Path to generated audio file (.wav or .mp3)
+        Path to generated audio file (.wav or .mp3) in asset-specific directory
 
     Example:
         >>> from yt_autopilot.core.schemas import VideoScript, SceneVoiceover
+        >>> from yt_autopilot.core.asset_manager import create_asset_paths
         >>> script = VideoScript(
         ...     hook="Test hook",
         ...     bullets=["Point 1"],
@@ -133,9 +140,10 @@ def synthesize_voiceover(script: VideoScript, voice_id: str = "alloy") -> str:
         ...         SceneVoiceover(scene_id=2, voiceover_text="Subscribe!", est_duration_seconds=2)
         ...     ]
         ... )
-        >>> audio_path = synthesize_voiceover(script)
+        >>> paths = create_asset_paths("video_123")
+        >>> audio_path = synthesize_voiceover(script, paths)
         >>> print(f"Audio saved to: {audio_path}")
-        Audio saved to: ./tmp/voiceover.mp3
+        Audio saved to: output/video_123/voiceover.mp3
     """
     logger.info("Synthesizing voiceover audio...")
     logger.info(f"  Text length: {len(script.full_voiceover_text)} characters")
@@ -154,10 +162,6 @@ def synthesize_voiceover(script: VideoScript, voice_id: str = "alloy") -> str:
         logger.warning("  Scene voiceover map not available - using legacy mode")
         logger.warning("  Consider regenerating script with Step 07.3+ for better sync")
 
-    config = get_config()
-    temp_dir = config["TEMP_DIR"]
-    temp_dir.mkdir(parents=True, exist_ok=True)
-
     # Estimate duration from text length
     # Rule: ~150 words/minute ≈ 2.5 words/second
     word_count = len(script.full_voiceover_text.split())
@@ -169,11 +173,13 @@ def synthesize_voiceover(script: VideoScript, voice_id: str = "alloy") -> str:
     try:
         audio_bytes = _call_tts_provider(script.full_voiceover_text, voice_id)
 
-        # Save audio bytes to file (MP3 format from OpenAI TTS)
-        audio_path = temp_dir / "voiceover.mp3"
+        # Step 07.4: Save audio to asset-specific directory
+        audio_path = Path(asset_paths.voiceover_path)
+        audio_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
         audio_path.write_bytes(audio_bytes)
 
         logger.info(f"✓ Real TTS voiceover generated: {audio_path.name}")
+        logger.info(f"  File path: {audio_path}")
         logger.info(f"  File size: {len(audio_bytes):,} bytes ({len(audio_bytes) / 1024:.1f} KB)")
 
         return str(audio_path)
@@ -185,9 +191,12 @@ def synthesize_voiceover(script: VideoScript, voice_id: str = "alloy") -> str:
         logger.info("  VOICE_PROVIDER=FALLBACK_SILENT")
         provider_tracker.set_voice_provider("FALLBACK_SILENT")
 
-        audio_path = temp_dir / "voiceover.wav"
+        # Step 07.4: Use asset-specific path (change extension to .wav for silent)
+        audio_path = Path(str(asset_paths.voiceover_path).replace(".mp3", ".wav"))
+        audio_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
 
         logger.info(f"  Generating silent WAV with ffmpeg...")
+        logger.debug(f"  Output: {audio_path}")
 
         # Generate silent audio WAV file with ffmpeg
         ffmpeg_cmd = [

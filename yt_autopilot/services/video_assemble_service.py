@@ -8,7 +8,7 @@ and produce the final video file ready for upload.
 import subprocess
 from pathlib import Path
 from typing import List
-from yt_autopilot.core.schemas import VisualPlan
+from yt_autopilot.core.schemas import VisualPlan, AssetPaths
 from yt_autopilot.core.config import get_config
 from yt_autopilot.core.logger import logger
 
@@ -35,10 +35,13 @@ def _check_ffmpeg_available() -> bool:
 def assemble_final_video(
     scene_paths: List[str],
     voiceover_path: str,
-    visuals: VisualPlan
+    visuals: VisualPlan,
+    asset_paths: AssetPaths
 ) -> str:
     """
     Assembles final video from scene clips and voiceover audio using ffmpeg.
+
+    Step 07.4: Updated to use AssetPaths for organized output
 
     Process:
     1. Create concat file listing all scene clips
@@ -61,26 +64,29 @@ def assemble_final_video(
         scene_paths: List of paths to scene video files (.mp4)
         voiceover_path: Path to voiceover audio file (.wav)
         visuals: Visual plan for metadata and timing
+        asset_paths: AssetPaths object for organized output directory
 
     Returns:
-        Path to final assembled video (.mp4)
+        Path to final assembled video (.mp4) in asset-specific directory
 
     Raises:
         RuntimeError: If ffmpeg is not available or assembly fails
         FileNotFoundError: If input files don't exist
 
     Example:
-        >>> scene_paths = ["./tmp/scene_001.mp4", "./tmp/scene_002.mp4"]
-        >>> voiceover = "./tmp/voiceover.wav"
+        >>> scene_paths = ["./output/vid1/scenes/scene_1.mp4", "./output/vid1/scenes/scene_2.mp4"]
+        >>> voiceover = "./output/vid1/voiceover.wav"
         >>> from yt_autopilot.core.schemas import VisualPlan, VisualScene
+        >>> from yt_autopilot.core.asset_manager import create_asset_paths
         >>> plan = VisualPlan(
         ...     aspect_ratio="9:16",
         ...     style_notes="Test",
         ...     scenes=[VisualScene(scene_id=1, prompt_for_veo="Test", est_duration_seconds=5)]
         ... )
-        >>> final_video = assemble_final_video(scene_paths, voiceover, plan)
+        >>> paths = create_asset_paths("video_123")
+        >>> final_video = assemble_final_video(scene_paths, voiceover, plan, paths)
         >>> print(f"Final video: {final_video}")
-        Final video: ./output/final_video.mp4
+        Final video: ./output/video_123/final_video.mp4
     """
     logger.info("=" * 70)
     logger.info("VIDEO ASSEMBLY: Starting ffmpeg processing")
@@ -108,9 +114,7 @@ def assemble_final_video(
 
     config = get_config()
     temp_dir = config["TEMP_DIR"]
-    output_dir = config["OUTPUT_DIR"]
     temp_dir.mkdir(parents=True, exist_ok=True)
-    output_dir.mkdir(parents=True, exist_ok=True)
 
     # Create concat file for ffmpeg
     concat_file = temp_dir / "filelist.txt"
@@ -122,8 +126,9 @@ def assemble_final_video(
 
     logger.info(f"Created concat file: {concat_file}")
 
-    # Output file path
-    output_file = output_dir / "final_video.mp4"
+    # Step 07.4: Use asset-specific output path
+    output_file = Path(asset_paths.final_video_path)
+    output_file.parent.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
 
     # Build ffmpeg command
     ffmpeg_cmd = [

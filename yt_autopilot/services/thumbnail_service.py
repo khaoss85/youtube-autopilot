@@ -14,7 +14,7 @@ import os
 import requests
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
-from yt_autopilot.core.schemas import PublishingPackage
+from yt_autopilot.core.schemas import PublishingPackage, AssetPaths
 from yt_autopilot.core.config import get_config, get_llm_openai_key
 from yt_autopilot.core.logger import logger
 from yt_autopilot.services import provider_tracker
@@ -164,11 +164,15 @@ def _generate_placeholder_thumbnail(title: str, concept: str, output_path: Path)
     provider_tracker.set_thumb_provider("FALLBACK_PLACEHOLDER")
 
 
-def generate_thumbnail(publishing: PublishingPackage) -> str:
+def generate_thumbnail(
+    publishing: PublishingPackage,
+    asset_paths: AssetPaths
+) -> str:
     """
     Generates thumbnail image from concept description.
 
     Step 07.2: Real AI thumbnail generation with automatic fallback
+    Step 07.4: Updated to use AssetPaths for organized output
 
     Provider chain:
     1. OpenAI DALL-E 3 (if LLM_OPENAI_API_KEY configured)
@@ -183,30 +187,33 @@ def generate_thumbnail(publishing: PublishingPackage) -> str:
 
     Args:
         publishing: Publishing package with thumbnail_concept
+        asset_paths: AssetPaths object for organized output directory
 
     Returns:
-        Path to generated thumbnail image (.png)
+        Path to generated thumbnail image (.png) in asset-specific directory
 
     Example:
         >>> from yt_autopilot.core.schemas import PublishingPackage
+        >>> from yt_autopilot.core.asset_manager import create_asset_paths
         >>> pkg = PublishingPackage(
         ...     final_title="Amazing Video",
         ...     description="Test",
         ...     tags=["test"],
         ...     thumbnail_concept="Bold text: 'AMAZING' with surprised face"
         ... )
-        >>> thumb_path = generate_thumbnail(pkg)
+        >>> paths = create_asset_paths("video_123")
+        >>> thumb_path = generate_thumbnail(pkg, paths)
         >>> print(f"Thumbnail saved to: {thumb_path}")
-        Thumbnail saved to: ./output/thumbnail.png
+        Thumbnail saved to: output/video_123/thumbnail.png
     """
     logger.info("Generating thumbnail image...")
     logger.info(f"  Concept: '{publishing.thumbnail_concept[:80]}...'")
 
-    config = get_config()
-    output_dir = config["OUTPUT_DIR"]
-    output_dir.mkdir(parents=True, exist_ok=True)
+    # Step 07.4: Use asset-specific path
+    thumbnail_path = Path(asset_paths.thumbnail_path)
+    thumbnail_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
 
-    thumbnail_path = output_dir / "thumbnail.png"
+    logger.debug(f"  Output: {thumbnail_path}")
 
     # Try OpenAI Image API first
     try:

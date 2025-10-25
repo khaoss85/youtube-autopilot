@@ -36,6 +36,7 @@ from datetime import datetime
 from typing import Dict, Any
 from yt_autopilot.core.logger import logger
 from yt_autopilot.core.schemas import ReadyForFactory, UploadResult, PublishingPackage
+from yt_autopilot.core import asset_manager  # Step 07.4: Asset organization
 
 # Import from pipeline (editorial brain)
 from yt_autopilot.pipeline.build_video_package import build_video_package
@@ -54,7 +55,8 @@ from yt_autopilot.io.datastore import (
     get_draft_package,
     mark_as_scheduled,
     save_script_draft,  # Step 07.3: Gate 1 (script review)
-    get_script_draft    # Step 07.3: Retrieve approved script
+    get_script_draft,   # Step 07.3: Retrieve approved script
+    _asset_paths_to_dict  # Step 07.4: AssetPaths serialization
 )
 
 
@@ -261,13 +263,19 @@ def produce_render_assets(script_internal_id: str) -> Dict[str, Any]:
     logger.info(f"  Scenes: {len(ready.visuals.scenes)}")
     logger.info(f"  Duration: ~{total_duration}s")
 
+    # Step 07.4: Create unique asset directory structure for this video
+    logger.info("")
+    logger.info("Creating asset directory structure...")
+    asset_paths = asset_manager.create_asset_paths(video_id=script_internal_id)
+    logger.info(f"  Output directory: {asset_paths.output_dir}")
+
     # STEP 2: Generate video scenes using Sora/Veo API
     logger.info("")
     logger.info("STEP 2/5: Generating video scenes...")
     logger.info(f"  Requesting {len(ready.visuals.scenes)} scenes from Veo API")
 
     try:
-        scene_paths = generate_scenes(ready.visuals, max_retries=2)
+        scene_paths = generate_scenes(ready.visuals, asset_paths, max_retries=2)
         logger.info(f"✓ All scenes generated: {len(scene_paths)} files")
     except Exception as e:
         logger.error(f"✗ Scene generation failed: {e}")
@@ -279,7 +287,7 @@ def produce_render_assets(script_internal_id: str) -> Dict[str, Any]:
     logger.info(f"  Text length: {len(ready.script.full_voiceover_text)} chars")
 
     try:
-        voiceover_path = synthesize_voiceover(ready.script)
+        voiceover_path = synthesize_voiceover(ready.script, asset_paths)
         logger.info(f"✓ Voiceover generated: {voiceover_path}")
     except Exception as e:
         logger.error(f"✗ Voiceover generation failed: {e}")
@@ -290,10 +298,12 @@ def produce_render_assets(script_internal_id: str) -> Dict[str, Any]:
     logger.info("STEP 4/5: Assembling final video...")
 
     try:
+        # Step 07.4: Pass asset_paths for organized output
         final_video_path = assemble_final_video(
             scene_paths=scene_paths,
             voiceover_path=voiceover_path,
-            visuals=ready.visuals
+            visuals=ready.visuals,
+            asset_paths=asset_paths
         )
         logger.info(f"✓ Final video assembled: {final_video_path}")
     except Exception as e:
@@ -305,25 +315,26 @@ def produce_render_assets(script_internal_id: str) -> Dict[str, Any]:
     logger.info("STEP 5/5: Generating thumbnail...")
 
     try:
-        thumbnail_path = generate_thumbnail(ready.publishing)
+        thumbnail_path = generate_thumbnail(ready.publishing, asset_paths)
         logger.info(f"✓ Thumbnail generated: {thumbnail_path}")
     except Exception as e:
         logger.error(f"✗ Thumbnail generation failed: {e}")
         raise RuntimeError(f"Thumbnail generation failed: {e}")
 
-    # Save to datastore as draft (HUMAN_REVIEW_PENDING)
+    # Save to datastore as draft (VIDEO_PENDING_REVIEW)
     logger.info("")
     logger.info("Saving draft package to datastore...")
 
     # Step 07.2: Collect provider tracking information
     providers = provider_tracker.get_all_providers()
 
+    # Step 07.4: Use paths from asset_paths (already populated by services)
     video_internal_id = save_draft_package(
         ready=ready,
-        scene_paths=scene_paths,
-        voiceover_path=voiceover_path,
-        final_video_path=final_video_path,
-        thumbnail_path=thumbnail_path,
+        scene_paths=asset_paths.scene_video_paths,  # Step 07.4: From asset tracking
+        voiceover_path=str(asset_paths.voiceover_path),
+        final_video_path=str(asset_paths.final_video_path),
+        thumbnail_path=str(asset_paths.thumbnail_path),
         publish_datetime_iso=publish_datetime_iso,
         llm_raw_script=ready.llm_raw_script,  # Step 07: Audit trail
         final_script=ready.final_script_text,  # Step 07: Audit trail
@@ -356,8 +367,11 @@ def produce_render_assets(script_internal_id: str) -> Dict[str, Any]:
         "status": "VIDEO_READY_FOR_REVIEW",
         "video_internal_id": video_internal_id,
         "script_internal_id": script_internal_id,
+        "output_dir": asset_paths.output_dir,  # Step 07.4: Asset directory location
         "final_video_path": final_video_path,
         "thumbnail_path": thumbnail_path,
+        "voiceover_path": voiceover_path,  # Step 07.4: Voiceover location
+        "scene_paths": scene_paths,  # Step 07.4: Individual scene locations
         "proposed_title": ready.publishing.final_title,
         "proposed_description": ready.publishing.description,
         "proposed_tags": ready.publishing.tags,
