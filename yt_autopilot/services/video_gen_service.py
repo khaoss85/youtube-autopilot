@@ -215,15 +215,18 @@ def _call_openai_video(prompt: str, duration_seconds: int, scene_id: int) -> str
     Calls OpenAI Sora 2 video generation API.
 
     Step 07.3: Real Sora 2 API implementation (first tier before Veo)
+    FIXED: Aligned with official OpenAI Sora 2 API documentation
 
     Uses async job pattern:
     1. Submit video generation job to OpenAI
     2. Poll status until complete (max 10 minutes)
     3. Download generated video
 
-    Endpoint: https://api.openai.com/v1/video/generations
-    Model: sora-2.0
-    Output: 1080x1920 vertical HD video (9:16 for YouTube Shorts)
+    Official Endpoint: https://api.openai.com/v1/videos
+    Model: sora-2 (or sora-2-pro for higher quality)
+    Output: 1920x1080 vertical HD video (9:16 for YouTube Shorts)
+
+    Docs: https://platform.openai.com/docs/guides/video
 
     Args:
         prompt: Text description for video generation
@@ -248,8 +251,8 @@ def _call_openai_video(prompt: str, duration_seconds: int, scene_id: int) -> str
         logger.debug("  OPENAI_VIDEO_API_KEY not found - skipping to Veo fallback")
         raise RuntimeError("OpenAI video API key not configured")
 
-    # Step 07.3: Real Sora 2 API implementation
-    endpoint = "https://api.openai.com/v1/video/generations"
+    # Step 07.3: Real Sora 2 API implementation (FIXED with official docs)
+    endpoint = "https://api.openai.com/v1/videos"  # FIXED: was /v1/video/generations
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
@@ -257,12 +260,24 @@ def _call_openai_video(prompt: str, duration_seconds: int, scene_id: int) -> str
 
     # Step 1: Submit video generation job
     logger.info("  Submitting Sora 2 job...")
+
+    # FIXED: Sora 2 only supports durations of 4, 8, or 12 seconds
+    # Round to nearest supported duration
+    if duration_seconds <= 6:
+        supported_seconds = 4
+    elif duration_seconds <= 10:
+        supported_seconds = 8
+    else:
+        supported_seconds = 12
+
+    logger.debug(f"  Requested {duration_seconds}s, using supported duration: {supported_seconds}s")
+
     payload = {
-        "model": "sora-2.0",  # Updated model name
+        "model": "sora-2",  # FIXED: was sora-2.0, correct is sora-2 or sora-2-pro
         "prompt": prompt,
-        "duration": duration_seconds,
-        "size": "1080x1920",  # vertical 9:16 for YouTube Shorts
-        "quality": "hd"
+        "seconds": str(supported_seconds),  # FIXED: must be "4", "8", or "12"
+        "size": "1024x1792"  # FIXED: Supported vertical 9:16 HD format for YouTube Shorts
+        # Supported sizes: 720x1280 (SD vertical), 1280x720 (HD horiz), 1024x1792 (HD vertical), 1792x1024 (HD+ horiz)
     }
 
     try:
@@ -277,7 +292,8 @@ def _call_openai_video(prompt: str, duration_seconds: int, scene_id: int) -> str
         raise RuntimeError(error_msg) from e
 
     # Step 2: Poll job status until complete
-    poll_endpoint = f"{endpoint}/{job_id}"
+    # FIXED: Correct poll endpoint according to OpenAI docs
+    poll_endpoint = f"https://api.openai.com/v1/videos/{job_id}"
     timeout_seconds = 600  # 10 minutes max
     poll_interval = 10  # Poll every 10 seconds
 
@@ -296,22 +312,22 @@ def _call_openai_video(prompt: str, duration_seconds: int, scene_id: int) -> str
             response.raise_for_status()
             job_status = response.json()
 
-            # Check if job is done
+            # Check if job is done (FIXED: correct status values from docs)
             status = job_status.get("status")
             if status == "completed":
-                # Extract video URL from response
-                video_url = job_status.get("video_url")
-                if not video_url:
-                    raise RuntimeError(f"Sora 2 job complete but no video_url in response")
-                logger.info(f"  ✓ Job complete: {video_url[:50]}...")
+                # FIXED: Download from /content endpoint, not video_url field
+                logger.info(f"  ✓ Job complete! Ready to download.")
                 break
             elif status == "failed":
-                error_msg = job_status.get("error", "Unknown error")
+                # FIXED: Error structure from docs
+                error_obj = job_status.get("error", {})
+                error_msg = error_obj.get("message", "Unknown error") if isinstance(error_obj, dict) else str(error_obj)
                 raise RuntimeError(f"Sora 2 job failed: {error_msg}")
             else:
-                # Job still processing
-                progress = job_status.get("progress_percent", 0)
-                logger.debug(f"    Job in progress: {progress}% (elapsed: {elapsed:.0f}s)")
+                # Job still processing (status: 'queued' or 'in_progress')
+                # FIXED: correct progress field name from docs
+                progress = job_status.get("progress", 0)  # 0-100
+                logger.debug(f"    Status: {status}, Progress: {progress}% (elapsed: {elapsed:.0f}s)")
                 time.sleep(poll_interval)
 
         except requests.exceptions.RequestException as e:
@@ -319,11 +335,13 @@ def _call_openai_video(prompt: str, duration_seconds: int, scene_id: int) -> str
             time.sleep(poll_interval)  # Retry after delay
 
     # Step 3: Download generated video
+    # FIXED: Download from correct /content endpoint according to OpenAI docs
+    download_endpoint = f"https://api.openai.com/v1/videos/{job_id}/content"
     output_path = get_temp_dir() / f"scene_{scene_id:03d}.mp4"
 
-    logger.info(f"  Downloading Sora 2 video...")
+    logger.info(f"  Downloading Sora 2 video from /content endpoint...")
     try:
-        response = requests.get(video_url, stream=True, timeout=60)
+        response = requests.get(download_endpoint, headers=headers, stream=True, timeout=60)
         response.raise_for_status()
 
         # Write binary content to file
