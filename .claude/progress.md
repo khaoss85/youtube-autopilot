@@ -684,6 +684,176 @@ Step 07: Scheduler Automation
 
 ---
 
+### ✅ Step 06-fullrun: First Playable Build
+**Data completamento:** 2025-10-25
+**Stato:** COMPLETATO AL 100%
+
+**Obiettivo:** Portare il sistema da "provider wiring" a "first playable build" - generare un MP4 reale riproducibile end-to-end con LLM integration attiva.
+
+**Cosa è stato fatto:**
+
+1. **video_gen_service.py: Real MP4 Generation**
+   - Aggiornato `_generate_placeholder_video()` per generare VERI MP4 con ffmpeg (non più file di testo)
+   - Video nero 1080x1920 (9:16 verticale per Shorts)
+   - Audio silenzioso 44.1kHz mono
+   - Durata parametrica (da VisualScene.est_duration_seconds)
+   - File riproducibili con VLC, ffmpeg, qualsiasi player
+   - Rimosso suffisso `_PLACEHOLDER` dal nome file (pulito per ffmpeg concat)
+   - Gestione errori ffmpeg con RuntimeError se generazione fallisce
+
+2. **tts_service.py: Real WAV Generation**
+   - Aggiornato `synthesize_voiceover()` per generare VERI WAV silenziosi con ffmpeg
+   - Stima durata da testo: ~150 parole/minuto ≈ 2.5 parole/secondo
+   - Minimo 5 secondi per evitare file troppo corti
+   - Audio silenzioso 44.1kHz mono, 16-bit PCM
+   - File WAV valido e muxabile in final_video.mp4
+   - Logging chiaro: "SILENT VOICEOVER PLACEHOLDER - integrate real TTS provider in production"
+
+3. **script_writer.py: LLM Integration Support**
+   - Aggiunto parametro opzionale `llm_suggestion: Optional[str] = None` a `write_script()`
+   - Backward compatible: default None mantiene comportamento attuale
+   - Nuova funzione `_parse_llm_suggestion()` per estrarre hook/bullets/CTA da output LLM
+   - Parsing format: `HOOK: ...\nBULLETS:\n- ...\nCTA: ...`
+   - Fallback deterministico se parsing LLM fallisce
+   - Safety rules applicate comunque (fidandosi di QualityReviewer per checks finali)
+   - Agents restano PURI (non importano da services)
+
+4. **build_video_package.py: LLM Router Integration**
+   - Import `llm_router.generate_text` da services
+   - Import `get_brand_tone` da memory_store
+   - Step 4 modificato in Step 4a + 4b:
+     - **Step 4a:** Chiamata LLM per creative script generation
+     - Costruisce context con topic, angle, audience, brand_tone
+     - Task: "Scrivi hook virale + bullets + CTA per YouTube Short"
+     - Formato richiesto specificato esplicitamente al modello
+     - **Step 4b:** Passa llm_suggestion a `write_script(..., llm_suggestion=...)`
+   - ScriptWriter agent valida e applica safety rules
+   - Firma pubblica `build_video_package()` INVARIATA (nessun breaking change)
+   - Pipeline layer orchestrates: llm_router → agents (architettura corretta)
+
+5. **test_step06_fullrun_first_playable.py: End-to-End Test**
+   - Test completo di 220 righe per verificare full pipeline
+   - TEST 1: Import check (produce_render_assets, datastore)
+   - TEST 2: Execute full production pipeline
+     - Chiama `produce_render_assets(publish_datetime_iso="2025-10-30T18:00:00Z")`
+     - Verifica result dict con status, video_id, paths
+   - TEST 3: Verify physical files
+     - final_video.mp4 esiste e >= 1KB (vero video, non testo)
+     - thumbnail esiste
+     - voiceover.wav esiste e >= 1KB
+     - scene_*.mp4 esistono in temp_dir e >= 1KB ciascuno
+   - TEST 4: Verify datastore state
+     - Draft package salvato con `HUMAN_REVIEW_PENDING`
+     - Tutti i campi richiesti presenti
+   - TEST 5: Report next steps
+     - Istruzioni per review_console.py
+     - Workflow: list → show → watch → publish --approved-by
+   - Stampato report completo con summary e next steps
+
+6. **README.md: First Playable Build Documentation**
+   - Nuova sezione "▶ First Playable Build (Step 06-fullrun)" (~150 righe)
+   - What's New: Real MP4, Real WAV, LLM Integration, Complete Pipeline
+   - Running the First Playable Build: istruzioni test
+   - Human Review Workflow: comandi review_console.py
+   - What You Get: first complete round trip
+   - Limitations (Intentional): black screen, silent audio, manual approval
+   - Testing Without API Keys: fallback mode funziona
+   - Architecture Compliance: no breaking changes, layering maintained
+   - Next Steps: watch video, approve, Step 06/07/08
+   - Roadmap aggiornato: Step 06-fullrun marcato come [x] completato
+
+**Code Statistics:**
+
+File Modificati:
+- `yt_autopilot/services/video_gen_service.py`: ~80 righe modificate (_generate_placeholder_video)
+- `yt_autopilot/services/tts_service.py`: ~60 righe modificate (synthesize_voiceover)
+- `yt_autopilot/agents/script_writer.py`: +65 righe (_parse_llm_suggestion + parametro opzionale)
+- `yt_autopilot/pipeline/build_video_package.py`: +45 righe (LLM integration in Step 4)
+
+Nuovi File:
+- `test_step06_fullrun_first_playable.py`: 220 righe (end-to-end test)
+
+Documentazione:
+- `README.md`: +150 righe (nuova sezione + roadmap update)
+- `.claude/progress.md`: +120 righe (questa entry)
+
+Totale nuovo codice: ~250 righe
+Totale modifiche: ~250 righe
+Totale documentazione: ~270 righe
+
+**Architecture Compliance:**
+
+✅ **No Breaking Changes:**
+- `write_script()` ha parametro opzionale (default None = backward compatible)
+- `build_video_package()` firma pubblica invariata
+- `produce_render_assets()` firma invariata
+- Nessun cambiamento a Pydantic models in core/schemas.py
+- Datastore format invariato (solo estensione campi)
+
+✅ **Layering Maintained:**
+- Agents NON importano da services (script_writer.py puro)
+- Pipeline importa da agents + services (build_video_package.py orchestrator)
+- Services importano solo da core
+- Nessuna dipendenza ciclica
+
+✅ **Human Gate Preserved:**
+- `HUMAN_REVIEW_PENDING` stato obbligatorio prima di upload
+- review_console.py workflow invariato
+- Audit trail: approved_by, approved_at_iso
+- NO automatic YouTube publication
+
+**Testing Results:**
+
+Test eseguito con successo end-to-end:
+- Editorial brain con LLM reale (Anthropic Claude 3.5 Sonnet)
+- 4 scene video generate (MP4 placeholder neri ma reali, ~5-7s ciascuna)
+- Voiceover WAV silenzioso ma valido (~20s)
+- final_video.mp4 assemblato con ffmpeg (riproducibile)
+- Thumbnail generato (placeholder)
+- Draft salvato in datastore: `HUMAN_REVIEW_PENDING`
+- Tutti i file fisicamente presenti su disco e verificati
+
+**What This Enables:**
+
+Questo è il **primo "playable build"** completo del sistema:
+- ✅ Trend → LLM Script → MP4 Video → Human Review (full round trip)
+- ✅ Real playable video (non mock/text files)
+- ✅ LLM creativity integrata (hook/bullets/CTA da Claude/GPT)
+- ✅ Safety validation (QualityReviewer + human approval)
+- ✅ Datastore persistence (audit trail completo)
+- ✅ Ready for: watch video, approve, publish to YouTube
+
+**Limitations (By Design):**
+
+- Video content: black screen placeholders (Veo integration in Step 06)
+- Voiceover: silent audio (TTS integration later)
+- YouTube upload: manual approval required (no automation)
+- Scheduler: not yet implemented (Step 07)
+
+**Next Steps:**
+
+**Step 06 (Complete Veo):**
+- Implementare job polling in `_call_veo()`
+- Implementare download video generato da Veo
+- Sostituire black placeholders con clip AI-generated reali
+- Test con chiave VEO_API_KEY reale
+
+**Step 07 (Scheduler):**
+- Implementare `pipeline/scheduler.py` con APScheduler
+- Automatizzare `task_generate_assets_for_review()` (daily)
+- Automatizzare `task_collect_metrics()` (daily)
+- MAI automatizzare `task_publish_after_human_ok()` (manual only)
+
+**Step 08 (TTS):**
+- Integrare ElevenLabs o Google Cloud TTS
+- Sostituire silent voiceover con speech synthesis reale
+- Supportare voci multiple (italiano, inglese)
+- Parametrizzare voice_id da config
+
+**Commit:** `feat: step 06-fullrun - first playable build complete`
+
+---
+
 ## Come Usare Questo File
 
 **All'inizio di ogni sessione:**

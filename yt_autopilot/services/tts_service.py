@@ -5,6 +5,7 @@ This service uses TTS providers (Google Cloud TTS, Amazon Polly, ElevenLabs, etc
 to generate voiceover audio from video scripts.
 """
 
+import subprocess
 from pathlib import Path
 from yt_autopilot.core.schemas import VideoScript
 from yt_autopilot.core.config import get_config
@@ -70,7 +71,8 @@ def synthesize_voiceover(script: VideoScript, voice_id: str = "it-IT-Neural2-A")
     # audio_path = config["TEMP_DIR"] / "voiceover.wav"
     # audio_path.write_bytes(response.audio_content)
 
-    logger.warning("Using mock TTS - integrate real TTS provider in production")
+    # TODO: Replace with real TTS provider (ElevenLabs, Google Cloud TTS, etc.)
+    logger.warning("Using SILENT VOICEOVER PLACEHOLDER - integrate real TTS provider in production")
 
     config = get_config()
     temp_dir = config["TEMP_DIR"]
@@ -78,10 +80,54 @@ def synthesize_voiceover(script: VideoScript, voice_id: str = "it-IT-Neural2-A")
 
     audio_path = temp_dir / "voiceover.wav"
 
-    # Create mock audio file (placeholder)
-    audio_path.write_text(f"Mock TTS audio\nText: {script.full_voiceover_text[:100]}...\n")
+    # Estimate duration from text length
+    # Rule: ~150 words/minute ≈ 2.5 words/second
+    word_count = len(script.full_voiceover_text.split())
+    estimated_duration_sec = max(5, round(word_count / 2.5))  # Minimum 5 seconds
 
-    logger.info(f"✓ Generated mock voiceover: {audio_path}")
-    logger.info(f"  File size: {audio_path.stat().st_size} bytes (mock)")
+    logger.info(f"  Estimated duration: {estimated_duration_sec}s ({word_count} words)")
+    logger.info(f"  Generating silent WAV with ffmpeg...")
 
-    return str(audio_path)
+    # Generate silent audio WAV file with ffmpeg
+    # -f lavfi -i anullsrc : silent audio source
+    # r=44100 : sample rate 44.1kHz
+    # cl=mono : mono channel
+    # -t <duration> : duration in seconds
+    # -acodec pcm_s16le : 16-bit PCM encoding (standard WAV)
+    ffmpeg_cmd = [
+        "ffmpeg",
+        "-f", "lavfi",
+        "-i", "anullsrc=r=44100:cl=mono",
+        "-t", str(estimated_duration_sec),
+        "-acodec", "pcm_s16le",
+        "-y",  # Overwrite if exists
+        str(audio_path)
+    ]
+
+    try:
+        # Run ffmpeg (suppress output)
+        subprocess.run(
+            ffmpeg_cmd,
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+
+        # Verify file was created and is not empty
+        if not audio_path.exists() or audio_path.stat().st_size == 0:
+            raise RuntimeError(f"ffmpeg created empty or missing WAV file: {audio_path}")
+
+        logger.info(f"✓ Generated silent voiceover: {audio_path.name}")
+        logger.info(f"  File size: {audio_path.stat().st_size} bytes")
+        logger.info(f"  Duration: {estimated_duration_sec}s (silent placeholder)")
+
+        return str(audio_path)
+
+    except subprocess.CalledProcessError as e:
+        error_msg = f"ffmpeg failed to generate silent voiceover: {e}"
+        logger.error(f"  ✗ {error_msg}")
+        raise RuntimeError(error_msg) from e
+    except Exception as e:
+        error_msg = f"Unexpected error generating silent voiceover: {e}"
+        logger.error(f"  ✗ {error_msg}")
+        raise RuntimeError(error_msg) from e

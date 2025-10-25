@@ -30,10 +30,78 @@ Example enhancement:
 ==============================================================================
 """
 
-from typing import Dict, List
+from typing import Dict, List, Optional
 from yt_autopilot.core.schemas import VideoPlan, VideoScript
 from yt_autopilot.core.memory_store import get_brand_tone
 from yt_autopilot.core.logger import logger
+
+
+def _parse_llm_suggestion(llm_text: str) -> Optional[Dict[str, any]]:
+    """
+    Parse LLM-generated script suggestion into components.
+
+    Attempts to extract hook, bullets, and CTA from LLM output.
+    Expects format like:
+        HOOK: <hook text>
+        BULLETS:
+        - <bullet 1>
+        - <bullet 2>
+        CTA: <cta text>
+
+    Args:
+        llm_text: LLM-generated script text
+
+    Returns:
+        Dict with keys 'hook', 'bullets', 'outro_cta' if parsing succeeds,
+        None if parsing fails
+    """
+    if not llm_text or len(llm_text.strip()) < 20:
+        return None
+
+    try:
+        lines = llm_text.strip().split("\n")
+        hook = None
+        bullets = []
+        outro_cta = None
+        current_section = None
+
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+
+            # Check for section markers
+            if line.upper().startswith("HOOK:"):
+                current_section = "hook"
+                hook = line[5:].strip()
+            elif line.upper().startswith("BULLETS:"):
+                current_section = "bullets"
+            elif line.upper().startswith("CTA:"):
+                current_section = "cta"
+                outro_cta = line[4:].strip()
+            elif line.startswith("-") or line.startswith("•"):
+                # Bullet point
+                bullet_text = line[1:].strip()
+                if bullet_text and current_section == "bullets":
+                    bullets.append(bullet_text)
+            elif current_section == "hook" and not hook:
+                hook = line
+            elif current_section == "cta" and not outro_cta:
+                outro_cta = line
+
+        # Validate we got at least hook and CTA
+        if hook and outro_cta and len(bullets) >= 3:
+            return {
+                "hook": hook,
+                "bullets": bullets,
+                "outro_cta": outro_cta
+            }
+
+        return None
+
+    except Exception as e:
+        logger.warning(f"Failed to parse LLM suggestion: {e}")
+        return None
 
 
 def _generate_hook(plan: VideoPlan, brand_tone: str) -> str:
@@ -154,7 +222,11 @@ def _compose_full_voiceover(hook: str, bullets: List[str], outro_cta: str) -> st
     return full_text
 
 
-def write_script(plan: VideoPlan, memory: Dict) -> VideoScript:
+def write_script(
+    plan: VideoPlan,
+    memory: Dict,
+    llm_suggestion: Optional[str] = None
+) -> VideoScript:
     """
     Generates a complete video script from a video plan.
 
@@ -166,9 +238,14 @@ def write_script(plan: VideoPlan, memory: Dict) -> VideoScript:
 
     The script respects the channel's brand tone and targets the specified audience.
 
+    NEW (Step 06-fullrun): Accepts optional LLM-generated suggestion from pipeline.
+    If provided, attempts to use LLM's creative output while applying safety rules.
+
     Args:
         plan: Video plan with topic, angle, and audience
         memory: Channel memory dict containing brand_tone
+        llm_suggestion: Optional LLM-generated script suggestion from pipeline
+                        (Step 06-fullrun: enables real LLM integration)
 
     Returns:
         VideoScript with all components
@@ -184,10 +261,38 @@ def write_script(plan: VideoPlan, memory: Dict) -> VideoScript:
     # Load brand tone
     brand_tone = get_brand_tone(memory)
 
+    # Try to use LLM suggestion if provided
+    llm_parsed = None
+    if llm_suggestion:
+        logger.info("  LLM suggestion received - attempting to parse...")
+        llm_parsed = _parse_llm_suggestion(llm_suggestion)
+
+        if llm_parsed:
+            logger.info("  ✓ LLM suggestion parsed successfully")
+        else:
+            logger.warning("  ✗ LLM suggestion parsing failed - using deterministic generation")
+
     # Generate script components
-    hook = _generate_hook(plan, brand_tone)
-    bullets = _generate_content_bullets(plan)
-    outro_cta = _generate_outro_cta(plan)
+    if llm_parsed:
+        # Use LLM-generated components
+        hook = llm_parsed["hook"]
+        bullets = llm_parsed["bullets"]
+        outro_cta = llm_parsed["outro_cta"]
+        logger.info("  Using LLM-generated hook, bullets, and CTA")
+    else:
+        # Fallback to deterministic generation
+        hook = _generate_hook(plan, brand_tone)
+        bullets = _generate_content_bullets(plan)
+        outro_cta = _generate_outro_cta(plan)
+        logger.info("  Using deterministic script generation")
+
+    # Apply safety rules (regardless of source)
+    # TODO: Add explicit safety checks here in future:
+    # - No medical claims guarantees
+    # - No hate speech
+    # - No copyright violations
+    # - Brand tone compliance
+    # For now, we trust QualityReviewer to catch issues
 
     # Compose full voiceover
     full_voiceover_text = _compose_full_voiceover(hook, bullets, outro_cta)

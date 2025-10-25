@@ -4,6 +4,9 @@ Editorial Pipeline Orchestrator: Coordinates AI agents to produce video packages
 This module orchestrates the complete editorial workflow from trend selection
 to quality-approved content packages, managing the multi-agent system and
 memory updates.
+
+NEW (Step 06-fullrun): Integrates real LLM calls via llm_router to enhance
+script generation with AI creativity while maintaining safety rules.
 """
 
 from typing import List, Dict
@@ -18,7 +21,8 @@ from yt_autopilot.core.schemas import (
 from yt_autopilot.core.memory_store import (
     load_memory,
     save_memory,
-    append_recent_title
+    append_recent_title,
+    get_brand_tone
 )
 from yt_autopilot.core.logger import logger
 
@@ -28,6 +32,9 @@ from yt_autopilot.agents.script_writer import write_script
 from yt_autopilot.agents.visual_planner import generate_visual_plan
 from yt_autopilot.agents.seo_manager import generate_publishing_package
 from yt_autopilot.agents.quality_reviewer import review
+
+# Import services (Step 06-fullrun: LLM integration)
+from yt_autopilot.services.llm_router import generate_text
 
 
 def _get_mock_trends() -> List[TrendCandidate]:
@@ -201,9 +208,56 @@ def build_video_package() -> ReadyForFactory:
     logger.info(f"  Target audience: {video_plan.target_audience}")
     logger.info(f"  Compliance notes: {len(video_plan.compliance_notes)} checks")
 
-    # Step 4: ScriptWriter - generate script
+    # Step 4: ScriptWriter - generate script (NEW: with LLM integration)
     logger.info("Step 4: Running ScriptWriter to generate script...")
-    script = write_script(video_plan, memory)
+
+    # NEW (Step 06-fullrun): Call LLM for creative script suggestion
+    logger.info("  Step 4a: Calling LLM for creative script generation...")
+
+    brand_tone = get_brand_tone(memory)
+
+    llm_context = f"""
+Topic: {video_plan.working_title}
+Strategic Angle: {video_plan.strategic_angle}
+Target Audience: {video_plan.target_audience}
+Language: {video_plan.language}
+Format: YouTube Shorts (vertical 9:16, max 60 seconds)
+Brand Tone: {brand_tone}
+    """.strip()
+
+    llm_task = """
+Scrivi hook virale + bullets + CTA per un YouTube Short.
+Massimo 60 secondi totali.
+Tono educativo ma coinvolgente.
+NIENTE promesse mediche, NIENTE hate speech, NIENTE clickbait tossico.
+
+Formato richiesto:
+HOOK: <frase di apertura forte e coinvolgente>
+BULLETS:
+- <punto chiave 1>
+- <punto chiave 2>
+- <punto chiave 3>
+- <punto chiave 4>
+CTA: <call-to-action breve e non invasiva>
+    """.strip()
+
+    llm_suggestion = generate_text(
+        role="script_writer",
+        task=llm_task,
+        context=llm_context,
+        style_hints={
+            "language": video_plan.language,
+            "brand_tone": brand_tone,
+            "target_audience": video_plan.target_audience
+        }
+    )
+
+    logger.info(f"  ✓ LLM suggestion received ({len(llm_suggestion)} chars)")
+
+    # Step 4b: Pass LLM suggestion to ScriptWriter agent for validation
+    logger.info("  Step 4b: ScriptWriter agent validating LLM output...")
+    script = write_script(video_plan, memory, llm_suggestion=llm_suggestion)
+
     logger.info(f"✓ Script generated: {len(script.bullets)} content points")
     logger.info(f"  Hook: '{script.hook[:60]}...'")
     logger.info(f"  Voiceover length: {len(script.full_voiceover_text)} chars")
