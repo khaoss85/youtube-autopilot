@@ -276,8 +276,8 @@ def _call_openai_video(prompt: str, duration_seconds: int, scene_id: int) -> str
         "model": "sora-2",  # FIXED: was sora-2.0, correct is sora-2 or sora-2-pro
         "prompt": prompt,
         "seconds": str(supported_seconds),  # FIXED: must be "4", "8", or "12"
-        "size": "1024x1792"  # FIXED: Supported vertical 9:16 HD format for YouTube Shorts
-        # Supported sizes: 720x1280 (SD vertical), 1280x720 (HD horiz), 1024x1792 (HD vertical), 1792x1024 (HD+ horiz)
+        "size": "720x1280"  # FIXED: sora-2 supports 720x1280 (SD vertical) or 1280x720 (HD horiz)
+        # Note: sora-2-pro supports higher resolutions like 1024x1792, but requires org verification
     }
 
     try:
