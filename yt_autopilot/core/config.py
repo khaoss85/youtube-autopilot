@@ -171,6 +171,36 @@ def get_veo_api_key() -> Optional[str]:
     return key
 
 
+def get_openai_video_key() -> Optional[str]:
+    """
+    Returns the OpenAI Video API key if configured.
+
+    Step 07.2: Added for Sora-style video generation support
+
+    Returns:
+        API key string if OPENAI_VIDEO_API_KEY is set in .env, None otherwise
+
+    Usage:
+        Used by services/video_gen_service.py for OpenAI Sora-style video generation
+        Falls back to Veo if not configured
+
+    Note:
+        This is for OpenAI's video generation API (Sora or similar).
+        May use the same key as LLM_OPENAI_API_KEY in some configurations.
+    """
+    # Try dedicated video key first, fallback to general OpenAI key
+    video_key = os.getenv("OPENAI_VIDEO_API_KEY", "")
+    if video_key:
+        return video_key
+
+    # Fallback: try using general OpenAI API key
+    openai_key = os.getenv("LLM_OPENAI_API_KEY", "")
+    if openai_key:
+        return openai_key
+
+    return None
+
+
 def get_env(key: str, default: str = "") -> str:
     """
     Generic environment variable getter.

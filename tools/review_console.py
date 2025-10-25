@@ -145,6 +145,46 @@ def cmd_show(args):
 
     print()
 
+    # Step 07.2: Creative Quality Check
+    print("CREATIVE QUALITY CHECK (Step 07.2):")
+
+    video_provider = draft.get("video_provider_used")
+    voice_provider = draft.get("voice_provider_used")
+    thumb_provider = draft.get("thumb_provider_used")
+    thumbnail_prompt = draft.get("thumbnail_prompt")
+
+    print(f"  Video Provider: {video_provider or '(not available - legacy record)'}")
+    print(f"  Voice Provider: {voice_provider or '(not available - legacy record)'}")
+    print(f"  Thumbnail Provider: {thumb_provider or '(not available - legacy record)'}")
+
+    if thumbnail_prompt:
+        print(f"  Thumbnail Prompt: {thumbnail_prompt[:200]}{'...' if len(thumbnail_prompt) > 200 else ''}")
+    else:
+        print(f"  Thumbnail Prompt: (not available)")
+
+    print()
+
+    # Quality indicators
+    print("  Quality Indicators:")
+    real_providers_count = sum([
+        1 for p in [video_provider, voice_provider, thumb_provider]
+        if p and "FALLBACK" not in p and "PLACEHOLDER" not in p and "SILENT" not in p
+    ])
+    total_providers = 3
+    quality_score = (real_providers_count / total_providers) * 100
+
+    print(f"    Real AI providers used: {real_providers_count}/{total_providers}")
+    print(f"    Creator-grade quality: {quality_score:.0f}%")
+
+    if quality_score == 100:
+        print(f"    Status: ✓ FULL CREATOR-GRADE QUALITY")
+    elif quality_score >= 66:
+        print(f"    Status: ~ PARTIAL CREATOR-GRADE (some fallbacks)")
+    else:
+        print(f"    Status: ⚠ MOSTLY FALLBACKS (check API keys)")
+
+    print()
+
     print("=" * 70)
     print("To approve and publish this video:")
     print(f"  python tools/review_console.py publish {video_id} --approved-by \"your@email\"")

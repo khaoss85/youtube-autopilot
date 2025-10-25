@@ -9,6 +9,10 @@ Integration Status (Step 07):
 - Real video generation with job submit/poll/download ✓
 - Automatic fallback to placeholder if API unavailable ✓
 - Error handling and retry logic ✓
+
+Step 07.2 Integration:
+- OpenAI Sora-style video provider (3-tier fallback: OpenAI → Veo → ffmpeg)
+- VIDEO_PROVIDER logging for audit trail
 """
 
 import time
@@ -17,8 +21,9 @@ import requests
 from pathlib import Path
 from typing import List, Optional
 from yt_autopilot.core.schemas import VisualPlan, VisualScene
-from yt_autopilot.core.config import get_config, get_veo_api_key, get_temp_dir
+from yt_autopilot.core.config import get_config, get_veo_api_key, get_openai_video_key, get_temp_dir
 from yt_autopilot.core.logger import logger
+from yt_autopilot.services import provider_tracker
 
 
 # Veo/Vertex AI configuration
@@ -205,6 +210,66 @@ def _download_video_file(video_url: str, output_path: Path, api_key: str) -> Non
         raise RuntimeError(error_msg) from e
 
 
+def _call_openai_video(prompt: str, duration_seconds: int, scene_id: int) -> str:
+    """
+    Calls OpenAI Sora-style video generation API.
+
+    Step 07.2: OpenAI video provider (first tier before Veo)
+
+    NOTE: OpenAI Sora API is not yet publicly available as of January 2025.
+    This implementation follows the expected async job pattern:
+    1. Submit video generation job
+    2. Poll status until complete
+    3. Download generated video
+
+    When API becomes available, update with real endpoint and credentials.
+    Currently raises RuntimeError to trigger fallback to Veo.
+
+    Args:
+        prompt: Text description for video generation
+        duration_seconds: Desired video length (5-30 seconds)
+        scene_id: Scene identifier for file naming
+
+    Returns:
+        Path to generated video file (.mp4) in TEMP_DIR
+
+    Raises:
+        RuntimeError: If API unavailable or generation fails
+    """
+    logger.info(f"OpenAI Video: Attempting generation for scene {scene_id}...")
+    logger.debug(f"  Prompt: '{prompt[:80]}...'")
+    logger.debug(f"  Duration: {duration_seconds}s")
+
+    # Get API key from config
+    api_key = get_openai_video_key()
+
+    if not api_key:
+        logger.debug("  OPENAI_VIDEO_API_KEY not found - skipping to Veo fallback")
+        raise RuntimeError("OpenAI video API key not configured")
+
+    # TODO (Step 07.2): Implement real OpenAI Sora video generation when API is public
+    #
+    # Expected pattern:
+    # 1. Submit job: POST https://api.openai.com/v1/video/generations
+    #    payload = {
+    #        "model": "sora-1.0",
+    #        "prompt": prompt,
+    #        "duration": duration_seconds,
+    #        "size": "1080x1920",  # vertical 9:16
+    #        "quality": "hd"
+    #    }
+    #
+    # 2. Poll status: GET https://api.openai.com/v1/video/generations/{job_id}
+    #    until status == "completed"
+    #
+    # 3. Download: GET {response.video_url}
+    #
+    # For now, raise to trigger Veo fallback
+    logger.info("  OpenAI Sora API not yet publicly available (as of Jan 2025)")
+    logger.info("  → Falling back to Veo provider")
+    raise RuntimeError("OpenAI Sora API not yet available - fallback to Veo")
+
+
 def _call_veo(prompt: str, duration_seconds: int, scene_id: int) -> str:
     """
     Calls Veo (via Vertex AI) to generate a video clip.
@@ -256,6 +321,8 @@ def _call_veo(prompt: str, duration_seconds: int, scene_id: int) -> str:
         _download_video_file(video_url, output_path, api_key)
 
         logger.info(f"  ✓ Veo generation complete: {output_path.name}")
+        logger.info("  VIDEO_PROVIDER=VEO")
+        provider_tracker.set_video_provider("VEO")
         return str(output_path)
 
     except (RuntimeError, TimeoutError) as e:
@@ -332,6 +399,8 @@ def _generate_placeholder_video(scene_id: int, prompt: str, duration_seconds: in
             raise RuntimeError(f"ffmpeg created empty or missing file: {video_path}")
 
         logger.info(f"  ✓ Generated placeholder: {video_path.name} ({video_path.stat().st_size} bytes)")
+        logger.info("  VIDEO_PROVIDER=FALLBACK_PLACEHOLDER")
+        provider_tracker.set_video_provider("FALLBACK_PLACEHOLDER")
         return str(video_path)
 
     except subprocess.CalledProcessError as e:
@@ -378,6 +447,45 @@ def _generate_placeholder_video(scene_id: int, prompt: str, duration_seconds: in
 #         RuntimeError: If download fails
 #     """
 #     pass
+
+
+def _generate_video_with_provider_fallback(
+    prompt: str,
+    duration_seconds: int,
+    scene_id: int
+) -> str:
+    """
+    Generates video with 3-tier provider fallback chain.
+
+    Step 07.2: Multi-provider strategy for creator-grade quality
+
+    Provider chain (automatic fallback):
+    1. OpenAI Sora-style (if OPENAI_VIDEO_API_KEY configured)
+    2. Veo/Vertex AI (if VEO_API_KEY configured)
+    3. ffmpeg placeholder (always available)
+
+    Args:
+        prompt: Text description for video generation
+        duration_seconds: Desired video length (5-30 seconds)
+        scene_id: Scene identifier for file naming
+
+    Returns:
+        Path to generated video file (.mp4)
+
+    Note:
+        This function never raises. It will always return a valid video path
+        using the best available provider.
+    """
+    # Tier 1: Try OpenAI Sora-style first
+    try:
+        return _call_openai_video(prompt, duration_seconds, scene_id)
+    except RuntimeError as e:
+        # OpenAI unavailable/failed - this is expected until Sora API is public
+        logger.debug(f"  OpenAI video provider unavailable: {e}")
+
+    # Tier 2 & 3: Veo (with built-in ffmpeg placeholder fallback)
+    # _call_veo() already handles Veo → placeholder fallback internally
+    return _call_veo(prompt, duration_seconds, scene_id)
 
 
 def generate_scenes(visual_plan: VisualPlan, max_retries: int = 2) -> List[str]:
@@ -437,7 +545,8 @@ def generate_scenes(visual_plan: VisualPlan, max_retries: int = 2) -> List[str]:
             attempt += 1
 
             try:
-                clip_path = _call_veo(
+                # Step 07.2: Use 3-tier fallback (OpenAI → Veo → placeholder)
+                clip_path = _generate_video_with_provider_fallback(
                     prompt=scene.prompt_for_veo,
                     duration_seconds=scene.est_duration_seconds,
                     scene_id=scene.scene_id

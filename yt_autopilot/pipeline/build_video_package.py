@@ -251,10 +251,17 @@ CTA:
 <call-to-action breve e non invasiva>
 
 VOICEOVER:
-<testo completo del voiceover da leggere ad alta voce, 15-60 secondi, tono educativo e diretto, flow naturale, include hook + bullets + CTA in forma narrativa>
+<testo completo del voiceover da leggere ad alta voce, 15-60 secondi, include hook + bullets + CTA in forma narrativa>
 
-IMPORTANTE: Il VOICEOVER deve essere il testo finale parlato, non una lista di punti.
-Deve scorrere naturalmente come una narrazione continua.
+IMPORTANTE - STILE CREATOR (Step 07.2):
+- Il VOICEOVER deve essere il testo finale parlato, NON una lista di punti
+- Tono ENERGICO e COINVOLGENTE (non monotono o da documentario)
+- Frasi BREVI e INCISIVE (max 10-12 parole per frase)
+- Usa espressioni colloquiali italiane: "Ascolta", "Ti faccio vedere", "Guarda qui", "Ecco cosa devi sapere"
+- Parla in SECONDA PERSONA SINGOLARE ("tu"), stile diretto e personale
+- HOOK POTENTE nei primi 2 secondi che cattura l'attenzione
+- Flow naturale come se stessi parlando a un amico
+- Energetico ma non urlato, coinvolgente ma non artificiale
     """.strip()
 
     llm_suggestion = generate_text(

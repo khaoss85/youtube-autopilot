@@ -32,6 +32,7 @@ from yt_autopilot.services.tts_service import synthesize_voiceover
 from yt_autopilot.services.video_assemble_service import assemble_final_video
 from yt_autopilot.services.thumbnail_service import generate_thumbnail
 from yt_autopilot.services.youtube_uploader import upload_and_schedule
+from yt_autopilot.services import provider_tracker
 
 # Import from io (persistence)
 from yt_autopilot.io.datastore import (
@@ -90,6 +91,9 @@ def produce_render_assets(publish_datetime_iso: str) -> Dict[str, Any]:
     logger.info("=" * 70)
     logger.info("PRODUCTION PIPELINE: Phase 1 - Generate Assets")
     logger.info("=" * 70)
+
+    # Step 07.2: Reset provider tracking for this generation
+    provider_tracker.reset_tracking()
 
     # STEP 1: Editorial Brain - Generate approved content package
     logger.info("STEP 1/5: Running editorial brain...")
@@ -165,6 +169,10 @@ def produce_render_assets(publish_datetime_iso: str) -> Dict[str, Any]:
     # Save to datastore as draft (HUMAN_REVIEW_PENDING)
     logger.info("")
     logger.info("Saving draft package to datastore...")
+
+    # Step 07.2: Collect provider tracking information
+    providers = provider_tracker.get_all_providers()
+
     video_internal_id = save_draft_package(
         ready=ready,
         scene_paths=scene_paths,
@@ -173,7 +181,11 @@ def produce_render_assets(publish_datetime_iso: str) -> Dict[str, Any]:
         thumbnail_path=thumbnail_path,
         publish_datetime_iso=publish_datetime_iso,
         llm_raw_script=ready.llm_raw_script,  # Step 07: Audit trail
-        final_script=ready.final_script_text  # Step 07: Audit trail
+        final_script=ready.final_script_text,  # Step 07: Audit trail
+        thumbnail_prompt=ready.publishing.thumbnail_concept,  # Step 07.2: Creative quality
+        video_provider_used=providers["video_provider"],  # Step 07.2: Provider tracking
+        voice_provider_used=providers["voice_provider"],  # Step 07.2: Provider tracking
+        thumb_provider_used=providers["thumb_provider"]   # Step 07.2: Provider tracking
     )
 
     logger.info("")

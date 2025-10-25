@@ -12,6 +12,7 @@ from yt_autopilot.core.config import (
     get_llm_anthropic_key,
     get_llm_openai_key,
     get_veo_api_key,
+    get_openai_video_key,
     get_env,
 )
 from yt_autopilot.core.logger import logger
@@ -36,6 +37,7 @@ __all__ = [
     "get_llm_anthropic_key",
     "get_llm_openai_key",
     "get_veo_api_key",
+    "get_openai_video_key",
     "get_env",
     # Logger
     "logger",

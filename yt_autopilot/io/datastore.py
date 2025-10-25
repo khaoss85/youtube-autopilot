@@ -232,7 +232,11 @@ def save_draft_package(
     thumbnail_path: str,
     publish_datetime_iso: str,
     llm_raw_script: Optional[str] = None,
-    final_script: Optional[str] = None
+    final_script: Optional[str] = None,
+    thumbnail_prompt: Optional[str] = None,
+    video_provider_used: Optional[str] = None,
+    voice_provider_used: Optional[str] = None,
+    thumb_provider_used: Optional[str] = None
 ) -> str:
     """
     Saves a draft video package pending human review.
@@ -250,6 +254,12 @@ def save_draft_package(
         final_video_path: Path to final assembled video
         thumbnail_path: Path to generated thumbnail image
         publish_datetime_iso: Proposed publish datetime in ISO format
+        llm_raw_script: (Optional) Raw LLM output before validation
+        final_script: (Optional) Final validated script text
+        thumbnail_prompt: (Optional) Step 07.2: Prompt used for thumbnail generation
+        video_provider_used: (Optional) Step 07.2: Video provider (OPENAI_VIDEO/VEO/FALLBACK_PLACEHOLDER)
+        voice_provider_used: (Optional) Step 07.2: Voice provider (REAL_TTS/FALLBACK_SILENT)
+        thumb_provider_used: (Optional) Step 07.2: Thumbnail provider (OPENAI_IMAGE/FALLBACK_PLACEHOLDER)
 
     Returns:
         video_internal_id: Unique identifier for this draft (UUID4 string)
@@ -293,7 +303,12 @@ def save_draft_package(
             "thumbnail_path": thumbnail_path
         },
         "llm_raw_script": llm_raw_script,  # Step 07: LLM original output for audit
-        "final_script": final_script  # Step 07: Final validated script text
+        "final_script": final_script,  # Step 07: Final validated script text
+        # Step 07.2: Creative quality tracking
+        "thumbnail_prompt": thumbnail_prompt,
+        "video_provider_used": video_provider_used,
+        "voice_provider_used": voice_provider_used,
+        "thumb_provider_used": thumb_provider_used
     }
 
     # Append to JSONL file

@@ -5,6 +5,7 @@ This service uses TTS providers (Google Cloud TTS, Amazon Polly, ElevenLabs, etc
 to generate voiceover audio from video scripts.
 
 Step 07 Integration: Real TTS with automatic fallback to silent audio
+Step 07.2 Integration: Creator-grade Italian voice with energetic, natural tone
 """
 
 import os
@@ -14,6 +15,7 @@ from pathlib import Path
 from yt_autopilot.core.schemas import VideoScript
 from yt_autopilot.core.config import get_config
 from yt_autopilot.core.logger import logger
+from yt_autopilot.services import provider_tracker
 
 
 def _call_tts_provider(text: str, voice_id: str = "alloy") -> bytes:
@@ -21,6 +23,14 @@ def _call_tts_provider(text: str, voice_id: str = "alloy") -> bytes:
     Calls TTS provider API to generate speech audio.
 
     Currently supports OpenAI TTS API. Can be extended for ElevenLabs, Google TTS, etc.
+
+    Step 07.2: Uses tts-1-hd model for creator-grade quality and speed parameter
+    for energetic delivery.
+
+    NOTE: OpenAI TTS does NOT have explicit Italian-only voices or style parameters.
+    Language is auto-detected from input text. For true Italian creator voice,
+    consider future integration with ElevenLabs (custom voice cloning) or Google Cloud TTS
+    (it-IT voices with WaveNet quality).
 
     Args:
         text: Text to convert to speech
@@ -53,10 +63,12 @@ def _call_tts_provider(text: str, voice_id: str = "alloy") -> bytes:
         "Content-Type": "application/json",
     }
 
+    # Step 07.2: Use high-quality model and speed for creator-grade energetic voice
     payload = {
-        "model": "tts-1",  # or "tts-1-hd" for higher quality
+        "model": "tts-1-hd",  # High-quality model for creator content
         "input": text,
         "voice": voice_id,
+        "speed": 1.05,  # Slightly faster for energetic, dynamic delivery
         "response_format": "mp3"
     }
 
@@ -76,6 +88,8 @@ def _call_tts_provider(text: str, voice_id: str = "alloy") -> bytes:
             raise RuntimeError(f"TTS API returned insufficient audio data: {len(audio_bytes)} bytes")
 
         logger.info(f"  ✓ TTS generation complete: {len(audio_bytes):,} bytes")
+        logger.info("  VOICE_PROVIDER=REAL_TTS")
+        provider_tracker.set_voice_provider("REAL_TTS")
         return audio_bytes
 
     except requests.exceptions.RequestException as e:
@@ -144,6 +158,8 @@ def synthesize_voiceover(script: VideoScript, voice_id: str = "alloy") -> str:
         # TTS failed - fallback to silent WAV
         logger.warning(f"  TTS provider unavailable or failed: {e}")
         logger.warning("  → Falling back to silent WAV placeholder")
+        logger.info("  VOICE_PROVIDER=FALLBACK_SILENT")
+        provider_tracker.set_voice_provider("FALLBACK_SILENT")
 
         audio_path = temp_dir / "voiceover.wav"
 

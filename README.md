@@ -1362,6 +1362,237 @@ The test verifies:
    - Run test again
    - Verify system still produces playable video (placeholders)
 
+---
+
+## ✨ Creator-Grade Quality Pass (Step 07.2)
+
+**Step 07.2** elevates the system from "technically functional" to **creator YouTube quality** by upgrading TTS voice, adding multi-tier video providers, generating real AI thumbnails, and implementing creative quality tracking.
+
+### What's New in Step 07.2
+
+1. **Creator-Grade Italian Voice** (`tts_service.py`)
+   - Upgraded to `tts-1-hd` model for higher audio quality
+   - Added `speed: 1.05` parameter for energetic, dynamic delivery
+   - Optimized for natural, conversational Italian tone
+   - Provider tracking: logs `VOICE_PROVIDER=REAL_TTS` or `FALLBACK_SILENT`
+   - **Note**: OpenAI TTS auto-detects language (no dedicated Italian-only voice)
+
+2. **Multi-Tier Video Generation** (`video_gen_service.py`)
+   - **3-tier fallback chain**: OpenAI Video (Sora-style) → Veo → ffmpeg placeholder
+   - Added `_call_openai_video()` for Sora-style generation (ready for future API)
+   - New wrapper `_generate_video_with_provider_fallback()` orchestrates cascade
+   - Provider tracking: logs `VIDEO_PROVIDER=OPENAI_VIDEO/VEO/FALLBACK_PLACEHOLDER`
+   - Added `get_openai_video_key()` config function with automatic fallback to `LLM_OPENAI_API_KEY`
+
+3. **Real AI Thumbnails** (`thumbnail_service.py`)
+   - Implemented OpenAI DALL-E 3 integration via `_call_openai_image()`
+   - Generates 1024x1792 (9:16 vertical) HD-quality scroll-stopping thumbnails
+   - Enhanced prompt: "Professional YouTube Shorts thumbnail, scroll-stopping visual..."
+   - Fallback: PIL-generated placeholder with text overlay (1080x1920)
+   - Provider tracking: logs `THUMB_PROVIDER=OPENAI_IMAGE/FALLBACK_PLACEHOLDER`
+
+4. **Creator-Style LLM Prompts** (`build_video_package.py`)
+   - Enhanced VOICEOVER section with creator-specific instructions:
+     - Energetic and engaging tone (not monotone)
+     - Short, punchy sentences (max 10-12 words)
+     - Colloquial Italian expressions ("Ascolta", "Ti faccio vedere", "Guarda qui")
+     - Direct second-person singular ("tu") for personal connection
+     - Powerful hook in first 2 seconds
+   - Maintains all safety restrictions from Step 07
+
+5. **Creative Quality Tracking System** (`provider_tracker.py`, `datastore.py`)
+   - New `provider_tracker` module: Thread-safe global tracking of which providers were used
+   - Services register provider usage: `set_video_provider()`, `set_voice_provider()`, `set_thumb_provider()`
+   - Pipeline reads tracking: `get_all_providers()` before saving to datastore
+   - Datastore saves 4 new optional fields:
+     - `thumbnail_prompt`: Prompt used for thumbnail generation
+     - `video_provider_used`: Which video provider generated the scenes
+     - `voice_provider_used`: Which voice provider generated the voiceover
+     - `thumb_provider_used`: Which thumbnail provider generated the image
+
+6. **Enhanced Review Console** (`tools/review_console.py`)
+   - New **CREATIVE QUALITY CHECK** section in `show` command
+   - Displays provider information for video, voice, and thumbnail
+   - Shows thumbnail generation prompt
+   - Calculates **creator-grade quality score**: % of real AI vs fallback providers
+   - Status indicators:
+     - ✓ FULL CREATOR-GRADE QUALITY (100% real AI)
+     - ~ PARTIAL CREATOR-GRADE (66%+ real AI, some fallbacks)
+     - ⚠ MOSTLY FALLBACKS (<66% real AI, check API keys)
+   - Gracefully handles legacy records (shows "not available" for missing fields)
+
+### Running the Creator-Grade Quality Pass
+
+Execute the Step 07.2 test:
+
+```bash
+python test_step07_2_quality_pass.py
+```
+
+**What Happens:**
+
+1. **Enhanced TTS Voice**:
+   - Uses `tts-1-hd` model with `speed: 1.05`
+   - Generates more natural, energetic Italian voiceover
+   - Registers `VOICE_PROVIDER=REAL_TTS` in tracker
+
+2. **Multi-Tier Video Generation**:
+   - Tries OpenAI Video API first (placeholder until Sora public)
+   - Falls back to Veo API (real generation)
+   - Final fallback to ffmpeg placeholder
+   - Registers used provider in tracker
+
+3. **Real AI Thumbnail**:
+   - Calls DALL-E 3 with enhanced prompt
+   - Generates 1024x1792 HD vertical thumbnail
+   - Falls back to PIL placeholder if API unavailable
+   - Registers used provider in tracker
+
+4. **Creator-Style Script**:
+   - LLM receives enhanced VOICEOVER instructions
+   - Generates energetic, conversational Italian narration
+   - Short sentences, direct address, powerful hook
+
+5. **Datastore Tracking**:
+   - Pipeline collects provider information
+   - Saves thumbnail_prompt, video_provider_used, voice_provider_used, thumb_provider_used
+   - Enables quality auditing via review console
+
+### Configuration for Creator-Grade Quality
+
+Set API keys in `.env` for maximum quality:
+
+```bash
+# OpenAI (for LLM, TTS, Image, and future Video)
+LLM_OPENAI_API_KEY="your_openai_api_key_here"
+
+# Optional: Dedicated keys for specific services
+OPENAI_VIDEO_API_KEY="your_openai_video_key"  # Future: Sora API
+TTS_API_KEY="your_openai_api_key_here"        # Or reuses LLM key
+
+# Veo/Vertex AI (for video generation)
+VEO_API_KEY="your_veo_bearer_token_here"
+```
+
+**API Priority**:
+- **Video**: OpenAI Video (if key exists) → Veo → ffmpeg
+- **Voice**: OpenAI TTS HD (if key exists) → ffmpeg silent
+- **Thumbnail**: DALL-E 3 (if key exists) → PIL placeholder
+
+### Human Review with Creative Quality Check
+
+After `test_step07_2_quality_pass.py` completes:
+
+```bash
+# List all pending drafts
+python tools/review_console.py list
+
+# Review with CREATIVE QUALITY CHECK (NEW)
+python tools/review_console.py show <UUID>
+
+# Output now includes:
+# CREATIVE QUALITY CHECK (Step 07.2):
+#   Video Provider: VEO
+#   Voice Provider: REAL_TTS
+#   Thumbnail Provider: OPENAI_IMAGE
+#   Thumbnail Prompt: Professional YouTube Shorts...
+#
+#   Quality Indicators:
+#     Real AI providers used: 3/3
+#     Creator-grade quality: 100%
+#     Status: ✓ FULL CREATOR-GRADE QUALITY
+
+# Watch and approve
+vlc ./output/final_video.mp4
+python tools/review_console.py publish <UUID> --approved-by your-email@example.com
+```
+
+### What You Get
+
+- **Creator-grade voice**: Natural, energetic Italian TTS (tts-1-hd + speed optimization)
+- **Multi-tier video**: Best available provider (OpenAI → Veo → fallback)
+- **Real AI thumbnails**: DALL-E 3 scroll-stopping vertical images
+- **Better scripts**: Energetic, conversational, short-sentence voiceover
+- **Quality transparency**: See exactly which AI providers generated each asset
+- **Production insights**: Quality score helps identify API configuration issues
+
+### Comparison: Step 07 → Step 07.2
+
+| Feature | Step 07 | Step 07.2 |
+|---------|---------|-----------|
+| TTS quality | `tts-1` standard | **`tts-1-hd` + speed=1.05** |
+| TTS style | Generic educational | **Energetic Italian creator** |
+| Video providers | Veo → ffmpeg | **OpenAI → Veo → ffmpeg** |
+| Thumbnail | Placeholder text file | **DALL-E 3 HD images** OR PIL |
+| LLM voiceover prompt | Basic narrative | **Creator-style (energetic, short, direct)** |
+| Provider tracking | None | **Full tracking + quality score** |
+| Review console | Script audit only | **Script audit + creative quality check** |
+| Quality visibility | No metrics | **Quality score (% real AI)** |
+
+### Architecture Compliance
+
+✅ **No breaking changes**:
+- All new parameters are optional with defaults
+- Existing function signatures unchanged
+- Backward compatible datastore (handles missing fields)
+
+✅ **Layering maintained**:
+- `provider_tracker` is a service-layer utility
+- Services register usage, pipeline orchestrates
+- No agent-level changes required
+
+✅ **Human gate preserved**:
+- HUMAN_REVIEW_PENDING still required
+- Quality check enhances (not replaces) human review
+- Manual approval enforced
+
+✅ **Graceful degradation**:
+- Works with 0, 1, 2, or 3 API providers configured
+- Automatic fallback at each tier
+- Quality score reflects actual configuration
+
+### Testing Strategy
+
+The test verifies:
+1. ✓ All Step 07.2 services import successfully
+2. ✓ Provider tracker works (reset, set, get)
+3. ✓ Full pipeline executes with quality tracking
+4. ✓ Datastore saves provider fields
+5. ✓ Review console displays quality check
+6. ✓ **Quality score calculated correctly** (NEW)
+7. ✓ **Backward compatibility** with legacy records (NEW)
+8. ✓ Works in both real-API and fallback modes
+
+### Next Steps
+
+1. **Test with Full APIs**:
+   ```bash
+   # Set all keys in .env
+   python test_step07_2_quality_pass.py
+   # Should see: Quality: 100% (all real AI)
+   ```
+
+2. **Test Partial Fallback**:
+   ```bash
+   # Remove VEO_API_KEY from .env
+   python test_step07_2_quality_pass.py
+   # Should see: Quality: 67% (TTS + thumbnail real, video fallback)
+   ```
+
+3. **Test Full Fallback**:
+   ```bash
+   # Remove all API keys
+   python test_step07_2_quality_pass.py
+   # Should see: Quality: 0% (all fallbacks)
+   ```
+
+4. **Production Use**:
+   - Configure all API keys for best quality
+   - Monitor quality scores in review console
+   - Investigate if score drops below 100% (API issues)
+
+---
+
 3. **Inspect Audit Trail:**
    - Use `python tools/review_console.py show <UUID>`
    - Compare LLM raw output vs. final validated script
@@ -1385,6 +1616,7 @@ The test verifies:
 - [x] **Step 06-pre:** Provider integration & live test (LLM router, Veo wiring)
 - [x] **Step 06-fullrun:** First playable build (real MP4/WAV, LLM integration, end-to-end test)
 - [x] **Step 07:** Real generation pass (Veo API, TTS API, structured LLM, script audit trail)
+- [x] **Step 07.2:** Creator-grade quality pass (HD TTS, multi-tier video, AI thumbnails, quality tracking)
 - [ ] **Step 08:** Scheduler automation (APScheduler, task scheduling)
 - [ ] **Step 09:** Analytics feedback loop and continuous improvement
 - [ ] **Step 10:** Quality improvements and testing
