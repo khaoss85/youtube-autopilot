@@ -454,60 +454,102 @@ The system is **semi-autonomous**: it automates content creation but requires hu
 
 ---
 
-## Human Review & Approval Flow (tools/review_console.py)
+## Human Review & Approval Flow (run.py review)
 
-After running `produce_render_assets()`, the video is in state **"HUMAN_REVIEW_PENDING"** and saved to the datastore with a UUID identifier. At this point, the system has generated all physical assets (final video, thumbnail, voiceover) but has NOT uploaded anything to YouTube.
+The system uses a **2-gate workflow** to minimize wasted costs and ensure quality:
 
-The human reviewer uses the **review console CLI** to inspect drafts and approve publication.
+### Gate 1: Script Review (Cheap - ~$0.01)
+
+**Before generating expensive assets ($5-10), review and approve the script:**
+
+```bash
+# List scripts pending review (filtered by active workspace)
+python run.py review scripts
+
+# Show script details (concept + scene breakdown)
+python run.py review show-script <script_id>
+
+# Approve script to trigger asset generation
+python run.py review approve-script <script_id> --approved-by "you@company"
+```
+
+**Why Gate 1:**
+- Reject bad concepts BEFORE spending money on Sora/TTS
+- Edit script if needed before asset generation
+- Quick review (no video to watch yet)
+
+### Gate 2: Video Review (After Assets Generated)
+
+**After assets are generated, review the final video:**
+
+```bash
+# List videos pending review (filtered by active workspace)
+python run.py review list
+
+# Show video details + quality check
+python run.py review show <video_id>
+
+# Approve and publish to YouTube
+python run.py review publish <video_id> --approved-by "you@company"
+```
 
 ### Workflow Steps
 
-**Step 1: List all pending drafts**
+**Step 1: Generate and review script (Gate 1)**
 ```bash
-python tools/review_console.py list
+# Generate video using active workspace
+python run.py generate
+
+# Review generated scripts
+python run.py review scripts
+
+# Check script details
+python run.py review show-script abc-123
+
+# Approve if good
+python run.py review approve-script abc-123 --approved-by "dan@company"
 ```
 
-This displays all videos awaiting review:
-- `video_internal_id` (UUID for approval)
-- Proposed title
-- File paths (video, thumbnail)
-- Suggested publish time
-- Saved timestamp
-
-**Step 2: Inspect a specific draft**
-```bash
-python tools/review_console.py show <video_internal_id>
+**Step 2: Generate assets (automated or manual)**
+```python
+# After script approval, trigger asset generation
+from yt_autopilot.pipeline.produce_render_publish import produce_render_assets
+produce_render_assets(script_internal_id="abc-123")
 ```
 
-This shows detailed information:
-- Final video path (watch before approving)
-- Thumbnail path (verify quality)
-- Proposed title, description, tags
-- Suggested publish datetime
-- Scene count and files
-
-**Step 3: Approve and publish**
-
-After watching the video and verifying brand compliance:
+**Step 3: Review and publish video (Gate 2)**
 ```bash
-python tools/review_console.py publish <video_internal_id> --approved-by "dan@company"
+# List videos ready for review
+python run.py review list
+
+# Watch the video and check quality
+python run.py review show 6a1b1c2d-3e4f-5a6b-7c8d-9e0f1a2b3c4d
+
+# Approve and upload to YouTube
+python run.py review publish 6a1b1c2d-3e4f-5a6b-7c8d-9e0f1a2b3c4d --approved-by "dan@company"
 ```
 
-This will:
-1. Upload the video to YouTube
-2. Set the custom thumbnail
-3. Schedule publication at the proposed datetime
-4. Update datastore state to **"SCHEDULED_ON_YOUTUBE"**
-5. Record audit trail (`approved_by`, `approved_at_iso`)
+### Workspace Filtering
 
-**Audit Trail:**
-Every publication includes:
+Review commands automatically filter by active workspace:
+
+```bash
+# Shows only scripts/videos from current workspace
+python run.py review scripts
+python run.py review list
+
+# Show scripts/videos from ALL workspaces
+python run.py review scripts --all-workspaces
+python run.py review list --all-workspaces
+```
+
+### Audit Trail
+
+Every approval is tracked with:
 - `approved_by`: Identifier of approver (e.g., "dan@company")
 - `approved_at_iso`: UTC timestamp of approval
-- `youtube_video_id`: Final YouTube video ID
-- `actual_publish_at`: Scheduled publish datetime
-
-This ensures full accountability and compliance tracking.
+- `youtube_video_id`: Final YouTube video ID (after publishing)
+- `script_internal_id`: Link to approved script (Gate 1 → Gate 2)
 
 ### Important Constraints
 
@@ -515,7 +557,7 @@ This ensures full accountability and compliance tracking.
 
 ⚠️ **This command must NEVER be automated or scheduled.**
 
-The review console is the final brand safety gate. Humans must explicitly approve every video before it reaches the public.
+The review workflow is the final brand safety gate. Humans must explicitly approve scripts and videos before publication.
 
 ---
 
@@ -792,16 +834,183 @@ On first run, `channel_memory.json` will be created automatically with defaults.
 
 ---
 
-## Usage
+## Quick Start for Claude Code Users
 
-(Implementation in progress - coming in future steps)
+If you're using **Claude Code**, here's the fastest way to get started:
+
+### 1. Initial Setup (One-Time)
 
 ```bash
-# Run full pipeline once
-python -m yt_autopilot.pipeline.produce_render_publish
+# Install dependencies
+pip install -r requirements.txt
 
-# Start automated scheduler
-python -m yt_autopilot.pipeline.scheduler
+# Configure environment
+cp .env.example .env
+# Edit .env with your API keys
+
+# Install ffmpeg
+brew install ffmpeg  # macOS
+```
+
+### 2. Create Your First Workspace
+
+```bash
+# Interactive workspace creation
+python run.py workspace create
+# Follow prompts: workspace_id, name, vertical, brand_tone
+
+# Or switch to existing workspace
+python run.py workspace list
+python run.py workspace switch tech_ai_creator
+```
+
+### 3. Generate First Video
+
+```bash
+# Generate content for active workspace
+python run.py generate
+
+# Review the script (Gate 1 - cheap)
+python run.py review scripts
+python run.py review show-script <script_id>
+
+# Approve script (triggers asset generation)
+python run.py review approve-script <script_id> --approved-by "you@company"
+```
+
+### 4. Essential Commands Reference
+
+```bash
+# Workspace commands
+python run.py workspace list      # List all workspaces
+python run.py workspace info      # Show active workspace
+python run.py workspace switch <id>  # Switch workspace
+
+# Generation
+python run.py generate            # Generate content
+
+# Review (workspace-filtered by default)
+python run.py review scripts      # List scripts
+python run.py review list         # List videos
+python run.py review show <id>    # Show details
+
+# Cross-workspace view
+python run.py review scripts --all-workspaces
+python run.py review list --all-workspaces
+```
+
+### Claude Code Development Tips
+
+**File Navigation:**
+- Main CLI: `run.py`
+- Pipeline: `yt_autopilot/pipeline/build_video_package.py`
+- Agents: `yt_autopilot/agents/`
+- Services: `yt_autopilot/services/`
+- Datastore: `yt_autopilot/io/datastore.py`
+
+**Testing:**
+```bash
+# Test workspace system
+python run.py workspace list
+
+# Test generation (uses mock trends if API keys not configured)
+python run.py generate
+
+# Check datastore
+python run.py review stats
+```
+
+**Common Tasks:**
+```bash
+# Switch between channels
+python run.py workspace switch tech_ai_creator
+python run.py workspace switch gym_fitness_pro
+
+# Review pending items
+python run.py review scripts
+python run.py review list
+
+# Get help
+python run.py --help
+python run.py workspace --help
+python run.py review --help
+```
+
+---
+
+## Usage
+
+### Quick Start
+
+```bash
+# 1. List available workspaces
+python run.py workspace list
+
+# 2. Switch to a workspace (or create one)
+python run.py workspace switch tech_ai_creator
+
+# 3. Generate video content
+python run.py generate
+
+# 4. Review and approve script (Gate 1)
+python run.py review scripts
+python run.py review show-script <script_id>
+python run.py review approve-script <script_id> --approved-by "you@company"
+
+# 5. (After assets generated) Review and publish video (Gate 2)
+python run.py review list
+python run.py review show <video_id>
+python run.py review publish <video_id> --approved-by "you@company"
+```
+
+### CLI Command Reference
+
+**Workspace Management:**
+```bash
+python run.py workspace list              # List all workspaces
+python run.py workspace info              # Show active workspace details
+python run.py workspace switch <id>       # Switch to workspace
+python run.py workspace create            # Create new workspace (interactive)
+```
+
+**Content Generation:**
+```bash
+python run.py generate                    # Generate video using active workspace
+python run.py generate --use-llm-curation # Use LLM for trend curation (Phase B)
+```
+
+**Script Review (Gate 1):**
+```bash
+python run.py review scripts                              # List scripts (active workspace)
+python run.py review scripts --all-workspaces             # List scripts (all workspaces)
+python run.py review show-script <script_id>              # Show script details
+python run.py review approve-script <script_id> --approved-by "you@company"
+```
+
+**Video Review (Gate 2):**
+```bash
+python run.py review stats                                # Show datastore statistics
+python run.py review list                                 # List videos (active workspace)
+python run.py review list --all-workspaces                # List videos (all workspaces)
+python run.py review show <video_id>                      # Show video details
+python run.py review publish <video_id> --approved-by "you@company"
+```
+
+### Multi-Channel Workflow Example
+
+```bash
+# Morning: Tech channel
+python run.py workspace switch tech_ai_creator
+python run.py generate
+python run.py review scripts
+
+# Afternoon: Fitness channel
+python run.py workspace switch gym_fitness_pro
+python run.py generate
+python run.py review scripts
+
+# Evening: Review all pending videos
+python run.py review list --all-workspaces
 ```
 
 ---
@@ -1093,16 +1302,16 @@ After `test_step06_fullrun_first_playable.py` completes, use the review console:
 
 ```bash
 # List all pending drafts
-python tools/review_console.py list
+python run.py review list
 
 # Review a specific video
-python tools/review_console.py show <UUID>
+python run.py review show <UUID>
 
 # Watch the video with VLC
 vlc ./output/final_video.mp4
 
 # Approve and publish (manual approval required)
-python tools/review_console.py publish <UUID> --approved-by your-email@example.com
+python run.py review publish <UUID> --approved-by your-email@example.com
 ```
 
 **Key Point:** The video will **NOT** be uploaded to YouTube until you explicitly approve it using the review console. This maintains the **human-in-the-loop safety gate**.
@@ -1158,7 +1367,7 @@ Everything still produces a playable final_video.mp4 for testing.
    It's black screen + silent audio, but it's a REAL playable video assembled by your pipeline!
 
 2. **Approve and Publish:**
-   Use `tools/review_console.py` to approve the draft and upload to YouTube (manual)
+   Use `run.py review` to approve the draft and upload to YouTube (manual)
 
 3. **Step 06 (Complete Veo):**
    Replace black placeholders with real AI-generated video clips via Veo API
@@ -1199,7 +1408,7 @@ Everything still produces a playable final_video.mp4 for testing.
    - Human reviewers can inspect what LLM suggested vs. what passed safety checks
    - Full transparency for debugging and quality improvement
 
-5. **Enhanced Review Console** (`tools/review_console.py`)
+5. **Enhanced Review Console** (`run.py review`)
    - `show` command now displays script audit trail
    - Displays LLM raw output (first 400 chars)
    - Displays final validated script (first 400 chars)
@@ -1274,10 +1483,10 @@ After `test_step07_real_generation_pass.py` completes:
 
 ```bash
 # List all pending drafts
-python tools/review_console.py list
+python run.py review list
 
 # Review a specific video WITH AUDIT TRAIL (NEW)
-python tools/review_console.py show <UUID>
+python run.py review show <UUID>
 
 # Output now includes:
 # SCRIPT AUDIT TRAIL (Step 07):
@@ -1291,7 +1500,7 @@ vlc ./output/final_video.mp4
 vlc ./tmp/voiceover.mp3
 
 # Approve and publish (manual approval still required)
-python tools/review_console.py publish <UUID> --approved-by your-email@example.com
+python run.py review publish <UUID> --approved-by your-email@example.com
 ```
 
 ### What You Get
@@ -1410,7 +1619,7 @@ The test verifies:
      - `voice_provider_used`: Which voice provider generated the voiceover
      - `thumb_provider_used`: Which thumbnail provider generated the image
 
-6. **Enhanced Review Console** (`tools/review_console.py`)
+6. **Enhanced Review Console** (`run.py review`)
    - New **CREATIVE QUALITY CHECK** section in `show` command
    - Displays provider information for video, voice, and thumbnail
    - Shows thumbnail generation prompt
@@ -1485,10 +1694,10 @@ After `test_step07_2_quality_pass.py` completes:
 
 ```bash
 # List all pending drafts
-python tools/review_console.py list
+python run.py review list
 
 # Review with CREATIVE QUALITY CHECK (NEW)
-python tools/review_console.py show <UUID>
+python run.py review show <UUID>
 
 # Output now includes:
 # CREATIVE QUALITY CHECK (Step 07.2):
@@ -1504,7 +1713,7 @@ python tools/review_console.py show <UUID>
 
 # Watch and approve
 vlc ./output/final_video.mp4
-python tools/review_console.py publish <UUID> --approved-by your-email@example.com
+python run.py review publish <UUID> --approved-by your-email@example.com
 ```
 
 ### What You Get
@@ -1655,7 +1864,7 @@ The test verifies:
    - Size: `1080x1920` (vertical 9:16 for YouTube Shorts)
    - Fallback chain: Sora → Veo → ffmpeg placeholder
 
-6. **Enhanced Review Console** (`tools/review_console.py`)
+6. **Enhanced Review Console** (`run.py review`)
    - **Gate 1 commands**:
      - `scripts` - List scripts pending review
      - `show-script <id>` - Show script in 2-level format (Concept Summary + Detailed Breakdown)
@@ -1702,10 +1911,10 @@ print(f\"Duration: ~{result['estimated_duration']}s\")
 
 ```bash
 # List all scripts pending review
-python tools/review_console.py scripts
+python run.py review scripts
 
 # Review specific script in 2-level format
-python tools/review_console.py show-script <script_id>
+python run.py review show-script <script_id>
 
 # Output:
 # LEVEL 1: CONCEPT SUMMARY
@@ -1723,7 +1932,7 @@ python tools/review_console.py show-script <script_id>
 
 ```bash
 # Approve script for asset generation
-python tools/review_console.py approve-script <script_id> --approved-by "dan@company"
+python run.py review approve-script <script_id> --approved-by "dan@company"
 
 # This transitions state: SCRIPT_PENDING_REVIEW → READY_FOR_GENERATION
 ```
@@ -1754,16 +1963,16 @@ print(f\"Final video: {result['final_video_path']}\")
 
 ```bash
 # List videos pending review
-python tools/review_console.py list
+python run.py review list
 
 # Review video with creative quality check
-python tools/review_console.py show <video_id>
+python run.py review show <video_id>
 
 # Watch video
 vlc ./output/final_video.mp4
 
 # Approve and publish to YouTube
-python tools/review_console.py publish <video_id> --approved-by "dan@company"
+python run.py review publish <video_id> --approved-by "dan@company"
 ```
 
 ### Configuration for Sora 2
@@ -1847,8 +2056,8 @@ TTS_API_KEY="your_openai_api_key_here"
    └─> generate_script_draft() → SCRIPT_PENDING_REVIEW
 
 2. Human Review (GATE 1 - cheap)
-   └─> tools/review_console.py show-script <id>
-   └─> tools/review_console.py approve-script <id> --approved-by
+   └─> run.py review show-script <id>
+   └─> run.py review approve-script <id> --approved-by
 
 3. State Transition
    └─> SCRIPT_PENDING_REVIEW → READY_FOR_GENERATION
@@ -1860,11 +2069,11 @@ TTS_API_KEY="your_openai_api_key_here"
    └─> DALL-E generates thumbnail ($)
 
 5. Human Review (GATE 2 - expensive assets already generated)
-   └─> tools/review_console.py show <video_id>
+   └─> run.py review show <video_id>
    └─> Watch video, verify quality
 
 6. Publication
-   └─> tools/review_console.py publish <video_id> --approved-by
+   └─> run.py review publish <video_id> --approved-by
    └─> VIDEO_PENDING_REVIEW → SCHEDULED_ON_YOUTUBE
    └─> Upload to YouTube with scheduled publish time
 ```
@@ -1976,11 +2185,11 @@ VisualPlan(
    python -c "from yt_autopilot.pipeline.produce_render_publish import generate_script_draft; print(generate_script_draft('2025-10-26T18:00:00Z'))"
 
    # Review it
-   python tools/review_console.py scripts
-   python tools/review_console.py show-script <script_id>
+   python run.py review scripts
+   python run.py review show-script <script_id>
 
    # Approve it
-   python tools/review_console.py approve-script <script_id> --approved-by "you@company"
+   python run.py review approve-script <script_id> --approved-by "you@company"
    ```
 
 3. **Generate Assets from Approved Script:**
@@ -2559,7 +2768,7 @@ The test verifies:
 ---
 
 3. **Inspect Audit Trail:**
-   - Use `python tools/review_console.py show <UUID>`
+   - Use `python run.py review show <UUID>`
    - Compare LLM raw output vs. final validated script
    - Understand what safety checks modified
 
@@ -2570,6 +2779,235 @@ The test verifies:
 
 ---
 
+## 🏢 Multi-Workspace System (Step 08)
+
+### Problems Solved
+
+**Before Step 08:**
+- Single-channel system: one memory, one config, one datastore
+- Cannot manage multiple YouTube channels simultaneously
+- Review queue shows ALL videos mixed together
+- No isolation between different channel brands/verticals
+
+**After Step 08:**
+- Multi-workspace architecture: independent configs per channel
+- Workspace-aware review filtering
+- Unified CLI with subcommand structure
+- Cross-workspace visibility when needed
+
+### What's New in Step 08
+
+#### 1. **Workspace System** (`core/workspace_manager.py`)
+
+Manages multiple YouTube channels with isolated configurations:
+
+```python
+# Each workspace has:
+{
+    "workspace_id": "tech_ai_creator",
+    "workspace_name": "Tech & AI Creator",
+    "vertical_id": "tech",
+    "brand_tone": "Direct, positive, educational",
+    "memory_path": "workspaces/tech_ai_creator/memory.json",
+    "active": true
+}
+```
+
+**Key Features:**
+- Isolated memory per workspace (recent titles, learnings)
+- Vertical-specific config (CPM, format preferences)
+- Active workspace tracking via `.active_workspace`
+- Create/switch/list/info operations
+
+#### 2. **Unified CLI** (`run.py`)
+
+Single entry point replacing `run.py review`:
+
+```bash
+# Workspace management
+python run.py workspace list
+python run.py workspace info
+python run.py workspace switch <workspace_id>
+python run.py workspace create
+
+# Video generation (uses active workspace)
+python run.py generate [--use-llm-curation]
+
+# Script review (Gate 1)
+python run.py review scripts [--all-workspaces]
+python run.py review show-script <script_id>
+python run.py review approve-script <script_id> --approved-by "you@company"
+
+# Video review (Gate 2)
+python run.py review stats
+python run.py review list [--all-workspaces]
+python run.py review show <video_id>
+python run.py review publish <video_id> --approved-by "you@company"
+```
+
+#### 3. **Workspace Filtering**
+
+Review commands automatically filter by active workspace:
+
+```bash
+# Shows only scripts from current workspace (tech_ai_creator)
+python run.py review scripts
+
+# Shows scripts from ALL workspaces
+python run.py review scripts --all-workspaces
+```
+
+Same applies to `review list` for video drafts.
+
+#### 4. **Datastore Workspace Tracking**
+
+All records now include `workspace_id`:
+
+```json
+{
+  "script_internal_id": "abc-123",
+  "workspace_id": "tech_ai_creator",
+  "production_state": "SCRIPT_PENDING_REVIEW",
+  ...
+}
+```
+
+**Backward Compatibility:**
+- Legacy records without `workspace_id` only visible with `--all-workspaces`
+- No migration needed - new records automatically get workspace_id
+
+### Running Multi-Workspace System
+
+**Example: Managing 2 YouTube Channels**
+
+```bash
+# Morning: Work on tech channel
+python run.py workspace switch tech_ai_creator
+python run.py generate
+
+# Review scripts for tech channel only
+python run.py review scripts
+
+# Afternoon: Work on fitness channel
+python run.py workspace switch gym_fitness_pro
+python run.py generate
+
+# Review only fitness videos
+python run.py review list
+
+# Check all pending videos across channels
+python run.py review list --all-workspaces
+```
+
+### What You Get
+
+**Clean Workspace Isolation:**
+```
+workspaces/
+├── tech_ai_creator/
+│   └── memory.json (tech-specific recent titles)
+├── gym_fitness_pro/
+│   └── memory.json (fitness-specific recent titles)
+└── finance_master/
+    └── memory.json (finance-specific recent titles)
+```
+
+**Filtered Review Queues:**
+```bash
+$ python run.py review scripts
+======================================================================
+SCRIPT REVIEW QUEUE (GATE 1 - cheap)
+======================================================================
+Showing scripts for: workspace: Tech & AI Creator
+
+Found 2 script(s) pending review:
+[1] SCRIPT_PENDING_REVIEW
+  script_internal_id: abc-123
+  topic: AI breakthrough 2025
+```
+
+### Comparison: Step 07.5 → Step 08
+
+| Feature | Step 07.5 | Step 08 |
+|---------|-----------|---------|
+| **CLI Structure** | Multiple scripts (review_console.py) | Unified run.py with subcommands |
+| **Workspace Support** | Single channel only | Multi-channel with isolation |
+| **Review Filtering** | Shows all videos | Filters by active workspace |
+| **Cross-Workspace View** | Not available | `--all-workspaces` flag |
+| **Memory Isolation** | Shared memory.json | Per-workspace memory |
+| **Config Management** | Global config | Workspace-specific configs |
+
+### Architecture Compliance
+
+**Layer Boundaries:**
+- ✅ `workspace_manager.py` in `core/` (no external deps)
+- ✅ `run.py` CLI orchestrates workspace + pipeline
+- ✅ `datastore.py` extended with workspace_id tracking
+- ✅ All agents/services unchanged (workspace-agnostic)
+
+**Workspace Awareness:**
+- `build_video_package(workspace_id)` → loads correct config
+- `save_script_draft(ready, datetime, workspace_id)` → tracks workspace
+- `list_pending_review(workspace_id)` → filters by workspace
+
+### Testing Multi-Workspace
+
+```bash
+# Test workspace creation and switching
+python run.py workspace create
+# Follow prompts: ID, name, vertical, brand tone
+
+# Test workspace listing
+python run.py workspace list
+
+# Test workspace-filtered review
+python run.py workspace switch tech_ai_creator
+python run.py review scripts
+# Should show only tech channel scripts
+
+python run.py workspace switch gym_fitness_pro
+python run.py review scripts
+# Should show only fitness channel scripts
+
+# Test cross-workspace view
+python run.py review scripts --all-workspaces
+# Should show scripts from ALL channels
+```
+
+### Next Steps
+
+1. **Create Multiple Workspaces:**
+   ```bash
+   python run.py workspace create
+   # Create: tech_ai_creator, gym_fitness_pro, finance_master
+   ```
+
+2. **Generate Content Per Workspace:**
+   ```bash
+   python run.py workspace switch tech_ai_creator
+   python run.py generate
+
+   python run.py workspace switch gym_fitness_pro
+   python run.py generate
+   ```
+
+3. **Manage Reviews Efficiently:**
+   ```bash
+   # Review one workspace at a time
+   python run.py workspace switch tech_ai_creator
+   python run.py review list
+
+   # Or check all workspaces
+   python run.py review list --all-workspaces
+   ```
+
+4. **Step 09 (Scheduler Automation):**
+   - Schedule generation per workspace
+   - Independent timings for each channel
+   - Shared codebase, isolated execution
+
+---
+
 ## Roadmap
 
 - [x] Step 01: Core foundation (schemas, config, logger, memory)
@@ -2577,7 +3015,7 @@ The test verifies:
 - [x] Step 03: Editorial pipeline orchestrator (build_video_package)
 - [x] Step 04: Implement services (Veo, TTS, ffmpeg, YouTube, analytics) + I/O (datastore, exports)
 - [x] Step 05: Full production pipeline with human gate (produce_render_publish, tasks)
-- [x] **Step 05.5:** Human review console & audit trail (tools/review_console.py)
+- [x] **Step 05.5:** Human review console & audit trail (run.py review)
 - [x] **Step 06-pre:** Provider integration & live test (LLM router, Veo wiring)
 - [x] **Step 06-fullrun:** First playable build (real MP4/WAV, LLM integration, end-to-end test)
 - [x] **Step 07:** Real generation pass (Veo API, TTS API, structured LLM, script audit trail)
@@ -2585,9 +3023,10 @@ The test verifies:
 - [x] **Step 07.3:** Script review gate + Sora 2 integration (2-gate workflow, scene sync, cost optimization)
 - [x] **Step 07.4:** Asset organization system (per-video isolated directories, AssetPaths schema, scalable multi-video generation)
 - [x] **Step 07.5:** Format engine - cross-vertical series system (intro/outro caching, segment structure, YAML templates, works on ANY vertical)
-- [ ] **Step 08:** Scheduler automation (APScheduler, task scheduling)
-- [ ] **Step 09:** Analytics feedback loop and continuous improvement
-- [ ] **Step 10:** Quality improvements and testing
+- [x] **Step 08:** Multi-workspace system (workspace isolation, unified CLI, workspace filtering, cross-channel management)
+- [ ] **Step 09:** Scheduler automation (APScheduler, per-workspace task scheduling)
+- [ ] **Step 10:** Analytics feedback loop and continuous improvement
+- [ ] **Step 11:** Quality improvements and testing
 
 ---
 
