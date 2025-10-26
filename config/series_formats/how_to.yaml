@@ -1,0 +1,57 @@
+# Serie: How To
+# Step 07.5: Format template for step-by-step how-to guides
+#
+# Structure: intro → hook → setup → steps → recap → outro
+# Target: 25-35 second practical guide
+
+serie_id: how_to
+name: "How To"
+description: "Guide passo-passo su come fare qualcosa di specifico"
+
+# Intro video configuration (Sora 2 generated, cached per serie)
+intro_duration_seconds: 2
+intro_veo_prompt: |
+  How-to guide intro animation, vertical 9:16 format.
+  Bold text "HOW TO" with clean, friendly design.
+  Bright educational aesthetic with step indicators.
+  Warm colors, approachable and clear visual style.
+  Optimized for YouTube Shorts vertical mobile viewing.
+
+# Outro video configuration (Sora 2 generated, cached per serie)
+outro_duration_seconds: 3
+outro_veo_prompt: |
+  How-to guide outro with engagement prompt, vertical 9:16 format.
+  Animated text "HAI DOMANDE? COMMENTA QUI SOTTO!" with comment icon.
+  Friendly educational closing sequence.
+  Warm inviting colors, clear readable text.
+  High-quality production optimized for mobile viewing.
+
+# Segment structure (ordered list defining video flow)
+segments:
+  - type: hook
+    name: "Opening Hook"
+    target_duration_min: 3
+    target_duration_max: 5
+    description: "Introduce il risultato finale. Cosa imparerai a fare."
+
+  - type: setup
+    name: "Setup & Requirements"
+    target_duration_min: 4
+    target_duration_max: 6
+    description: "Cosa serve prima di iniziare. Prerequisites e materiali."
+
+  - type: steps
+    name: "Step-by-Step Guide"
+    target_duration_min: 12
+    target_duration_max: 18
+    description: "Passi concreti da seguire. Max 3-4 passi principali, chiari e actionable."
+
+  - type: recap
+    name: "Recap & Encouragement"
+    target_duration_min: 3
+    target_duration_max: 5
+    description: "Riassunto rapido e incoraggiamento. Rinforza che è facile da fare."
+
+# Overall target metrics
+total_target_duration_min: 25
+total_target_duration_max: 35

@@ -26,10 +26,20 @@ Example:
     )
 
 ==============================================================================
+Step 07.5: Format Engine Evolution
+==============================================================================
+
+NEW: Visual format engine with intro/outro support
+- Accepts SeriesFormat template for structured visual planning
+- Adds intro/outro scenes to visual plan
+- Tags VisualScene with segment_type from script
+- Maintains backward compatibility (series_format=None → legacy mode)
+
+==============================================================================
 """
 
 from typing import Dict, List, Tuple, Optional
-from yt_autopilot.core.schemas import VideoPlan, VideoScript, VisualPlan, VisualScene, SceneVoiceover
+from yt_autopilot.core.schemas import VideoPlan, VideoScript, VisualPlan, VisualScene, SceneVoiceover, SeriesFormat
 from yt_autopilot.core.memory_store import get_visual_style
 from yt_autopilot.core.logger import logger
 
@@ -159,7 +169,8 @@ def _generate_veo_prompt(
 def generate_visual_plan(
     plan: VideoPlan,
     script: VideoScript,
-    memory: Dict
+    memory: Dict,
+    series_format: Optional[SeriesFormat] = None
 ) -> VisualPlan:
     """
     Generates a complete visual plan with scene-by-scene prompts for Veo.
@@ -173,15 +184,19 @@ def generate_visual_plan(
     Step 07.3: Now uses script.scene_voiceover_map for precise audio/visual sync.
     Falls back to legacy scene segmentation if scene_voiceover_map is empty.
 
+    Step 07.5: Format engine - adds intro/outro scenes and tags with segment_type.
+    If series_format is provided, creates intro/outro scenes from template.
+
     Optimized for YouTube Shorts (vertical 9:16 format, ~60 seconds total).
 
     Args:
         plan: Video plan with topic and context
         script: Complete video script (with scene_voiceover_map in Step 07.3+)
         memory: Channel memory dict containing visual_style
+        series_format: Optional series format template for intro/outro (Step 07.5)
 
     Returns:
-        VisualPlan with scene list and style notes
+        VisualPlan with scene list and style notes (includes intro/outro if series_format)
 
     Raises:
         ValueError: If script is invalid
@@ -191,22 +206,40 @@ def generate_visual_plan(
 
     logger.info(f"VisualPlanner creating scenes for: '{plan.working_title}'")
 
+    if series_format:
+        logger.info(f"  Format engine mode: {series_format.name} ({series_format.serie_id})")
+
     # Load visual style from memory
     visual_style = get_visual_style(memory)
 
-    # Step 07.3: Use scene_voiceover_map if available (new), else fall back to legacy segmentation
+    # Step 07.3/07.5: Use scene_voiceover_map if available (new), else fall back to legacy segmentation
     scenes: List[VisualScene] = []
+
+    # Step 07.5: Add intro scene if series_format is provided
+    if series_format:
+        intro_scene = VisualScene(
+            scene_id=0,  # Intro is scene 0
+            prompt_for_veo=series_format.intro_veo_prompt,
+            est_duration_seconds=series_format.intro_duration_seconds,
+            voiceover_text="",  # No voiceover for intro
+            segment_type="intro"
+        )
+        scenes.append(intro_scene)
+        logger.info(f"  Added intro scene: {series_format.intro_duration_seconds}s")
 
     if script.scene_voiceover_map and len(script.scene_voiceover_map) > 0:
         # NEW (Step 07.3): Use scene_voiceover_map for precise sync
-        logger.info(f"  Using scene_voiceover_map ({len(script.scene_voiceover_map)} scenes)")
+        logger.info(f"  Using scene_voiceover_map ({len(script.scene_voiceover_map)} content scenes)")
 
         for scene_vo in script.scene_voiceover_map:
-            # Determine segment type based on scene position
-            if scene_vo.scene_id == 1:
+            # Step 07.5: Use segment_type from script if available (set by ScriptWriter)
+            # Otherwise, determine based on scene position (legacy)
+            if hasattr(scene_vo, 'segment_type') and scene_vo.segment_type:
+                segment_name = scene_vo.segment_type
+            elif scene_vo.scene_id == 1:
                 segment_name = "hook"
             elif scene_vo.scene_id == len(script.scene_voiceover_map):
-                segment_name = "outro"
+                segment_name = "cta"
             else:
                 segment_name = f"content_{scene_vo.scene_id - 1}"
 
@@ -218,12 +251,14 @@ def generate_visual_plan(
                 visual_style
             )
 
-            # Create VisualScene with embedded voiceover text (NEW in Step 07.3)
+            # Create VisualScene with embedded voiceover text (Step 07.3)
+            # and segment_type (Step 07.5)
             scene = VisualScene(
                 scene_id=scene_vo.scene_id,
                 prompt_for_veo=veo_prompt,
                 est_duration_seconds=scene_vo.est_duration_seconds,
-                voiceover_text=scene_vo.voiceover_text  # Sync with script!
+                voiceover_text=scene_vo.voiceover_text,  # Sync with script!
+                segment_type=segment_name  # Step 07.5: Tag with segment type
             )
 
             scenes.append(scene)
@@ -248,16 +283,32 @@ def generate_visual_plan(
             # Estimate duration
             duration = _estimate_duration_from_text(segment_text)
 
-            # Create scene (without voiceover_text - legacy mode)
+            # Create scene (legacy mode with segment_type for Step 07.5 compatibility)
             scene = VisualScene(
                 scene_id=scene_id,
                 prompt_for_veo=veo_prompt,
                 est_duration_seconds=duration,
-                voiceover_text=segment_text  # Use segment text as fallback
+                voiceover_text=segment_text,  # Use segment text as fallback
+                segment_type=segment_name  # Step 07.5: Tag with segment type
             )
 
             scenes.append(scene)
             logger.debug(f"Scene {scene_id}: {duration}s - {segment_name}")
+
+    # Step 07.5: Add outro scene if series_format is provided
+    if series_format:
+        # Outro scene ID is after all content scenes
+        outro_scene_id = max(s.scene_id for s in scenes) + 1 if scenes else 1
+
+        outro_scene = VisualScene(
+            scene_id=outro_scene_id,
+            prompt_for_veo=series_format.outro_veo_prompt,
+            est_duration_seconds=series_format.outro_duration_seconds,
+            voiceover_text="",  # No voiceover for outro
+            segment_type="outro"
+        )
+        scenes.append(outro_scene)
+        logger.info(f"  Added outro scene: {series_format.outro_duration_seconds}s")
 
     # Calculate total duration
     total_duration = sum(scene.est_duration_seconds for scene in scenes)

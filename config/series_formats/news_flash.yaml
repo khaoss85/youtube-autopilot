@@ -1,0 +1,51 @@
+# Serie: News Flash
+# Step 07.5: Format template for breaking news and update videos
+#
+# Structure: intro → hook → facts → impact → outro
+# Target: 15-25 second fast-paced news delivery
+
+serie_id: news_flash
+name: "News Flash"
+description: "Breaking news e aggiornamenti rapidi su tecnologia e innovazione"
+
+# Intro video configuration (Sora 2 generated, cached per serie)
+intro_duration_seconds: 1
+intro_veo_prompt: |
+  Breaking news intro animation, vertical 9:16 format.
+  Bold red "BREAKING NEWS" text with urgent energy.
+  Fast-paced news ticker aesthetic, professional broadcast quality.
+  Dark background with red accent lighting.
+  Optimized for YouTube Shorts vertical mobile viewing.
+
+# Outro video configuration (Sora 2 generated, cached per serie)
+outro_duration_seconds: 2
+outro_veo_prompt: |
+  News flash outro with follow prompt, vertical 9:16 format.
+  Animated text "SEGUICI PER ALTRI AGGIORNAMENTI" with notification bell icon.
+  Professional news broadcast closing aesthetic.
+  Urgent but inviting visual style.
+  High-quality production optimized for mobile viewing.
+
+# Segment structure (ordered list defining video flow)
+segments:
+  - type: hook
+    name: "News Hook"
+    target_duration_min: 2
+    target_duration_max: 4
+    description: "Annuncio breaking news con urgenza. Statement chiaro e immediato."
+
+  - type: facts
+    name: "Key Facts"
+    target_duration_min: 8
+    target_duration_max: 12
+    description: "Fatti principali della notizia. Chi, cosa, quando, dove in modo conciso."
+
+  - type: impact
+    name: "Impact Analysis"
+    target_duration_min: 5
+    target_duration_max: 8
+    description: "Cosa significa per il pubblico. Perché dovrebbe importare."
+
+# Overall target metrics
+total_target_duration_min: 15
+total_target_duration_max: 25

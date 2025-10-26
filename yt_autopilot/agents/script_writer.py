@@ -28,10 +28,19 @@ Example enhancement:
     # Pass llm_script to agent for validation and formatting
 
 ==============================================================================
+Step 07.5: Format Engine Integration
+==============================================================================
+
+NEW: Segment-aware script generation
+- Accepts SeriesFormat template for structured scriptwriting
+- Tags bullets and scenes with segment_type from template
+- Maintains backward compatibility (series_format=None → legacy mode)
+
+==============================================================================
 """
 
 from typing import Dict, List, Optional
-from yt_autopilot.core.schemas import VideoPlan, VideoScript, SceneVoiceover
+from yt_autopilot.core.schemas import VideoPlan, VideoScript, SceneVoiceover, SeriesFormat
 from yt_autopilot.core.memory_store import get_brand_tone
 from yt_autopilot.core.logger import logger
 
@@ -279,79 +288,150 @@ def _estimate_speaking_duration(text: str) -> int:
     return duration
 
 
-def _create_scene_voiceover_map(hook: str, bullets: List[str], outro_cta: str) -> List[SceneVoiceover]:
+def _create_scene_voiceover_map(
+    hook: str,
+    bullets: List[str],
+    outro_cta: str,
+    series_format: Optional[SeriesFormat] = None
+) -> List[SceneVoiceover]:
     """
     Creates scene-by-scene voiceover breakdown for precise audio/visual sync.
 
     Step 07.3: Maps script components to scenes with timing.
+    Step 07.5: Segment-aware mapping using series format template.
 
-    Scene mapping logic:
+    LEGACY MODE (series_format=None):
     - Scene 1: Hook (opening)
     - Scene 2-N: Content bullets (one per scene if ≤3, grouped if >3)
     - Last scene: CTA (outro)
+
+    SEGMENT-AWARE MODE (series_format provided):
+    - Maps bullets to template segments
+    - Tags each scene with segment_type
+    - Respects segment count from template
 
     Args:
         hook: Opening hook text
         bullets: List of content bullet points
         outro_cta: Closing call-to-action
+        series_format: Optional series format template (Step 07.5)
 
     Returns:
-        List of SceneVoiceover objects with scene_id, text, and duration
+        List of SceneVoiceover objects with scene_id, text, duration, and segment_type
     """
     scene_map = []
     scene_id = 1
 
-    # Scene 1: Hook
-    hook_duration = _estimate_speaking_duration(hook)
-    scene_map.append(SceneVoiceover(
-        scene_id=scene_id,
-        voiceover_text=hook,
-        est_duration_seconds=hook_duration
-    ))
-    scene_id += 1
+    if series_format:
+        # Step 07.5: Segment-aware mode
+        logger.info(f"  Creating segment-aware scene map from template ({len(series_format.segments)} segments)")
 
-    # Content scenes: bullets
-    if len(bullets) <= 3:
-        # One scene per bullet if few bullets
-        for bullet in bullets:
-            bullet_duration = _estimate_speaking_duration(bullet)
+        # Scene 1: Hook (always first)
+        hook_duration = _estimate_speaking_duration(hook)
+        hook_segment = series_format.segments[0] if series_format.segments else None
+        scene_map.append(SceneVoiceover(
+            scene_id=scene_id,
+            voiceover_text=hook,
+            est_duration_seconds=hook_duration,
+            segment_type=hook_segment.type if hook_segment else "hook"
+        ))
+        scene_id += 1
+
+        # Content scenes: map bullets to remaining segments (excluding hook and CTA)
+        content_segments = series_format.segments[1:-1] if len(series_format.segments) > 2 else []
+
+        if content_segments:
+            # Distribute bullets across content segments
+            bullets_per_segment = max(1, len(bullets) // len(content_segments))
+
+            for i, segment in enumerate(content_segments):
+                # Get bullets for this segment
+                start_idx = i * bullets_per_segment
+                end_idx = start_idx + bullets_per_segment if i < len(content_segments) - 1 else len(bullets)
+                segment_bullets = bullets[start_idx:end_idx]
+
+                # Combine bullets for this segment
+                segment_text = " ".join(segment_bullets)
+                segment_duration = _estimate_speaking_duration(segment_text)
+
+                scene_map.append(SceneVoiceover(
+                    scene_id=scene_id,
+                    voiceover_text=segment_text,
+                    est_duration_seconds=segment_duration,
+                    segment_type=segment.type
+                ))
+                scene_id += 1
+
+        # Last scene: CTA
+        cta_duration = _estimate_speaking_duration(outro_cta)
+        cta_segment = series_format.segments[-1] if series_format.segments else None
+        scene_map.append(SceneVoiceover(
+            scene_id=scene_id,
+            voiceover_text=outro_cta,
+            est_duration_seconds=cta_duration,
+            segment_type=cta_segment.type if cta_segment else "cta"
+        ))
+
+    else:
+        # Legacy mode (backward compatibility)
+        logger.info("  Creating legacy scene map (no series format)")
+
+        # Scene 1: Hook
+        hook_duration = _estimate_speaking_duration(hook)
+        scene_map.append(SceneVoiceover(
+            scene_id=scene_id,
+            voiceover_text=hook,
+            est_duration_seconds=hook_duration,
+            segment_type="hook"  # Default segment type
+        ))
+        scene_id += 1
+
+        # Content scenes: bullets
+        if len(bullets) <= 3:
+            # One scene per bullet if few bullets
+            for i, bullet in enumerate(bullets):
+                bullet_duration = _estimate_speaking_duration(bullet)
+                scene_map.append(SceneVoiceover(
+                    scene_id=scene_id,
+                    voiceover_text=bullet,
+                    est_duration_seconds=bullet_duration,
+                    segment_type=f"content_{i+1}"  # Default segment type
+                ))
+                scene_id += 1
+        else:
+            # Group bullets into 2-3 scenes if many bullets
+            mid_point = len(bullets) // 2
+
+            # First group
+            first_group = " ".join(bullets[:mid_point])
+            first_duration = _estimate_speaking_duration(first_group)
             scene_map.append(SceneVoiceover(
                 scene_id=scene_id,
-                voiceover_text=bullet,
-                est_duration_seconds=bullet_duration
+                voiceover_text=first_group,
+                est_duration_seconds=first_duration,
+                segment_type="content_1"
             ))
             scene_id += 1
-    else:
-        # Group bullets into 2-3 scenes if many bullets
-        mid_point = len(bullets) // 2
 
-        # First group
-        first_group = " ".join(bullets[:mid_point])
-        first_duration = _estimate_speaking_duration(first_group)
+            # Second group
+            second_group = " ".join(bullets[mid_point:])
+            second_duration = _estimate_speaking_duration(second_group)
+            scene_map.append(SceneVoiceover(
+                scene_id=scene_id,
+                voiceover_text=second_group,
+                est_duration_seconds=second_duration,
+                segment_type="content_2"
+            ))
+            scene_id += 1
+
+        # Last scene: CTA
+        cta_duration = _estimate_speaking_duration(outro_cta)
         scene_map.append(SceneVoiceover(
             scene_id=scene_id,
-            voiceover_text=first_group,
-            est_duration_seconds=first_duration
+            voiceover_text=outro_cta,
+            est_duration_seconds=cta_duration,
+            segment_type="cta"
         ))
-        scene_id += 1
-
-        # Second group
-        second_group = " ".join(bullets[mid_point:])
-        second_duration = _estimate_speaking_duration(second_group)
-        scene_map.append(SceneVoiceover(
-            scene_id=scene_id,
-            voiceover_text=second_group,
-            est_duration_seconds=second_duration
-        ))
-        scene_id += 1
-
-    # Last scene: CTA
-    cta_duration = _estimate_speaking_duration(outro_cta)
-    scene_map.append(SceneVoiceover(
-        scene_id=scene_id,
-        voiceover_text=outro_cta,
-        est_duration_seconds=cta_duration
-    ))
 
     return scene_map
 
@@ -359,7 +439,8 @@ def _create_scene_voiceover_map(hook: str, bullets: List[str], outro_cta: str) -
 def write_script(
     plan: VideoPlan,
     memory: Dict,
-    llm_suggestion: Optional[str] = None
+    llm_suggestion: Optional[str] = None,
+    series_format: Optional[SeriesFormat] = None
 ) -> VideoScript:
     """
     Generates a complete video script from a video plan.
@@ -375,11 +456,16 @@ def write_script(
     NEW (Step 06-fullrun): Accepts optional LLM-generated suggestion from pipeline.
     If provided, attempts to use LLM's creative output while applying safety rules.
 
+    NEW (Step 07.5): Accepts optional series format for segment-aware generation.
+    If provided, structures script according to template and tags scenes with segment_type.
+
     Args:
         plan: Video plan with topic, angle, and audience
         memory: Channel memory dict containing brand_tone
         llm_suggestion: Optional LLM-generated script suggestion from pipeline
                         (Step 06-fullrun: enables real LLM integration)
+        series_format: Optional series format template for structured generation
+                       (Step 07.5: enables format engine)
 
     Returns:
         VideoScript with all components
@@ -391,6 +477,9 @@ def write_script(
         raise ValueError("Cannot write script: VideoPlan has no working_title")
 
     logger.info(f"ScriptWriter generating script for: '{plan.working_title}'")
+
+    if series_format:
+        logger.info(f"  Using series format: {series_format.name} ({series_format.serie_id})")
 
     # Load brand tone
     brand_tone = get_brand_tone(memory)
@@ -436,8 +525,9 @@ def write_script(
     # - Brand tone compliance
     # For now, we trust QualityReviewer to catch issues
 
-    # Step 07.3: Create scene-by-scene voiceover map for audio/visual sync
-    scene_voiceover_map = _create_scene_voiceover_map(hook, bullets, outro_cta)
+    # Step 07.3/07.5: Create scene-by-scene voiceover map for audio/visual sync
+    # Step 07.5: Pass series_format for segment-aware tagging
+    scene_voiceover_map = _create_scene_voiceover_map(hook, bullets, outro_cta, series_format)
     total_scene_duration = sum(s.est_duration_seconds for s in scene_voiceover_map)
     logger.info(f"  Scene voiceover map: {len(scene_voiceover_map)} scenes, ~{total_scene_duration}s total")
 

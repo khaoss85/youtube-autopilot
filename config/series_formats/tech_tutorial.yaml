@@ -1,0 +1,57 @@
+# Serie: Tech Tutorial
+# Step 07.5: Format template for technology tutorial videos
+#
+# Structure: intro → hook → problem → solution → cta → outro
+# Target: 20-30 second engaging tech explainer
+
+serie_id: tech_tutorial
+name: "Tech Tutorial"
+description: "Tutorial su tecnologia e innovazione per pubblico italiano tech-savvy"
+
+# Intro video configuration (Sora 2 generated, cached per serie)
+intro_duration_seconds: 2
+intro_veo_prompt: |
+  Modern tech intro animation, vertical 9:16 format.
+  Bold animated text "TECH TUTORIAL" appears with energetic transition.
+  Dark background with vibrant blue and purple gradient.
+  Fast-paced, professional, high-quality production.
+  Optimized for YouTube Shorts vertical mobile viewing.
+
+# Outro video configuration (Sora 2 generated, cached per serie)
+outro_duration_seconds: 3
+outro_veo_prompt: |
+  Tech tutorial outro with call-to-action overlay, vertical 9:16 format.
+  Animated text "ISCRIVITI PER ALTRI TUTORIAL" with subscribe button animation.
+  Professional closing sequence with tech aesthetic.
+  Warm inviting colors, bold readable text.
+  High-quality production optimized for mobile viewing.
+
+# Segment structure (ordered list defining video flow)
+segments:
+  - type: hook
+    name: "Opening Hook"
+    target_duration_min: 3
+    target_duration_max: 5
+    description: "Cattura attenzione con problema/curiosità. Usa domanda diretta o statement sorprendente."
+
+  - type: problem
+    name: "Problem Statement"
+    target_duration_min: 5
+    target_duration_max: 7
+    description: "Spiega il problema che il tutorial risolve. Crea empatia con il pubblico."
+
+  - type: solution
+    name: "Solution Delivery"
+    target_duration_min: 8
+    target_duration_max: 12
+    description: "Fornisce la soluzione/spiegazione principale. Focus su valore pratico immediato."
+
+  - type: cta
+    name: "Call to Action"
+    target_duration_min: 3
+    target_duration_max: 5
+    description: "Invita all'azione (like, subscribe, commenta). CTA chiara e diretta."
+
+# Overall target metrics
+total_target_duration_min: 20
+total_target_duration_max: 30

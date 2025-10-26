@@ -44,9 +44,51 @@ class TrendCandidate(BaseModel):
     )
 
 
+class SeriesSegment(BaseModel):
+    """
+    Defines a segment type in a series format template.
+
+    Step 07.5: Part of format engine for repeatable video structures.
+    """
+    type: str = Field(..., description="Segment identifier: 'hook' | 'problem' | 'solution' | 'cta' | etc.")
+    name: str = Field(..., description="Human-readable segment name")
+    target_duration_min: int = Field(..., ge=1, description="Minimum target duration in seconds")
+    target_duration_max: int = Field(..., ge=1, description="Maximum target duration in seconds")
+    description: str = Field(..., description="Purpose and content guidance for this segment")
+
+
+class SeriesFormat(BaseModel):
+    """
+    Format template configuration for a video series.
+
+    Step 07.5: Enables brand consistency and repeatable video structures.
+    Each series has intro/outro templates and segment structure.
+
+    Example series: "tech_tutorial", "news_flash", "how_to"
+    """
+    serie_id: str = Field(..., description="Unique series identifier (e.g., 'tech_tutorial')")
+    name: str = Field(..., description="Human-readable series name (e.g., 'Tech Tutorial')")
+    description: str = Field(..., description="Purpose and scope of this series")
+
+    # Intro/Outro configuration
+    intro_duration_seconds: int = Field(default=2, ge=1, description="Target duration for intro")
+    intro_veo_prompt: str = Field(..., description="Sora 2 prompt template for intro generation")
+    outro_duration_seconds: int = Field(default=3, ge=1, description="Target duration for outro")
+    outro_veo_prompt: str = Field(..., description="Sora 2 prompt template for outro generation")
+
+    # Segment structure
+    segments: List[SeriesSegment] = Field(..., description="Ordered list of segment templates")
+
+    # Target metrics
+    total_target_duration_min: int = Field(default=20, ge=1, description="Minimum target video duration")
+    total_target_duration_max: int = Field(default=30, ge=1, description="Maximum target video duration")
+
+
 class VideoPlan(BaseModel):
     """
     Strategic video concept and planning.
+
+    Step 07.5: Added series_id for format template application.
     """
     working_title: str = Field(..., description="Internal working title (may differ from final)")
     strategic_angle: str = Field(..., description="Why this topic is relevant NOW and why viewers care")
@@ -56,6 +98,10 @@ class VideoPlan(BaseModel):
         default_factory=list,
         description="Compliance checks passed (e.g., 'no medical claims', 'no hate speech')"
     )
+    series_id: Optional[str] = Field(
+        None,
+        description="Step 07.5: Series format identifier (e.g., 'tech_tutorial', 'news_flash')"
+    )
 
 
 class SceneVoiceover(BaseModel):
@@ -63,10 +109,15 @@ class SceneVoiceover(BaseModel):
     Voiceover text mapped to a specific scene for scene-level synchronization.
 
     Step 07.3: Enables precise sync between script audio and visual scenes.
+    Step 07.5: Added segment_type for format engine integration.
     """
     scene_id: int = Field(..., ge=1, description="Scene number this voiceover belongs to")
     voiceover_text: str = Field(..., description="Text to be spoken during this scene")
     est_duration_seconds: int = Field(..., ge=1, description="Estimated speaking duration for this text")
+    segment_type: Optional[str] = Field(
+        None,
+        description="Step 07.5: Segment type from series template (e.g., 'hook', 'problem', 'solution', 'cta')"
+    )
 
 
 class VideoScript(BaseModel):
@@ -90,6 +141,7 @@ class VisualScene(BaseModel):
     Single visual scene for video generation.
 
     Step 07.3: Added voiceover_text for scene-level audio/visual synchronization.
+    Step 07.5: Added segment_type for format engine integration.
     """
     scene_id: int = Field(..., ge=1, description="Scene number in sequence")
     prompt_for_veo: str = Field(..., description="Text prompt for Veo 3.x video generation API")
@@ -97,6 +149,10 @@ class VisualScene(BaseModel):
     voiceover_text: str = Field(
         default="",
         description="Step 07.3: Text to be spoken during this scene (synced with script)"
+    )
+    segment_type: Optional[str] = Field(
+        None,
+        description="Step 07.5: Segment type from series template (e.g., 'intro', 'hook', 'problem', 'solution', 'cta', 'outro')"
     )
 
 
@@ -187,6 +243,7 @@ class AssetPaths(BaseModel):
 
     Step 07.4: Enables organized asset management without overwriting.
     Each video gets its own unique output directory.
+    Step 07.5: Added intro/outro paths for series format integration.
     """
     video_id: str = Field(..., description="Unique video identifier (script_internal_id)")
     output_dir: str = Field(..., description="Base output directory for this video")
@@ -198,6 +255,14 @@ class AssetPaths(BaseModel):
         description="Paths to individual scene videos in order"
     )
     metadata_path: Optional[str] = Field(None, description="Path to metadata JSON file")
+    intro_path: Optional[str] = Field(
+        None,
+        description="Step 07.5: Path to intro video (may be from series cache)"
+    )
+    outro_path: Optional[str] = Field(
+        None,
+        description="Step 07.5: Path to outro video (may be from series cache)"
+    )
 
 
 class VideoPerformance(BaseModel):
