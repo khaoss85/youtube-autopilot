@@ -107,13 +107,22 @@ def _calculate_priority_score(trend: TrendCandidate, memory: Dict) -> float:
     Calculates a priority score for ranking trends.
 
     Step 08: Enhanced with CPM potential, competition level, and virality scoring
+    Phase A.2: Source quality weighting (Reddit 4x > Channels 3x > HN 2x > YouTube 1x)
+
+    Scoring Components:
+        - Base momentum (0-1.0)
+        - CPM bonus (0-0.3): Higher CPM categories get bonus
+        - Competition adjustment (+0.2 low, -0.1 high)
+        - Virality bonus (0-0.2): Fast-growing trends
+        - Region bonus (+0.1 for IT/US/GLOBAL)
+        - Source quality weight: Reddit 0.40, YouTube Channels 0.30, HN 0.20, YouTube Search 0.10
 
     Args:
         trend: Trend candidate to score
         memory: Channel memory dict
 
     Returns:
-        Priority score (higher is better, 0-1+ scale)
+        Priority score (higher is better, typical range 0.5-2.0)
     """
     # Base momentum score (0-1)
     score = trend.momentum_score
@@ -139,19 +148,49 @@ def _calculate_priority_score(trend: TrendCandidate, memory: Dict) -> float:
     if trend.region.upper() in ["IT", "US", "GLOBAL"]:
         score += 0.1
 
-    # Step 08: Source reliability bonus
-    source_reliability = {
-        "youtube_trending": 0.15,    # High reliability
-        "youtube_search": 0.10,      # Good reliability
-        "reddit": 0.12,              # Community-validated
-        "google_trends": 0.08,       # Search data
-        "hackernews": 0.10,          # Tech-savvy audience
-        "mock_youtube": 0.0,         # No bonus for mocks
+    # Phase A.2: Source quality weighting (Reddit 4x > Channels 3x > HN 2x > YouTube 1x)
+    # Prioritizes curated communities and influencer content over generic search results
+    source_quality = {
+        # Reddit: 4x weight (highest quality, community-curated)
+        "reddit_hot": 0.40,                # Hot posts = proven engagement
+        "reddit_rising": 0.45,             # Rising = early viral signals (bonus!)
+        "reddit": 0.40,                    # Generic reddit fallback
+
+        # YouTube Channels: 3x weight (influencer/competitor curated content)
+        "youtube_channel": 0.30,           # Curated influencers/competitors
+
+        # Hacker News: 2x weight (tech-savvy, high-quality discussions)
+        "hackernews_top": 0.20,            # Top stories
+        "hackernews_best": 0.22,           # Best = editorial selection (bonus!)
+        "hackernews": 0.20,                # Generic HN fallback
+
+        # YouTube Generic: 1x weight (baseline, noisy but high reach)
+        "youtube_trending": 0.08,          # Trending = viral but mixed quality
+        "youtube_search": 0.10,            # Search results = keyword match
+        "youtube_scrape": 0.05,            # Scraping = fallback, least reliable
+
+        # Other sources (legacy)
+        "google_trends": 0.08,             # Search data
+        "mock_youtube": 0.0,               # No bonus for mocks
         "mock_google_trends": 0.0,
         "mock_reddit_trends": 0.0,
         "mock_twitter_trends": 0.0,
     }
-    score += source_reliability.get(trend.source, 0.0)
+    # Match source (handle dynamic channel names like "youtube_channel_athlean-x")
+    source_bonus = 0.0
+    if trend.source in source_quality:
+        source_bonus = source_quality[trend.source]
+    elif trend.source.startswith("youtube_channel_"):
+        # Any YouTube channel gets the curated influencer bonus
+        source_bonus = 0.30
+    elif trend.source.startswith("reddit_"):
+        # Any Reddit source gets community-curated bonus
+        source_bonus = 0.40
+    elif trend.source.startswith("hackernews_"):
+        # Any Hacker News source gets tech community bonus
+        source_bonus = 0.20
+
+    score += source_bonus
 
     logger.debug(
         f"Trend '{trend.keyword[:40]}' priority score: {score:.3f} "

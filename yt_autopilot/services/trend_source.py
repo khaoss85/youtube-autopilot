@@ -328,6 +328,183 @@ def _fetch_youtube_scrape(
         return []
 
 
+# ============================================================================
+# Step 08 Phase A: Intelligent Curation - Spam Filtering & Quality Thresholds
+# ============================================================================
+
+def _is_spam_keyword(trend: TrendCandidate) -> bool:
+    """
+    Detects spam patterns in trend keywords that indicate low-quality content.
+
+    Phase A.1: Pre-filtering layer to remove viral spam before LLM curation
+
+    Args:
+        trend: TrendCandidate to evaluate
+
+    Returns:
+        True if keyword contains spam patterns, False otherwise
+
+    Spam Patterns (YouTube-specific):
+        - Product reviews/comparisons: "vs", "review", "unboxing", "compared"
+        - Sensational tests: "test", "challenge", "experiment"
+        - Clickbait: "shocking", "you won't believe", "insane"
+        - Generic tutorials: "how to make", "easy tutorial"
+
+    Quality Content Signals:
+        - Educational: "explained", "deep dive", "understanding"
+        - News/Analysis: "breaking", "announced", "released"
+        - Technical: "API", "architecture", "implementation"
+    """
+    keyword_lower = trend.keyword.lower()
+
+    # YouTube spam blacklist (common low-quality patterns)
+    spam_patterns = [
+        # Product reviews (often affiliate spam)
+        " vs ", " vs. ", "versus", " review", "unboxing", "compared to",
+
+        # Sensational tests/challenges (viral but low educational value)
+        " test", "battery test", "speed test", "durability test",
+        "challenge", "experiment", "trying",
+
+        # Clickbait patterns
+        "you won't believe", "shocking", "insane", "crazy",
+        "this is why", "the truth about", "secret",
+
+        # Generic low-effort tutorials
+        "how to make", "easy tutorial", "in 5 minutes",
+        "simple trick", "life hack",
+
+        # Spam keywords (common in low-quality content)
+        "clickbait", "reaction", "prank", "tiktok compilation",
+        "best of", "top 10", "top 5"
+    ]
+
+    # Check if keyword contains spam patterns
+    for pattern in spam_patterns:
+        if pattern in keyword_lower:
+            logger.debug(f"Spam detected in '{trend.keyword[:50]}': pattern '{pattern}'")
+            return True
+
+    return False
+
+
+def _meets_quality_threshold(trend: TrendCandidate) -> bool:
+    """
+    Enforces minimum quality thresholds based on trend source.
+
+    Phase A.1: Quality gate to filter out low-engagement content
+
+    Args:
+        trend: TrendCandidate to evaluate
+
+    Returns:
+        True if trend meets quality threshold, False otherwise
+
+    Thresholds by Source:
+        - Reddit: min 500 upvotes (momentum_score proxy)
+        - Hacker News: min 100 points
+        - YouTube: min 50K views (filtered by spam patterns instead)
+
+    Note:
+        Reddit rising posts get lower threshold (300) for early signals
+    """
+    source = trend.source.lower()
+
+    # Reddit quality thresholds
+    if "reddit" in source:
+        # Rising posts = early signals, lower threshold
+        if "rising" in source:
+            min_momentum = 0.3  # ~300-500 upvotes
+            if trend.momentum_score < min_momentum:
+                logger.debug(
+                    f"Reddit rising trend '{trend.keyword[:50]}' below threshold "
+                    f"(momentum: {trend.momentum_score:.2f} < {min_momentum})"
+                )
+                return False
+        else:
+            # Hot posts = proven engagement, higher threshold
+            min_momentum = 0.5  # ~500+ upvotes
+            if trend.momentum_score < min_momentum:
+                logger.debug(
+                    f"Reddit hot trend '{trend.keyword[:50]}' below threshold "
+                    f"(momentum: {trend.momentum_score:.2f} < {min_momentum})"
+                )
+                return False
+
+    # Hacker News quality threshold
+    elif "hackernews" in source:
+        min_momentum = 0.3  # ~100+ points (HN scoring is different)
+        if trend.momentum_score < min_momentum:
+            logger.debug(
+                f"HN trend '{trend.keyword[:50]}' below threshold "
+                f"(momentum: {trend.momentum_score:.2f} < {min_momentum})"
+            )
+            return False
+
+    # YouTube: spam filtering is primary quality gate (view count is noisy)
+    # No momentum threshold for YouTube (already trending = high views)
+
+    return True
+
+
+def _apply_quality_filters(trends: List[TrendCandidate]) -> List[TrendCandidate]:
+    """
+    Applies spam filtering and quality thresholds to trend list.
+
+    Phase A.1: Pre-filtering pipeline before LLM curation
+
+    Args:
+        trends: List of TrendCandidate objects from all sources
+
+    Returns:
+        Filtered list of high-quality TrendCandidate objects
+
+    Filter Pipeline:
+        1. Spam detection (removes obvious spam patterns)
+        2. Quality thresholds (enforces minimum engagement)
+        3. Deduplication (removes near-duplicate keywords)
+
+    Expected Reduction:
+        - Input: ~130-150 trends from all sources
+        - Output: ~50-70 high-quality trends (~50% reduction)
+    """
+    logger.info(f"Applying quality filters to {len(trends)} trends...")
+
+    # Step 1: Spam filtering
+    pre_spam = len(trends)
+    trends = [t for t in trends if not _is_spam_keyword(t)]
+    spam_removed = pre_spam - len(trends)
+
+    if spam_removed > 0:
+        logger.info(f"✓ Removed {spam_removed} spam trends ({spam_removed/pre_spam*100:.1f}%)")
+
+    # Step 2: Quality thresholds
+    pre_quality = len(trends)
+    trends = [t for t in trends if _meets_quality_threshold(t)]
+    quality_removed = pre_quality - len(trends)
+
+    if quality_removed > 0:
+        logger.info(f"✓ Removed {quality_removed} low-quality trends ({quality_removed/pre_quality*100:.1f}%)")
+
+    # Step 3: Deduplication (simple: exact keyword match)
+    # More sophisticated dedup can use edit distance or embeddings
+    seen_keywords = set()
+    deduplicated = []
+    for trend in trends:
+        keyword_normalized = trend.keyword.lower().strip()
+        if keyword_normalized not in seen_keywords:
+            seen_keywords.add(keyword_normalized)
+            deduplicated.append(trend)
+
+    dup_removed = len(trends) - len(deduplicated)
+    if dup_removed > 0:
+        logger.info(f"✓ Removed {dup_removed} duplicate trends")
+
+    logger.info(f"✓ Quality filtering complete: {len(trends)} → {len(deduplicated)} trends ({len(deduplicated)/len(trends)*100:.1f}% retained)")
+
+    return deduplicated
+
+
 def fetch_trends(vertical_id: str = "tech_ai", use_real_apis: bool = True) -> List[TrendCandidate]:
     """
     Fetches trending topics from external sources (real APIs or mock data).
@@ -423,7 +600,25 @@ def fetch_trends(vertical_id: str = "tech_ai", use_real_apis: bool = True) -> Li
         except Exception as e:
             logger.warning(f"Hacker News trend fetching failed: {e}")
 
-        # TODO Phase 3: Twitter/X, Google Trends (Glimpse API), competitor analysis
+        # ========================================================================
+        # Source 4: YouTube Channels (Influencers/Competitors) - NEW
+        # ========================================================================
+        logger.info("Source 4: YouTube Channels (Influencers/Competitors)...")
+        try:
+            from yt_autopilot.services.youtube_channels_source import fetch_youtube_channels_trending
+
+            channels_trends = fetch_youtube_channels_trending(
+                vertical_id=vertical_id,
+                limit_per_channel=5
+            )
+            all_trends.extend(channels_trends)
+
+        except ImportError:
+            logger.debug("YouTube channels source not available (import failed)")
+        except Exception as e:
+            logger.warning(f"YouTube channels trend fetching failed: {e}")
+
+        # TODO Phase 3: Twitter/X, Google Trends (Glimpse API)
 
     # Fallback to mock data if no real APIs available or no trends found
     if not all_trends:
@@ -432,7 +627,7 @@ def fetch_trends(vertical_id: str = "tech_ai", use_real_apis: bool = True) -> Li
 
     logger.info(f"✓ Fetched {len(all_trends)} total trend candidates from all sources")
 
-    # Log source distribution
+    # Log source distribution (before filtering)
     source_counts = {}
     for trend in all_trends:
         source_counts[trend.source] = source_counts.get(trend.source, 0) + 1
@@ -440,8 +635,13 @@ def fetch_trends(vertical_id: str = "tech_ai", use_real_apis: bool = True) -> Li
     for source, count in source_counts.items():
         logger.info(f"  - {source}: {count} trends")
 
-    # Log top 5 trends
-    logger.debug("Top 5 trends:")
+    # ========================================================================
+    # Phase A.1: Apply quality filters (spam detection + thresholds + dedup)
+    # ========================================================================
+    all_trends = _apply_quality_filters(all_trends)
+
+    # Log top 5 trends (after filtering)
+    logger.debug("Top 5 quality-filtered trends:")
     for i, trend in enumerate(all_trends[:5], 1):
         logger.debug(
             f"  [{i}] '{trend.keyword[:60]}' (momentum: {trend.momentum_score:.2f}, "

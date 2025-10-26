@@ -1,65 +1,257 @@
 #!/usr/bin/env python3
 """
-review_console.py
+yt_autopilot CLI - Main entry point for workspace-based video generation and review
 
-Mini console da riga di comando per gestire la review umana dei video generati.
+Multi-workspace YouTube automation system that supports multiple channels
+with different verticals (tech, fitness, finance, gaming).
 
-Step 07.3: 2-Gate Workflow
-  GATE 1 (Script Review - cheap):
-    scripts                             - Elenca script in attesa di review
-    show-script <script_id>             - Mostra dettagli script (Concept + Breakdown)
-    approve-script <script_id> --approved-by "name"
-                                        - Approva script e abilita generazione asset
+Usage:
+    # Workspace management
+    python run.py workspace list
+    python run.py workspace info
+    python run.py workspace switch <workspace_id>
+    python run.py workspace create
 
-  GATE 2 (Video Review - expensive):
-    stats                               - Mostra statistiche datastore e distribuzione stati
-    list                                - Elenca video in attesa di review
-    show <video_id>                     - Mostra dettagli video completo
-    publish <video_id> --approved-by "name"
-                                        - Approva e pubblica video su YouTube
+    # Video generation
+    python run.py generate [--use-llm-curation]
 
-Questo script è pensato per uso manuale.
-NON va schedulato, NON va chiamato automaticamente.
-È il gate umano prima della pubblicazione.
+    # Script review (Gate 1)
+    python run.py review scripts
+    python run.py review show-script <script_id>
+    python run.py review approve-script <script_id> --approved-by "name"
 
-Example usage (Step 07.3 workflow):
-  # GATE 1: Script review (happens first, cheap)
-  python tools/review_console.py scripts
-  python tools/review_console.py show-script abc123-script-id
-  python tools/review_console.py approve-script abc123-script-id --approved-by "dan@company"
+    # Video review (Gate 2)
+    python run.py review stats
+    python run.py review list
+    python run.py review show <video_id>
+    python run.py review publish <video_id> --approved-by "name"
 
-  # GATE 2: Video review (happens after generation, expensive)
-  python tools/review_console.py stats  # View datastore statistics
-  python tools/review_console.py list
-  python tools/review_console.py show 6a1b1c2d-3e4f-5a6b-7c8d-9e0f1a2b3c4d
-  python tools/review_console.py publish 6a1b1c2d-3e4f-5a6b-7c8d-9e0f1a2b3c4d --approved-by "dan@company"
+Examples:
+    # Morning: switch to tech channel and generate video
+    python run.py workspace switch tech_ai_creator
+    python run.py generate
+
+    # Review and approve script
+    python run.py review scripts
+    python run.py review show-script abc123-script-id
+    python run.py review approve-script abc123-script-id --approved-by "dan@company"
+
+    # Review and publish video
+    python run.py review list
+    python run.py review show 6a1b1c2d-3e4f-5a6b-7c8d-9e0f1a2b3c4d
+    python run.py review publish 6a1b1c2d-3e4f-5a6b-7c8d-9e0f1a2b3c4d --approved-by "dan@company"
 """
 
 import sys
 import argparse
 from pathlib import Path
+import warnings
+import json
+
+# Suppress urllib3 OpenSSL warning
+warnings.filterwarnings('ignore', message='urllib3 v2 only supports OpenSSL')
 
 # Add project root to path
-project_root = Path(__file__).parent.parent
+project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
+from yt_autopilot.core.workspace_manager import (
+    list_workspaces,
+    get_active_workspace,
+    get_active_workspace_id,
+    switch_workspace,
+    create_workspace,
+    get_workspace_info
+)
+from yt_autopilot.core.config import get_vertical_configs, get_vertical_config, get_config
+from yt_autopilot.pipeline.build_video_package import build_video_package
 from yt_autopilot.io.datastore import (
     list_pending_review,
     get_draft_package,
-    list_pending_script_review,  # Step 07.3 - Gate 1
-    get_script_draft,            # Step 07.3 - Gate 1
-    approve_script_for_generation  # Step 07.3 - Gate 1
+    list_pending_script_review,
+    get_script_draft,
+    approve_script_for_generation
 )
 from yt_autopilot.pipeline.produce_render_publish import publish_after_approval
-from yt_autopilot.core.config import get_config
-import json
 
 
 # ============================================================================
-# GATE 1: SCRIPT REVIEW COMMANDS (Step 07.3)
+# WORKSPACE COMMANDS
 # ============================================================================
 
-def cmd_scripts(args):
+def cmd_workspace_list(args):
+    """List all available workspaces"""
+    workspaces = list_workspaces()
+    active_id = get_active_workspace_id()
+
+    print()
+    print("Available workspaces:")
+    print()
+
+    if not workspaces:
+        print("  (No workspaces found)")
+        print()
+        print("  Create your first workspace with: python run.py workspace create")
+        return
+
+    for ws in workspaces:
+        is_active = " (ACTIVE)" if ws['workspace_id'] == active_id else ""
+        marker = "→" if ws['workspace_id'] == active_id else " "
+
+        # Get vertical info
+        v_config = get_vertical_config(ws['vertical_id'])
+        cpm = f"${v_config['cpm_baseline']:.0f}" if v_config else "?"
+
+        print(f"  {marker} {ws['workspace_id']:<25} {ws['workspace_name']:<30} (CPM: {cpm}){is_active}")
+
+    print()
+
+
+def cmd_workspace_info(args):
+    """Show current workspace information"""
+    try:
+        workspace = get_active_workspace()
+        info = get_workspace_info(workspace['workspace_id'])
+        print(info)
+    except RuntimeError as e:
+        print(f"\n⚠️  {e}\n")
+        cmd_workspace_list(args)
+
+
+def cmd_workspace_switch(args):
+    """Switch to different workspace"""
+    try:
+        workspace = switch_workspace(args.workspace_id)
+
+        print()
+        print(f"✓ Switched to workspace: {workspace['workspace_name']}")
+        print()
+
+        # Show workspace info
+        info = get_workspace_info(args.workspace_id)
+        print(info)
+
+    except FileNotFoundError as e:
+        print(f"\n❌ Error: {e}\n")
+        cmd_workspace_list(args)
+        sys.exit(1)
+
+
+def cmd_workspace_create(args):
+    """Interactive workspace creation"""
+    print()
+    print("=" * 70)
+    print("CREATE NEW WORKSPACE")
+    print("=" * 70)
+    print()
+
+    # Get workspace ID
+    workspace_id = input("Workspace ID (e.g., 'my_cooking_channel'): ").strip()
+    if not workspace_id:
+        print("❌ Workspace ID cannot be empty")
+        sys.exit(1)
+
+    # Get workspace name
+    workspace_name = input("Workspace name (e.g., 'My Cooking Channel'): ").strip()
+    if not workspace_name:
+        workspace_name = workspace_id.replace("_", " ").title()
+
+    # Select vertical
+    print()
+    print("Select vertical:")
+    verticals = get_vertical_configs()
+    vertical_list = list(verticals.items())
+
+    for i, (v_id, v_config) in enumerate(vertical_list, 1):
+        cpm = v_config['cpm_baseline']
+        print(f"  {i}. {v_id:<15} (CPM: ${cpm:.1f})")
+
+    print()
+    vertical_choice = input(f"Select vertical (1-{len(vertical_list)}): ").strip()
+
+    try:
+        vertical_idx = int(vertical_choice) - 1
+        if vertical_idx < 0 or vertical_idx >= len(vertical_list):
+            raise ValueError()
+        vertical_id = vertical_list[vertical_idx][0]
+    except (ValueError, IndexError):
+        print("❌ Invalid selection")
+        sys.exit(1)
+
+    # Get brand tone
+    print()
+    brand_tone = input("Brand tone (e.g., 'Direct, positive, educational'): ").strip()
+    if not brand_tone:
+        brand_tone = "Direct, positive, educational"
+
+    # Create workspace
+    try:
+        config = create_workspace(
+            workspace_id=workspace_id,
+            workspace_name=workspace_name,
+            vertical_id=vertical_id,
+            brand_tone=brand_tone
+        )
+
+        print()
+        print(f"✓ Created workspace: {workspace_name}")
+        print(f"  ID: {workspace_id}")
+        print(f"  Vertical: {vertical_id}")
+        print()
+        print(f"Switch to this workspace with:")
+        print(f"  python run.py workspace switch {workspace_id}")
+        print()
+
+    except ValueError as e:
+        print(f"\n❌ Error: {e}\n")
+        sys.exit(1)
+
+
+# ============================================================================
+# GENERATE COMMANDS
+# ============================================================================
+
+def cmd_generate(args):
+    """Generate video using active workspace"""
+    try:
+        workspace = get_active_workspace()
+
+        print()
+        print("=" * 70)
+        print(f"GENERATING VIDEO - Workspace: {workspace['workspace_name']}")
+        print("=" * 70)
+        print(f"Vertical: {workspace['vertical_id']}")
+        print(f"Brand tone: {workspace.get('brand_tone', 'Not set')[:60]}...")
+        print("=" * 70)
+        print()
+
+        # Build video package (workspace system handles memory management)
+        package = build_video_package(
+            workspace_id=workspace['workspace_id'],
+            use_real_trends=True,
+            use_llm_curation=args.use_llm_curation
+        )
+
+        print()
+        print("=" * 70)
+        print("VIDEO GENERATION COMPLETE")
+        print("=" * 70)
+        print(f"Status: {package.status}")
+        print(f"Title: {package.video_plan.working_title}")
+        print("=" * 70)
+        print()
+
+    except RuntimeError as e:
+        print(f"\n⚠️  {e}\n")
+        cmd_workspace_list(args)
+        sys.exit(1)
+
+
+# ============================================================================
+# REVIEW COMMANDS - GATE 1 (Script Review)
+# ============================================================================
+
+def cmd_review_scripts(args):
     """List all scripts pending human review (Gate 1)."""
     print("=" * 70)
     print("SCRIPT REVIEW QUEUE (GATE 1 - cheap)")
@@ -72,8 +264,7 @@ def cmd_scripts(args):
         print("No scripts pending review.")
         print()
         print("TIP: Generate a new script draft with:")
-        print("  from yt_autopilot.pipeline.produce_render_publish import generate_script_draft")
-        print("  generate_script_draft(publish_datetime_iso='2025-01-15T10:00:00Z')")
+        print("  python run.py generate")
         print()
         return
 
@@ -106,14 +297,14 @@ def cmd_scripts(args):
 
     print("=" * 70)
     print("NEXT STEPS:")
-    print(f"  1. Review script details: python tools/review_console.py show-script <script_id>")
-    print(f"  2. Approve script: python tools/review_console.py approve-script <script_id> --approved-by \"you@company\"")
+    print(f"  1. Review script details: python run.py review show-script <script_id>")
+    print(f"  2. Approve script: python run.py review approve-script <script_id> --approved-by \"you@company\"")
     print("=" * 70)
 
 
-def cmd_show_script(args):
+def cmd_review_show_script(args):
     """Show detailed script information in 2-level format (Gate 1)."""
-    script_id = args.script_internal_id
+    script_id = args.script_id
 
     print("=" * 70)
     print("SCRIPT DRAFT DETAILS (GATE 1)")
@@ -242,7 +433,7 @@ def cmd_show_script(args):
     # ========================================================================
     print("=" * 70)
     print("TO APPROVE THIS SCRIPT AND TRIGGER ASSET GENERATION:")
-    print(f"  python tools/review_console.py approve-script {script_id} --approved-by \"your@email\"")
+    print(f"  python run.py review approve-script {script_id} --approved-by \"your@email\"")
     print()
     print("WARNING: Approval will trigger expensive API calls:")
     print("  - Sora 2 video generation (~$$$)")
@@ -252,14 +443,14 @@ def cmd_show_script(args):
     print("=" * 70)
 
 
-def cmd_approve_script(args):
+def cmd_review_approve_script(args):
     """Approve script and trigger asset generation (Gate 1 → Gate 2)."""
-    script_id = args.script_internal_id
+    script_id = args.script_id
     approved_by = args.approved_by
 
     if not approved_by:
         print("ERROR: --approved-by is required")
-        print("Example: python tools/review_console.py approve-script <script_id> --approved-by \"dan@company\"")
+        print("Example: python run.py review approve-script <script_id> --approved-by \"dan@company\"")
         sys.exit(1)
 
     print("=" * 70)
@@ -301,11 +492,11 @@ def cmd_approve_script(args):
         print(f"       produce_render_assets(script_internal_id='{script_id}')")
         print()
         print("  2. After generation completes, review the video:")
-        print("       python tools/review_console.py list")
-        print("       python tools/review_console.py show <video_id>")
+        print("       python run.py review list")
+        print("       python run.py review show <video_id>")
         print()
         print("  3. If satisfied, publish to YouTube:")
-        print("       python tools/review_console.py publish <video_id> --approved-by \"your@email\"")
+        print("       python run.py review publish <video_id> --approved-by \"your@email\"")
         print("=" * 70)
 
     except Exception as e:
@@ -320,10 +511,10 @@ def cmd_approve_script(args):
 
 
 # ============================================================================
-# GATE 2: VIDEO REVIEW COMMANDS (existing)
+# REVIEW COMMANDS - GATE 2 (Video Review)
 # ============================================================================
 
-def cmd_stats(args):
+def cmd_review_stats(args):
     """Show datastore statistics and state distribution."""
     print("=" * 70)
     print("DATASTORE STATISTICS")
@@ -395,10 +586,6 @@ def cmd_stats(args):
         print()
         print("These should be migrated to VIDEO_PENDING_REVIEW for consistency.")
         print()
-        print("To migrate legacy states:")
-        print("  python tools/migrate_legacy_states.py --dry-run  # Preview")
-        print("  python tools/migrate_legacy_states.py --yes      # Apply")
-        print()
 
     # Cleanup suggestions
     orphan_scripts = state_counts.get("READY_FOR_GENERATION", 0)
@@ -410,16 +597,12 @@ def cmd_stats(args):
         print(f"Found {orphan_scripts} script(s) in READY_FOR_GENERATION state.")
         print()
         print("These may be orphaned scripts from previous runs.")
-        print("To clean up:")
-        print("  python tools/cleanup_datastore.py --list-all                    # View all")
-        print("  python tools/cleanup_datastore.py --delete-state READY_FOR_GENERATION --dry-run")
-        print("  python tools/cleanup_datastore.py --delete-state READY_FOR_GENERATION --yes")
         print()
 
     print("=" * 70)
 
 
-def cmd_list(args):
+def cmd_review_list(args):
     """List all videos pending human review."""
     print("=" * 70)
     print("PENDING REVIEW QUEUE")
@@ -447,9 +630,9 @@ def cmd_list(args):
         print()
 
 
-def cmd_show(args):
+def cmd_review_show(args):
     """Show detailed information about a specific draft."""
-    video_id = args.video_internal_id
+    video_id = args.video_id
 
     print("=" * 70)
     print("DRAFT PACKAGE DETAILS")
@@ -574,18 +757,18 @@ def cmd_show(args):
 
     print("=" * 70)
     print("To approve and publish this video:")
-    print(f"  python tools/review_console.py publish {video_id} --approved-by \"your@email\"")
+    print(f"  python run.py review publish {video_id} --approved-by \"your@email\"")
     print("=" * 70)
 
 
-def cmd_publish(args):
+def cmd_review_publish(args):
     """Publish an approved draft to YouTube."""
-    video_id = args.video_internal_id
+    video_id = args.video_id
     approved_by = args.approved_by
 
     if not approved_by:
         print("ERROR: --approved-by is required")
-        print("Example: python tools/review_console.py publish <video_id> --approved-by \"dan@company\"")
+        print("Example: python run.py review publish <video_id> --approved-by \"dan@company\"")
         sys.exit(1)
 
     print("=" * 70)
@@ -633,92 +816,123 @@ def cmd_publish(args):
         sys.exit(1)
 
 
+# ============================================================================
+# MAIN ARGPARSE SETUP
+# ============================================================================
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Human review console for yt_autopilot video drafts (Step 07.3: 2-Gate Workflow)",
+        description="yt_autopilot - Multi-workspace YouTube automation CLI",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples (Step 07.3 - 2-Gate Workflow):
-
-  GATE 1: Script Review (cheap, happens first)
-  --------------------------------------------
-  # List scripts pending review
-  python tools/review_console.py scripts
-
-  # Show script details (Concept Summary + Breakdown)
-  python tools/review_console.py show-script abc123-script-id
-
-  # Approve script (enables asset generation)
-  python tools/review_console.py approve-script abc123-script-id --approved-by "dan@company"
-
-
-  GATE 2: Video Review (expensive, happens after generation)
-  -----------------------------------------------------------
-  # Show datastore statistics
-  python tools/review_console.py stats
-
-  # List videos pending review
-  python tools/review_console.py list
-
-  # Show video details
-  python tools/review_console.py show 6a1b1c2d-3e4f-5a6b-7c8d-9e0f1a2b3c4d
-
-  # Approve and publish video
-  python tools/review_console.py publish 6a1b1c2d-3e4f-5a6b-7c8d-9e0f1a2b3c4d --approved-by "dan@company"
-"""
+        epilog=__doc__
     )
 
-    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+    subparsers = parser.add_subparsers(dest="command", help="Available command groups")
 
     # ========================================================================
-    # GATE 1: SCRIPT REVIEW COMMANDS
+    # WORKSPACE COMMAND GROUP
     # ========================================================================
+    workspace_parser = subparsers.add_parser("workspace", help="Workspace management commands")
+    workspace_subparsers = workspace_parser.add_subparsers(dest="workspace_command")
 
-    # Scripts command
-    parser_scripts = subparsers.add_parser("scripts", help="[Gate 1] List all scripts pending review")
-    parser_scripts.set_defaults(func=cmd_scripts)
+    # workspace list
+    ws_list = workspace_subparsers.add_parser("list", help="List all available workspaces")
+    ws_list.set_defaults(func=cmd_workspace_list)
 
-    # Show-script command
-    parser_show_script = subparsers.add_parser("show-script", help="[Gate 1] Show script details in 2-level format")
-    parser_show_script.add_argument("script_internal_id", help="UUID of the script draft")
-    parser_show_script.set_defaults(func=cmd_show_script)
+    # workspace info
+    ws_info = workspace_subparsers.add_parser("info", help="Show current workspace information")
+    ws_info.set_defaults(func=cmd_workspace_info)
 
-    # Approve-script command
-    parser_approve_script = subparsers.add_parser("approve-script", help="[Gate 1] Approve script for asset generation")
-    parser_approve_script.add_argument("script_internal_id", help="UUID of the script draft")
-    parser_approve_script.add_argument("--approved-by", required=True, help="Approver identifier (e.g., dan@company)")
-    parser_approve_script.set_defaults(func=cmd_approve_script)
+    # workspace switch
+    ws_switch = workspace_subparsers.add_parser("switch", help="Switch to a different workspace")
+    ws_switch.add_argument("workspace_id", help="Workspace ID to switch to")
+    ws_switch.set_defaults(func=cmd_workspace_switch)
+
+    # workspace create
+    ws_create = workspace_subparsers.add_parser("create", help="Create a new workspace interactively")
+    ws_create.set_defaults(func=cmd_workspace_create)
 
     # ========================================================================
-    # GATE 2: VIDEO REVIEW COMMANDS
+    # GENERATE COMMAND
     # ========================================================================
+    generate_parser = subparsers.add_parser("generate", help="Generate video using active workspace")
+    generate_parser.add_argument(
+        "--use-llm-curation",
+        action="store_true",
+        help="Enable LLM curation for trend selection (Phase B)"
+    )
+    generate_parser.set_defaults(func=cmd_generate)
 
-    # Stats command
-    parser_stats = subparsers.add_parser("stats", help="Show datastore statistics and state distribution")
-    parser_stats.set_defaults(func=cmd_stats)
+    # ========================================================================
+    # REVIEW COMMAND GROUP
+    # ========================================================================
+    review_parser = subparsers.add_parser("review", help="Script and video review commands (2-Gate workflow)")
+    review_subparsers = review_parser.add_subparsers(dest="review_command")
 
-    # List command
-    parser_list = subparsers.add_parser("list", help="[Gate 2] List all videos pending review")
-    parser_list.set_defaults(func=cmd_list)
+    # Gate 1: Script review
+    r_scripts = review_subparsers.add_parser("scripts", help="[Gate 1] List all scripts pending review")
+    r_scripts.set_defaults(func=cmd_review_scripts)
 
-    # Show command
-    parser_show = subparsers.add_parser("show", help="[Gate 2] Show details of a specific draft")
-    parser_show.add_argument("video_internal_id", help="UUID of the draft video")
-    parser_show.set_defaults(func=cmd_show)
+    r_show_script = review_subparsers.add_parser("show-script", help="[Gate 1] Show script details in 2-level format")
+    r_show_script.add_argument("script_id", help="Script internal ID")
+    r_show_script.set_defaults(func=cmd_review_show_script)
 
-    # Publish command
-    parser_publish = subparsers.add_parser("publish", help="[Gate 2] Approve and publish a draft to YouTube")
-    parser_publish.add_argument("video_internal_id", help="UUID of the draft video")
-    parser_publish.add_argument("--approved-by", required=True, help="Approver identifier (e.g., dan@company)")
-    parser_publish.set_defaults(func=cmd_publish)
+    r_approve_script = review_subparsers.add_parser("approve-script", help="[Gate 1] Approve script for asset generation")
+    r_approve_script.add_argument("script_id", help="Script internal ID")
+    r_approve_script.add_argument("--approved-by", required=True, help="Approver identifier (e.g., dan@company)")
+    r_approve_script.set_defaults(func=cmd_review_approve_script)
 
+    # Gate 2: Video review
+    r_stats = review_subparsers.add_parser("stats", help="Show datastore statistics and state distribution")
+    r_stats.set_defaults(func=cmd_review_stats)
+
+    r_list = review_subparsers.add_parser("list", help="[Gate 2] List all videos pending review")
+    r_list.set_defaults(func=cmd_review_list)
+
+    r_show = review_subparsers.add_parser("show", help="[Gate 2] Show details of a specific draft")
+    r_show.add_argument("video_id", help="Video internal ID")
+    r_show.set_defaults(func=cmd_review_show)
+
+    r_publish = review_subparsers.add_parser("publish", help="[Gate 2] Approve and publish a draft to YouTube")
+    r_publish.add_argument("video_id", help="Video internal ID")
+    r_publish.add_argument("--approved-by", required=True, help="Approver identifier (e.g., dan@company)")
+    r_publish.set_defaults(func=cmd_review_publish)
+
+    # ========================================================================
+    # PARSE AND EXECUTE
+    # ========================================================================
     args = parser.parse_args()
 
+    # Handle no command (default behavior)
     if not args.command:
-        parser.print_help()
-        sys.exit(1)
+        try:
+            workspace = get_active_workspace()
+            cmd_workspace_info(args)
+            print()
+            print("Run 'python run.py --help' to see available commands")
+            print()
+        except RuntimeError:
+            print()
+            print("⚠️  No active workspace found!")
+            print()
+            cmd_workspace_list(args)
+            print()
+            print("Run 'python run.py workspace switch <id>' to select a workspace")
+            print("Or run 'python run.py workspace create' to create a new one")
+            print()
+        return
 
-    args.func(args)
+    # Execute command
+    if hasattr(args, 'func'):
+        args.func(args)
+    else:
+        # Subcommand group was specified but no subcommand
+        if args.command == "workspace":
+            workspace_parser.print_help()
+        elif args.command == "review":
+            review_parser.print_help()
+        else:
+            parser.print_help()
 
 
 if __name__ == "__main__":

@@ -1,0 +1,16 @@
+{
+  "workspace_id": "finance_master",
+  "workspace_name": "Finance Master",
+  "vertical_id": "finance",
+  "brand_tone": "Professionale, educativo, trasparente. Focus su educazione finanziaria senza promesse di ricchezza facile.",
+  "visual_style": "Pulito, professionale, grafici e dati visibili, colori blu/verde per fiducia",
+  "banned_topics": [
+    "schemi ponzi o piramidali",
+    "pump and dump di crypto",
+    "promesse di guadagni garantiti",
+    "consigli finanziari senza disclaimer",
+    "get-rich-quick schemes",
+    "uso di musica protetta da copyright"
+  ],
+  "recent_titles": []
+}

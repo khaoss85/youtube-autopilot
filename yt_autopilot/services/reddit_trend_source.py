@@ -5,8 +5,15 @@ Step 08 Phase 2: Integration with PRAW (Python Reddit API Wrapper)
 for discovering trending topics from vertical-specific subreddits.
 
 PRAW is the de-facto standard for Reddit API access (50K+ stars on GitHub).
+
+Anti-Ban Protection:
+- Rate limit: 60 requests/minute (enforced by PRAW)
+- Small delay between subreddit fetches (0.5s)
+- Limited to 8 subreddits max per vertical to avoid aggressive scraping
+- Proper User-Agent identification
 """
 
+import time
 from typing import List, Optional
 from yt_autopilot.core.schemas import TrendCandidate
 from yt_autopilot.core.logger import logger
@@ -24,7 +31,7 @@ def _get_reddit_client() -> Optional[praw.Reddit]:
     """
     Creates authenticated Reddit client using PRAW.
 
-    Step 08 Phase 2: Reddit API authentication
+    Step 08 Phase 2: Reddit API authentication with username/password flow
 
     Returns:
         Authenticated praw.Reddit instance or None if credentials missing
@@ -33,38 +40,52 @@ def _get_reddit_client() -> Optional[praw.Reddit]:
         REDDIT_CLIENT_ID=your_client_id
         REDDIT_CLIENT_SECRET=your_client_secret
         REDDIT_USER_AGENT=yt_autopilot:v1.0 (by /u/your_username)
+        REDDIT_USERNAME=your_username
+        REDDIT_PASSWORD=your_password (or your_password:123456 if 2FA enabled)
 
     Setup instructions:
         1. Go to https://www.reddit.com/prefs/apps
         2. Click "Create App" or "Create Another App"
         3. Select "script" type
         4. Note your client_id and client_secret
-        5. Add to .env file
+        5. Add credentials to .env file
+        6. If you have 2FA enabled, append token to password: password:123456
     """
     if not PRAW_AVAILABLE:
         return None
 
     client_id = get_env("REDDIT_CLIENT_ID")
     client_secret = get_env("REDDIT_CLIENT_SECRET")
+    username = get_env("REDDIT_USERNAME")
+    password = get_env("REDDIT_PASSWORD")
     user_agent = get_env("REDDIT_USER_AGENT", "yt_autopilot:v1.0")
 
     if not client_id or not client_secret:
         logger.warning("Reddit API credentials not configured - skipping Reddit trends")
         return None
 
+    if not username or not password:
+        logger.warning("Reddit username/password not configured - skipping Reddit trends")
+        logger.info("Add REDDIT_USERNAME and REDDIT_PASSWORD to .env file")
+        return None
+
     try:
         reddit = praw.Reddit(
             client_id=client_id,
             client_secret=client_secret,
+            username=username,
+            password=password,
             user_agent=user_agent
         )
 
-        # Test authentication
-        logger.debug(f"Reddit client authenticated (read-only mode)")
+        # Test authentication by accessing a subreddit
+        logger.debug(f"Reddit client authenticated as u/{username}")
         return reddit
 
     except Exception as e:
         logger.error(f"Failed to authenticate with Reddit API: {e}")
+        logger.error("Check your Reddit credentials in .env file")
+        logger.error("If you have 2FA, password must be: password:token (e.g., mypass:123456)")
         return None
 
 
@@ -114,13 +135,22 @@ def fetch_reddit_trending(
         logger.info(f"No subreddits configured for vertical '{vertical_id}'")
         return []
 
+    # Anti-ban protection: Limit to max 8 subreddits
+    MAX_SUBREDDITS = 8
+    if len(subreddit_names) > MAX_SUBREDDITS:
+        logger.warning(f"Too many subreddits configured ({len(subreddit_names)}), limiting to {MAX_SUBREDDITS} to avoid Reddit API abuse")
+        subreddit_names = subreddit_names[:MAX_SUBREDDITS]
+
     cpm_baseline = vertical_config.get("cpm_baseline", 10.0)
 
     logger.info(f"Fetching Reddit trending from {len(subreddit_names)} subreddits ({vertical_id})...")
 
     all_trends = []
 
-    for subreddit_name in subreddit_names:
+    for idx, subreddit_name in enumerate(subreddit_names):
+        # Anti-ban protection: Small delay between subreddit fetches (except first)
+        if idx > 0:
+            time.sleep(0.5)  # 500ms delay to be respectful
         try:
             subreddit = reddit.subreddit(subreddit_name)
 
@@ -216,13 +246,22 @@ def fetch_reddit_rising(
         return []
 
     subreddit_names = vertical_config.get("reddit_subreddits", [])
+
+    # Anti-ban protection: Limit to max 8 subreddits
+    MAX_SUBREDDITS = 8
+    if len(subreddit_names) > MAX_SUBREDDITS:
+        subreddit_names = subreddit_names[:MAX_SUBREDDITS]
+
     cpm_baseline = vertical_config.get("cpm_baseline", 10.0)
 
     logger.info(f"Fetching Reddit rising posts from {len(subreddit_names)} subreddits...")
 
     all_trends = []
 
-    for subreddit_name in subreddit_names:
+    for idx, subreddit_name in enumerate(subreddit_names):
+        # Anti-ban protection: Small delay between subreddit fetches (except first)
+        if idx > 0:
+            time.sleep(0.5)  # 500ms delay to be respectful
         try:
             subreddit = reddit.subreddit(subreddit_name)
 

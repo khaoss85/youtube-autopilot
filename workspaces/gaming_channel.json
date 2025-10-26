@@ -1,0 +1,15 @@
+{
+  "workspace_id": "gaming_channel",
+  "workspace_name": "Gaming Channel",
+  "vertical_id": "gaming",
+  "brand_tone": "Divertente, appassionato, inclusivo. Focus su community e gameplay, NO toxic behavior.",
+  "visual_style": "Colorato, dinamico, montaggio rapido, highlights e momenti epici",
+  "banned_topics": [
+    "toxic behavior o insulti ai giocatori",
+    "cheating o hacking",
+    "contenuti inappropriati o violenti oltre il gioco stesso",
+    "hate speech o discriminazione",
+    "uso di musica protetta da copyright"
+  ],
+  "recent_titles": []
+}

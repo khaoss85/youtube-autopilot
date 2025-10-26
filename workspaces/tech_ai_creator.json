@@ -1,0 +1,22 @@
+{
+  "workspace_id": "tech_ai_creator",
+  "workspace_name": "Tech & AI Creator",
+  "vertical_id": "tech_ai",
+  "brand_tone": "Positivo, diretto, niente volgarità. Energico ma educativo, focus su tech e AI.",
+  "visual_style": "Ritmo alto, colori caldi, testo grande in sovrimpressione stile Shorts verticali",
+  "banned_topics": [
+    "insulti personali",
+    "politica nazionale aggressiva",
+    "promesse di cure mediche garantite",
+    "uso di musica protetta da copyright"
+  ],
+  "recent_titles": [
+    "Strategie di produttività con AI tools - Tutti Ne Parlano!",
+    "Programmazione Python per principianti 2025 - Tutti Ne Parlano!",
+    "Home office setup professionale - Tutti Ne Parlano!",
+    "A worker fell into a nuclear reactor pool - Tutti Ne Parlano!",
+    "I rebuilt DeepSeek's OCR model in Rust so anyone can run it locally (no Python!) - Tutti Ne Parlano!",
+    "Ludicrous $6 billion Counter Strike 2 skins market crashes, loses $3 billion overnight — game upd...",
+    "A single point of failure triggered the Amazon outage affecting millions | A DNS manager in a sin..."
+  ]
+}

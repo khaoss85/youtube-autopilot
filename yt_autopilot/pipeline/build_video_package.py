@@ -7,9 +7,12 @@ memory updates.
 
 NEW (Step 06-fullrun): Integrates real LLM calls via llm_router to enhance
 script generation with AI creativity while maintaining safety rules.
+
+NEW (Workspace System): Multi-workspace support for managing multiple YouTube channels
+with different verticals, brand identities, and configurations.
 """
 
-from typing import List, Dict
+from typing import List, Dict, Optional
 from yt_autopilot.core.schemas import (
     TrendCandidate,
     ReadyForFactory,
@@ -18,11 +21,11 @@ from yt_autopilot.core.schemas import (
     VisualPlan,
     PublishingPackage
 )
-from yt_autopilot.core.memory_store import (
-    load_memory,
-    save_memory,
-    append_recent_title,
-    get_brand_tone
+from yt_autopilot.core.workspace_manager import (
+    get_active_workspace,
+    load_workspace_config,
+    save_workspace_config,
+    update_workspace_recent_titles
 )
 from yt_autopilot.core.logger import logger
 
@@ -35,6 +38,12 @@ from yt_autopilot.agents.quality_reviewer import review
 
 # Import services (Step 06-fullrun: LLM integration)
 from yt_autopilot.services.llm_router import generate_text
+
+# Phase B: LLM-powered trend curation
+from yt_autopilot.services.llm_trend_curator import curate_trends_with_llm
+
+# Step 08: Real trend fetching
+from yt_autopilot.services.trend_source import fetch_trends
 
 # Step 07.5: Series format engine
 from yt_autopilot.core import series_manager
@@ -107,7 +116,7 @@ def _attempt_script_improvement(
         script: Original script that was rejected
         reason: Rejection reason from quality reviewer
         plan: Video plan for context
-        memory: Channel memory
+        memory: Workspace configuration (memory dict compatible)
 
     Returns:
         Improved VideoScript
@@ -161,51 +170,128 @@ def _attempt_script_improvement(
     return improved_script
 
 
-def build_video_package() -> ReadyForFactory:
+def build_video_package(
+    workspace_id: Optional[str] = None,
+    use_real_trends: bool = False,
+    use_llm_curation: bool = False
+) -> ReadyForFactory:
     """
     Orchestrates the full editorial pipeline to produce a ReadyForFactory package.
 
     This is the main orchestrator for the editorial brain. It coordinates all
     AI agents in sequence, handles quality review with one retry attempt,
-    and updates channel memory when content is approved.
+    and updates workspace configuration when content is approved.
 
     Workflow:
-        1. Load channel memory
-        2. Get trending topics (currently mocked)
+        1. Load workspace configuration (replaces channel memory)
+        2. Fetch trending topics (Phase A quality filtering applied)
+        2.5. [OPTIONAL] LLM curation (Phase B: select top 10 from ~25 trends)
         3. TrendHunter selects best topic → VideoPlan
         4. ScriptWriter generates script → VideoScript
         5. VisualPlanner creates scenes → VisualPlan
         6. SeoManager optimizes metadata → PublishingPackage
         7. QualityReviewer checks compliance → APPROVED/REJECTED
         8. If REJECTED: attempt ONE revision and re-check
-        9. If APPROVED: update memory with new title
+        9. If APPROVED: update workspace with new title
         10. Return ReadyForFactory package
+
+    Args:
+        workspace_id: Workspace ID to use (if None, uses active workspace)
+        use_real_trends: If True, fetch real trends from APIs; if False, use mocks
+        use_llm_curation: If True, use LLM to curate top 10 trends (Phase B); if False, use Phase A filtering only
 
     Returns:
         ReadyForFactory object with status "APPROVED" or "REJECTED"
 
     Notes:
-        - Does NOT call external APIs (Veo, YouTube, etc.)
+        - Does NOT call external APIs for video/audio generation (Veo, TTS, etc.)
         - Does NOT generate actual video files
         - Does NOT upload anything
-        - Only coordinates editorial decisions and memory management
+        - Only coordinates editorial decisions and workspace management
+
+    Phase A (Quick Wins):
+        - Spam filtering (removes patterns like "test", "vs", "review")
+        - Quality thresholds (min 500 upvotes Reddit, 100 points HN)
+        - Source weighting (Reddit 3x > HN 2x > YouTube 1x)
+
+    Phase B (LLM Curation):
+        - LLM evaluates top 30 trends for educational value, brand fit, timing
+        - Selects top 10 curated trends
+        - Cost: ~$0.01 per curation (cheap for high-value filtering)
     """
     logger.info("=" * 70)
     logger.info("STARTING EDITORIAL PIPELINE: build_video_package()")
     logger.info("=" * 70)
 
-    # Step 1: Load channel memory
-    logger.info("Step 1: Loading channel memory...")
-    memory = load_memory()
-    logger.info(f"Memory loaded successfully (recent titles: {len(memory.get('recent_titles', []))})")
+    # Step 1: Load workspace configuration
+    logger.info("Step 1: Loading workspace configuration...")
 
-    # Step 2: Get trending topics (mocked for now)
-    logger.info("Step 2: Collecting trending topics...")
-    trends = _get_mock_trends()
-    logger.info(f"Collected {len(trends)} trend candidates (source: mock)")
+    if workspace_id:
+        workspace = load_workspace_config(workspace_id)
+        logger.info(f"Using specified workspace: {workspace['workspace_name']} ({workspace_id})")
+    else:
+        workspace = get_active_workspace()
+        workspace_id = workspace['workspace_id']
+        logger.info(f"Using active workspace: {workspace['workspace_name']} ({workspace_id})")
 
-    # Step 3: TrendHunter - select best topic
+    vertical_id = workspace['vertical_id']
+
+    logger.info(f"Workspace loaded successfully (recent titles: {len(workspace.get('recent_titles', []))})")
+    logger.info(f"  Vertical: {vertical_id}")
+    logger.info(f"  Brand tone: {workspace.get('brand_tone', 'Not set')[:60]}...")
+
+    # Use workspace as memory (compatible with existing agent interfaces)
+    memory = workspace
+
+    # Step 2: Fetch trending topics (Phase A: quality filtering applied automatically)
+    logger.info(f"Step 2: Fetching trending topics (vertical: {vertical_id})...")
+
+    if use_real_trends:
+        logger.info("  Using REAL trend APIs (YouTube + Reddit + Hacker News)")
+        logger.info("  Phase A filters: spam detection + quality thresholds + deduplication")
+        trends = fetch_trends(vertical_id=vertical_id, use_real_apis=True)
+        logger.info(f"✓ Fetched {len(trends)} quality-filtered trends")
+    else:
+        logger.info("  Using MOCK trends (test mode)")
+        trends = _get_mock_trends()
+        logger.info(f"✓ Collected {len(trends)} mock trends")
+
+    if not trends:
+        raise ValueError("No trends available - cannot build video package")
+
+    # Step 2.5: LLM Curation (Phase B - OPTIONAL)
+    if use_llm_curation and len(trends) > 10:
+        logger.info("Step 2.5: Running LLM curation (Phase B)...")
+        logger.info(f"  Input: {len(trends)} quality-filtered trends")
+        logger.info("  LLM will evaluate trends for: educational value, brand fit, timing, virality")
+        logger.info("  Output: Top 10 curated trends")
+
+        try:
+            curated_trends = curate_trends_with_llm(
+                trends=trends,
+                vertical_id=vertical_id,
+                memory=memory,
+                llm_generate_fn=generate_text,
+                max_trends_to_evaluate=min(30, len(trends)),
+                top_n=10
+            )
+            logger.info(f"✓ LLM curation complete: {len(trends)} → {len(curated_trends)} trends")
+            trends = curated_trends
+        except Exception as e:
+            logger.warning(f"LLM curation failed: {e}")
+            logger.warning("Falling back to Phase A filtering only (no LLM)")
+            # Continue with Phase A filtered trends (already quality-checked)
+
+    elif use_llm_curation:
+        logger.info("Step 2.5: LLM curation skipped (not enough trends)")
+    else:
+        logger.info("Step 2.5: LLM curation disabled (using Phase A filtering only)")
+
+    logger.info(f"  Final trend pool: {len(trends)} candidates for TrendHunter")
+
+    # Step 3: TrendHunter - select best topic (Phase A source weighting applied)
     logger.info("Step 3: Running TrendHunter to select best topic...")
+    logger.info("  Phase A source weighting: Reddit 3x > HN 2x > YouTube 1x")
     video_plan = generate_video_plan(trends, memory)
     logger.info(f"✓ Selected trend: '{video_plan.working_title}'")
     logger.info(f"  Target audience: {video_plan.target_audience}")
@@ -230,7 +316,7 @@ def build_video_package() -> ReadyForFactory:
     # NEW (Step 06-fullrun): Call LLM for creative script suggestion
     logger.info("  Step 4a: Calling LLM for creative script generation...")
 
-    brand_tone = get_brand_tone(memory)
+    brand_tone = workspace.get('brand_tone', 'Direct, positive, educational')
 
     llm_context = f"""
 Topic: {video_plan.working_title}
@@ -385,15 +471,14 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
 
             return rejected_package
 
-    # Step 9: Package APPROVED - update memory
-    logger.info("Step 9: Package APPROVED - updating channel memory...")
+    # Step 9: Package APPROVED - update workspace
+    logger.info("Step 9: Package APPROVED - updating workspace configuration...")
 
     # Add title to recent titles to avoid repetition
-    append_recent_title(memory, publishing.final_title)
-    save_memory(memory)
+    update_workspace_recent_titles(workspace_id, publishing.final_title, max_titles=50)
 
-    logger.info(f"✓ Memory updated with new title: '{publishing.final_title}'")
-    logger.info(f"  Total recent titles in memory: {len(memory['recent_titles'])}")
+    logger.info(f"✓ Workspace updated with new title: '{publishing.final_title}'")
+    logger.info(f"  Workspace: {workspace['workspace_name']} ({workspace_id})")
 
     # Step 10: Create final APPROVED package
     approved_package = ReadyForFactory(

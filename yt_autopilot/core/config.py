@@ -298,7 +298,11 @@ def get_vertical_configs() -> Dict[str, Dict[str, Any]]:
                 "LocalLLaMA", "artificial", "technology", "coding"
             ],
             "youtube_category_id": "28",  # Science & Technology
-            "competitor_channels": [],  # To be configured per account
+            "youtube_channels": [
+                {"channel_id": "UCsBjURrPoezykLs9EqgamOA", "name": "Fireship", "subscribers": "3.5M"},
+                {"channel_id": "UCUyeluBRhGPCW4rPe_UvBZQ", "name": "ThePrimeagen", "subscribers": "700K"},
+                {"channel_id": "UC9x0AN7BWHpCDHSm9NiJFJQ", "name": "NetworkChuck", "subscribers": "3.9M"}
+            ],
             "proven_formats": {
                 "tutorial": 0.35,
                 "news_reaction": 0.25,
@@ -319,7 +323,7 @@ def get_vertical_configs() -> Dict[str, Dict[str, Any]]:
                 "stocks", "wallstreetbets", "CryptoCurrency"
             ],
             "youtube_category_id": "26",  # Howto & Style
-            "competitor_channels": [],
+            "youtube_channels": [],  # To be configured with finance influencers
             "proven_formats": {
                 "tutorial": 0.30,
                 "news_reaction": 0.30,
@@ -339,7 +343,7 @@ def get_vertical_configs() -> Dict[str, Dict[str, Any]]:
                 "valorant", "FortNiteBR"
             ],
             "youtube_category_id": "20",  # Gaming
-            "competitor_channels": [],
+            "youtube_channels": [],  # To be configured with gaming influencers
             "proven_formats": {
                 "gameplay": 0.40,
                 "tutorial": 0.25,
@@ -359,11 +363,38 @@ def get_vertical_configs() -> Dict[str, Dict[str, Any]]:
                 "education", "GetStudying"
             ],
             "youtube_category_id": "27",  # Education
-            "competitor_channels": [],
+            "youtube_channels": [],  # To be configured with education influencers
             "proven_formats": {
                 "tutorial": 0.50,
                 "deep_dive": 0.30,
                 "listicle": 0.20
+            }
+        },
+        "fitness": {
+            "vertical_id": "fitness",
+            "cpm_baseline": 12.0,
+            "target_keywords": [
+                "workout", "fitness", "gym", "training", "bodybuilding",
+                "muscle", "diet", "nutrition", "exercise", "weightlifting",
+                "cardio", "transformation", "strength", "protein", "meal prep"
+            ],
+            "reddit_subreddits": [
+                "fitness", "bodybuilding", "gainit", "loseit",
+                "nutrition", "weightroom", "naturalbodybuilding", "leangains"
+            ],
+            "youtube_category_id": "17",  # Sports
+            "youtube_channels": [
+                {"channel_id": "UCe0TLA0EsQbE-MjuHXevj2A", "name": "ATHLEAN-X", "subscribers": "14.1M"},
+                {"channel_id": "UCqjwF8rxRsotnojGl4gM0Zw", "name": "Jeff Nippard", "subscribers": "3.67M"},
+                {"channel_id": "UCU0DZhN-8KFLYO6beSaYljg", "name": "FitnessFAQs", "subscribers": "2.2M"},
+                {"channel_id": "UCpQ34afVgk8cRQBjSJ1xuJQ", "name": "MadFit", "subscribers": "10.6M"},
+                {"channel_id": "UCEtMRF1ywKMc4sf3EXYyDzw", "name": "Scott Herman Fitness", "subscribers": "2.7M"}
+            ],
+            "proven_formats": {
+                "workout_tutorial": 0.40,
+                "transformation": 0.25,
+                "nutrition_tips": 0.20,
+                "motivational": 0.15
             }
         }
     }
