@@ -36,8 +36,12 @@ anthropic>=0.5.0           # For Anthropic Claude models
 # elevenlabs>=0.2.0          # ElevenLabs TTS
 # google-cloud-texttospeech  # Google Cloud TTS
 
+# Trend data sources (Step 08 Phase 2)
+praw>=7.7.0                # Reddit API wrapper (official-unofficial)
+scrapetube>=2.5.0          # YouTube scraping fallback (no API quota)
+
 # Optional: Trend data sources
-# pytrends>=4.9.0            # Google Trends (unofficial)
+# pytrends>=4.9.0            # Google Trends (unofficial, ARCHIVED as of April 2025)
 
 # Development dependencies (optional)
 # pytest>=7.4.0

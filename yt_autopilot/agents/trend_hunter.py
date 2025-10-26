@@ -4,6 +4,8 @@ TrendHunter Agent: Selects the best video topic from trending candidates.
 This agent analyzes trending topics and chooses the most promising one
 based on momentum, brand fit, and content freshness.
 
+Step 08: Enhanced with multi-dimensional scoring (CPM, competition, virality).
+
 ==============================================================================
 LLM Integration Strategy (Step 06-pre: Future Production)
 ==============================================================================
@@ -44,7 +46,7 @@ ARCHITECTURE RULE:
 ==============================================================================
 """
 
-from typing import List, Dict
+from typing import List, Dict, Optional
 from yt_autopilot.core.schemas import TrendCandidate, VideoPlan
 from yt_autopilot.core.memory_store import get_banned_topics, get_recent_titles, get_brand_tone
 from yt_autopilot.core.logger import logger
@@ -104,21 +106,58 @@ def _calculate_priority_score(trend: TrendCandidate, memory: Dict) -> float:
     """
     Calculates a priority score for ranking trends.
 
+    Step 08: Enhanced with CPM potential, competition level, and virality scoring
+
     Args:
         trend: Trend candidate to score
         memory: Channel memory dict
 
     Returns:
-        Priority score (higher is better)
+        Priority score (higher is better, 0-1+ scale)
     """
+    # Base momentum score (0-1)
     score = trend.momentum_score
+
+    # Step 08: CPM bonus (normalize cpm_estimate to 0-0.3 range)
+    # CPM of 15+ adds 0.3, CPM of 5 adds 0.1
+    cpm_bonus = min(0.3, trend.cpm_estimate / 50.0)
+    score += cpm_bonus
+
+    # Step 08: Competition penalty/bonus
+    competition_map = {
+        "low": 0.2,      # Big bonus for low competition
+        "medium": 0.0,   # Neutral
+        "high": -0.1     # Penalty for high competition
+    }
+    score += competition_map.get(trend.competition_level, 0.0)
+
+    # Step 08: Virality bonus (0-0.2 range)
+    virality_bonus = trend.virality_score * 0.2
+    score += virality_bonus
 
     # Bonus for certain regions (if targeting specific markets)
     if trend.region.upper() in ["IT", "US", "GLOBAL"]:
         score += 0.1
 
-    # Could add more sophisticated scoring logic here
-    # For example: time decay, source reliability, etc.
+    # Step 08: Source reliability bonus
+    source_reliability = {
+        "youtube_trending": 0.15,    # High reliability
+        "youtube_search": 0.10,      # Good reliability
+        "reddit": 0.12,              # Community-validated
+        "google_trends": 0.08,       # Search data
+        "hackernews": 0.10,          # Tech-savvy audience
+        "mock_youtube": 0.0,         # No bonus for mocks
+        "mock_google_trends": 0.0,
+        "mock_reddit_trends": 0.0,
+        "mock_twitter_trends": 0.0,
+    }
+    score += source_reliability.get(trend.source, 0.0)
+
+    logger.debug(
+        f"Trend '{trend.keyword[:40]}' priority score: {score:.3f} "
+        f"(momentum:{trend.momentum_score:.2f}, cpm:{trend.cpm_estimate:.1f}, "
+        f"comp:{trend.competition_level}, viral:{trend.virality_score:.2f})"
+    )
 
     return score
 
@@ -184,7 +223,9 @@ def generate_video_plan(trends: List[TrendCandidate], memory: Dict) -> VideoPlan
     best_trend = ranked_trends[0]
     logger.info(
         f"TrendHunter selected: '{best_trend.keyword}' "
-        f"(momentum: {best_trend.momentum_score:.2f}, source: {best_trend.source})"
+        f"(momentum: {best_trend.momentum_score:.2f}, source: {best_trend.source}, "
+        f"cpm: ${best_trend.cpm_estimate:.1f}, comp: {best_trend.competition_level}, "
+        f"virality: {best_trend.virality_score:.2f})"
     )
 
     # Generate compliance notes

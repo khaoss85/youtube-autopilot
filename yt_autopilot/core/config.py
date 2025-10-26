@@ -201,6 +201,59 @@ def get_openai_video_key() -> Optional[str]:
     return None
 
 
+def get_youtube_data_api_key() -> Optional[str]:
+    """
+    Returns the YouTube Data API v3 key if configured.
+
+    Step 08: Added for trend detection and analytics
+
+    Returns:
+        API key string if YOUTUBE_DATA_API_KEY is set in .env, None otherwise
+
+    Usage:
+        Used by services/trend_source.py for YouTube trending video analysis
+        Free tier: 10,000 quota units/day
+        Get key at: https://console.cloud.google.com/apis/credentials
+    """
+    key = os.getenv("YOUTUBE_DATA_API_KEY", "")
+    if not key:
+        return None
+    return key
+
+
+def get_reddit_credentials() -> tuple[Optional[str], Optional[str], Optional[str]]:
+    """
+    Returns Reddit API credentials if configured.
+
+    Step 08 Phase 2: Added for Reddit trend detection
+
+    Returns:
+        Tuple of (client_id, client_secret, user_agent) or (None, None, None)
+
+    Usage:
+        Used by services/reddit_trend_source.py for Reddit trending posts
+        Free tier: 60 requests/minute
+        Get credentials at: https://www.reddit.com/prefs/apps
+
+    Setup:
+        1. Go to https://www.reddit.com/prefs/apps
+        2. Click "Create App" or "Create Another App"
+        3. Select "script" type
+        4. Add to .env:
+            REDDIT_CLIENT_ID=your_client_id
+            REDDIT_CLIENT_SECRET=your_client_secret
+            REDDIT_USER_AGENT=yt_autopilot:v1.0 (by /u/your_username)
+    """
+    client_id = os.getenv("REDDIT_CLIENT_ID", "")
+    client_secret = os.getenv("REDDIT_CLIENT_SECRET", "")
+    user_agent = os.getenv("REDDIT_USER_AGENT", "yt_autopilot:v1.0")
+
+    if not client_id or not client_secret:
+        return None, None, None
+
+    return client_id, client_secret, user_agent
+
+
 def get_env(key: str, default: str = "") -> str:
     """
     Generic environment variable getter.
@@ -213,3 +266,118 @@ def get_env(key: str, default: str = "") -> str:
         Environment variable value or default
     """
     return os.getenv(key, default)
+
+
+# ============================================================================
+# Step 08: Vertical Category Configurations
+# ============================================================================
+
+def get_vertical_configs() -> Dict[str, Dict[str, Any]]:
+    """
+    Returns predefined configurations for different content verticals.
+
+    Step 08: Multi-account scaling with vertical-specific optimization
+
+    Returns:
+        Dict mapping vertical_id to VerticalConfig dict
+
+    Usage:
+        Used by trend_source.py and trend_hunter.py for vertical-aware trend selection
+    """
+    return {
+        "tech_ai": {
+            "vertical_id": "tech_ai",
+            "cpm_baseline": 15.0,
+            "target_keywords": [
+                "AI", "ChatGPT", "Python", "automation", "productivity",
+                "machine learning", "coding", "programming", "tutorial",
+                "OpenAI", "Claude", "GPT", "tech news"
+            ],
+            "reddit_subreddits": [
+                "MachineLearning", "OpenAI", "Python", "programming",
+                "LocalLLaMA", "artificial", "technology", "coding"
+            ],
+            "youtube_category_id": "28",  # Science & Technology
+            "competitor_channels": [],  # To be configured per account
+            "proven_formats": {
+                "tutorial": 0.35,
+                "news_reaction": 0.25,
+                "deep_dive": 0.20,
+                "listicle": 0.20
+            }
+        },
+        "finance": {
+            "vertical_id": "finance",
+            "cpm_baseline": 30.0,
+            "target_keywords": [
+                "finance", "investing", "money", "stocks", "crypto",
+                "trading", "passive income", "budget", "real estate",
+                "financial freedom", "wealth"
+            ],
+            "reddit_subreddits": [
+                "personalfinance", "investing", "financialindependence",
+                "stocks", "wallstreetbets", "CryptoCurrency"
+            ],
+            "youtube_category_id": "26",  # Howto & Style
+            "competitor_channels": [],
+            "proven_formats": {
+                "tutorial": 0.30,
+                "news_reaction": 0.30,
+                "listicle": 0.25,
+                "deep_dive": 0.15
+            }
+        },
+        "gaming": {
+            "vertical_id": "gaming",
+            "cpm_baseline": 8.0,
+            "target_keywords": [
+                "gaming", "gameplay", "esports", "stream", "twitch",
+                "game review", "tips", "walkthrough", "montage"
+            ],
+            "reddit_subreddits": [
+                "gaming", "Games", "pcgaming", "leagueoflegends",
+                "valorant", "FortNiteBR"
+            ],
+            "youtube_category_id": "20",  # Gaming
+            "competitor_channels": [],
+            "proven_formats": {
+                "gameplay": 0.40,
+                "tutorial": 0.25,
+                "news_reaction": 0.20,
+                "challenge": 0.15
+            }
+        },
+        "education": {
+            "vertical_id": "education",
+            "cpm_baseline": 18.0,
+            "target_keywords": [
+                "tutorial", "learn", "course", "education", "study",
+                "explained", "how to", "guide", "lesson"
+            ],
+            "reddit_subreddits": [
+                "learnprogramming", "AskScience", "explainlikeimfive",
+                "education", "GetStudying"
+            ],
+            "youtube_category_id": "27",  # Education
+            "competitor_channels": [],
+            "proven_formats": {
+                "tutorial": 0.50,
+                "deep_dive": 0.30,
+                "listicle": 0.20
+            }
+        }
+    }
+
+
+def get_vertical_config(vertical_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Returns configuration for a specific vertical.
+
+    Args:
+        vertical_id: Vertical identifier ('tech_ai', 'finance', 'gaming', 'education')
+
+    Returns:
+        VerticalConfig dict or None if vertical_id not found
+    """
+    configs = get_vertical_configs()
+    return configs.get(vertical_id)

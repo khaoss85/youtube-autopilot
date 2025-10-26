@@ -12,6 +12,8 @@ from datetime import datetime
 class TrendCandidate(BaseModel):
     """
     Represents a trending topic or keyword identified by trend detection.
+
+    Step 08: Extended with revenue optimization and multi-source scoring fields.
     """
     keyword: str = Field(..., description="Main keyword or phrase trending")
     why_hot: str = Field(..., description="Explanation of why this trend is relevant now")
@@ -19,6 +21,27 @@ class TrendCandidate(BaseModel):
     language: str = Field(default="it", description="Language code (e.g., 'it', 'en')")
     momentum_score: float = Field(..., ge=0.0, le=1.0, description="Trend momentum score (0-1)")
     source: str = Field(..., description="Source of trend data (e.g., 'google_trends', 'glimpse_api')")
+
+    # Step 08: Revenue optimization fields
+    cpm_estimate: float = Field(
+        default=5.0,
+        ge=0.0,
+        description="Estimated CPM for this trend's category (e.g., Tech=$15, Finance=$30)"
+    )
+    competition_level: str = Field(
+        default="medium",
+        description="Content saturation level: 'low' | 'medium' | 'high'"
+    )
+    virality_score: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Cross-platform growth velocity (Reddit upvotes/h, Twitter retweets/h)"
+    )
+    historical_match: Optional[str] = Field(
+        None,
+        description="video_internal_id of similar past video that performed well"
+    )
 
 
 class VideoPlan(BaseModel):
@@ -177,9 +200,58 @@ class AssetPaths(BaseModel):
     metadata_path: Optional[str] = Field(None, description="Path to metadata JSON file")
 
 
+class VideoPerformance(BaseModel):
+    """
+    Performance metrics and metadata for learning system.
+
+    Step 08: Tracks actual performance to optimize format selection and trend scoring.
+    """
+    video_internal_id: str = Field(..., description="Unique internal video identifier")
+    youtube_video_id: Optional[str] = Field(None, description="YouTube video ID after publication")
+    format_type: str = Field(
+        ...,
+        description="Content format: 'tutorial' | 'news_reaction' | 'listicle' | 'deep_dive' | 'challenge'"
+    )
+    trend_source: str = Field(..., description="Primary trend source: 'youtube' | 'reddit' | 'google_trends' | 'hackernews'")
+    vertical_category: str = Field(..., description="Content vertical: 'tech_ai' | 'finance' | 'gaming' | 'education'")
+
+    # Performance metrics
+    views_24h: int = Field(default=0, ge=0, description="Views in first 24 hours")
+    views_7d: int = Field(default=0, ge=0, description="Views in first 7 days")
+    ctr: float = Field(default=0.0, ge=0.0, le=1.0, description="Click-through rate")
+    avg_watch_time_seconds: float = Field(default=0.0, ge=0.0, description="Average watch time")
+    revenue_estimated: float = Field(default=0.0, ge=0.0, description="Estimated revenue from YouTube Analytics")
+    cpm_actual: float = Field(default=0.0, ge=0.0, description="Actual CPM from YouTube Analytics")
+
+    # Content metadata
+    topic_keywords: List[str] = Field(default_factory=list, description="Main topic keywords for similarity matching")
+    is_experiment: bool = Field(default=False, description="True if part of 20% experiment batch")
+    published_at: Optional[str] = Field(None, description="ISO 8601 publication timestamp")
+
+
+class VerticalConfig(BaseModel):
+    """
+    Configuration for a specific content vertical (Tech, Finance, Gaming, etc.).
+
+    Step 08: Enables multi-account scaling with vertical-specific optimization.
+    """
+    vertical_id: str = Field(..., description="Unique identifier: 'tech_ai' | 'finance' | 'gaming' | 'education'")
+    cpm_baseline: float = Field(..., ge=0.0, description="Expected baseline CPM for this vertical")
+    target_keywords: List[str] = Field(..., description="Core keywords for trend filtering")
+    reddit_subreddits: List[str] = Field(default_factory=list, description="Relevant subreddits to monitor")
+    youtube_category_id: str = Field(..., description="YouTube category ID (e.g., '28' for Science & Tech)")
+    competitor_channels: List[str] = Field(default_factory=list, description="Competitor channel IDs to analyze")
+    proven_formats: dict = Field(
+        default_factory=dict,
+        description="Format allocation percentages: {'tutorial': 0.35, 'news_reaction': 0.25, ...}"
+    )
+
+
 class ChannelMemory(BaseModel):
     """
     Persistent channel brand memory and history.
+
+    Step 08: Extended with vertical configuration for multi-account support.
     """
     brand_tone: str = Field(..., description="Channel's consistent tone of voice")
     visual_style: str = Field(..., description="Channel's consistent visual identity")
@@ -187,4 +259,14 @@ class ChannelMemory(BaseModel):
     recent_titles: List[str] = Field(
         default_factory=list,
         description="Recent video titles to avoid repetition"
+    )
+
+    # Step 08: Multi-vertical support
+    vertical_category: str = Field(
+        default="tech_ai",
+        description="Active vertical category for this channel"
+    )
+    vertical_config: Optional[dict] = Field(
+        None,
+        description="Vertical-specific configuration (VerticalConfig as dict)"
     )
