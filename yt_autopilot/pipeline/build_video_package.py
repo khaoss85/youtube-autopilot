@@ -318,9 +318,12 @@ def build_video_package(
             logger.info(f"     ✓ SELECTED (Deterministic)")
     logger.info("=" * 70)
 
-    # Step 3.2: AI-assisted final selection (Phase C - OPTIONAL)
-    # Step 08 Phase 3: AI selection with robust JSON extraction + duplicate prevention
-    use_ai_selection = False  # Set to True to enable AI selection (costs ~$0.01-0.05 per video)
+    # Step 3.2: AI-assisted final selection (ALWAYS ACTIVE)
+    # Step 08 Phase 3: Hybrid duplicate detection + semantic quality
+    # - Layer 1: Fuzzy match filters obvious duplicates (free, in TrendHunter)
+    # - Layer 2: AI semantic check on top 5 (intelligent, prevents semantic duplicates)
+    # Cost: ~$0.01-0.05 per video | Value: Prevents semantic duplicates + strategic fit
+    use_ai_selection = True  # Always-on for semantic quality (set False to disable)
 
     if use_ai_selection and len(top_candidates) >= 3:
         logger.info("Step 3.2: Running AI-assisted final selection (Phase C)...")
@@ -337,13 +340,19 @@ def build_video_package(
                 for i, c in enumerate(top_candidates)
             ])
 
-            # Build LLM prompt for strategic selection
+            # Format recent videos for semantic duplicate check
+            recent_titles = memory.get('recent_titles', [])[:10]
+            recent_videos_text = "\n".join([f"- {title}" for title in recent_titles]) if recent_titles else "- None yet"
+
+            # Build LLM prompt for strategic selection + semantic duplicate detection
             ai_prompt = f"""You are a YouTube content strategist for {memory.get('workspace_name', 'our channel')}.
 
 **Our Brand:**
 - Tone: {memory.get('brand_tone', 'Educational and engaging')}
-- Recent videos: {', '.join(memory.get('recent_titles', [])[:3]) if memory.get('recent_titles') else 'None yet'}
 - Target audience: {video_plan.target_audience}
+
+**Recent Videos (Last 30 days):**
+{recent_videos_text}
 
 **Top {len(top_candidates)} Trend Candidates (already filtered and scored):**
 
@@ -357,14 +366,28 @@ Analyze which trend has the BEST strategic fit considering:
 3. **Timing Advantage**: Is this the right moment to publish on this topic?
 4. **Content Uniqueness**: Can we offer a differentiated angle?
 5. **Production Viability**: Can we execute this well with our resources?
+6. **SEMANTIC DUPLICATE CHECK**: Is ANY candidate too similar (CONCEPTUALLY) to our recent videos?
+
+**CRITICAL - Semantic Similarity Rules:**
+- Consider MEANING, not just keywords
+- Examples of SEMANTIC DUPLICATES (should be skipped):
+  * "Python tutorial" ≈ "Learn Python basics" (SAME TOPIC)
+  * "Morning stretches" ≈ "Best stretches for morning routine" (SAME TOPIC)
+  * "AI productivity tools" ≈ "ChatGPT for work efficiency" (SAME CONCEPT)
+- Examples of DIFFERENT ANGLES (OK to select):
+  * "Push-ups mistakes to avoid" ≠ "Perfect push-ups tutorial" (DIFFERENT FOCUS)
+  * "Weight loss diet plan" ≠ "Weight loss workout routine" (DIFFERENT APPROACH)
+- If a candidate is semantically similar to recent videos: SKIP IT or explain why the angle is sufficiently different
 
 **Important**: Don't just pick #1. Consider strategic nuance that numbers don't capture.
 
 Return ONLY a JSON object:
 {{
-  "selected_index": <0 to {len(top_candidates)-1}>,
+  "selected_index": <0 to {len(top_candidates)-1}, or -1 if all are duplicates>,
   "title": "<exact title of selected trend>",
-  "reasoning": "<2-3 sentences explaining why this is strategically best>"
+  "reasoning": "<2-3 sentences explaining why this is strategically best>",
+  "duplicate_analysis": "<Assessment of semantic similarity with recent videos>",
+  "skipped_candidates": [<list of candidate indices (0-{len(top_candidates)-1}) skipped for being semantic duplicates>]
 }}"""
 
             # Call LLM
@@ -388,8 +411,9 @@ Return ONLY a JSON object:
             except json.JSONDecodeError:
                 # Fallback: Extract JSON with regex (handles text before/after JSON)
                 logger.debug("  Direct JSON parse failed, trying regex extraction...")
+                # Updated regex to capture larger JSON objects with new fields
                 json_match = re.search(
-                    r'\{[^}]*"selected_index"[^}]*"reasoning"[^}]*\}',
+                    r'\{[^{}]*"selected_index"[^{}]*"reasoning"[^{}]*\}',
                     ai_response_text,
                     re.DOTALL
                 )
@@ -403,11 +427,30 @@ Return ONLY a JSON object:
                         f"Response preview: {ai_response_text[:200]}"
                     )
 
+            # Extract all fields
             ai_index = ai_response.get("selected_index", 0)
             ai_reasoning = ai_response.get("reasoning", "No reasoning provided")
+            duplicate_analysis = ai_response.get("duplicate_analysis", "")
+            skipped_candidates = ai_response.get("skipped_candidates", [])
 
-            # Validate index
-            if 0 <= ai_index < len(top_candidates):
+            # Log duplicate analysis
+            if duplicate_analysis:
+                logger.info(f"  AI duplicate analysis: {duplicate_analysis}")
+            if skipped_candidates:
+                logger.info(f"  AI skipped candidates for semantic duplicates: {skipped_candidates}")
+
+            # Validate index and check for duplicate conflicts
+            if ai_index == -1:
+                # AI flagged all candidates as semantic duplicates
+                logger.warning("  AI flagged ALL top candidates as semantic duplicates")
+                logger.warning("  Falling back to deterministic selection (best available)")
+                logger.warning("  Note: This may produce content similar to recent videos")
+            elif ai_index in skipped_candidates:
+                # Contradiction: AI selected a candidate it also skipped
+                logger.warning(f"  AI selected candidate #{ai_index + 1} but also marked it as duplicate")
+                logger.warning("  Falling back to deterministic selection to avoid confusion")
+            elif 0 <= ai_index < len(top_candidates):
+                # Valid selection
                 ai_selected_trend = top_candidates[ai_index]
 
                 logger.info(f"✓ AI selected candidate #{ai_index + 1}: '{ai_selected_trend.keyword}'")
@@ -431,6 +474,7 @@ Return ONLY a JSON object:
                 else:
                     logger.info("  AI confirmed deterministic selection (same choice)")
             else:
+                # Invalid index (out of range)
                 logger.warning(f"  AI returned invalid index {ai_index}, keeping deterministic selection")
 
         except Exception as e:
