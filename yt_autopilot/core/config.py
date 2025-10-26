@@ -323,7 +323,12 @@ def get_vertical_configs() -> Dict[str, Dict[str, Any]]:
                 "stocks", "wallstreetbets", "CryptoCurrency"
             ],
             "youtube_category_id": "26",  # Howto & Style
-            "youtube_channels": [],  # To be configured with finance influencers
+            "youtube_channels": [
+                {"channel_id": "UCV6KDgJskWaEckne5aPA0aQ", "name": "Graham Stephan", "subscribers": "4.22M"},
+                {"channel_id": "UCGy7SkBjcIAgTiwkXEtPnYg", "name": "Andrei Jikh", "subscribers": "2.27M"},
+                {"channel_id": "UCT3EznhW_CNFcfOlyDNTLLw", "name": "Minority Mindset", "subscribers": "2M"},
+                {"channel_id": "UCUvvj5lwue7PspotMDjk5UA", "name": "Meet Kevin", "subscribers": "2M"}
+            ],
             "proven_formats": {
                 "tutorial": 0.30,
                 "news_reaction": 0.30,
@@ -388,7 +393,9 @@ def get_vertical_configs() -> Dict[str, Dict[str, Any]]:
                 {"channel_id": "UCqjwF8rxRsotnojGl4gM0Zw", "name": "Jeff Nippard", "subscribers": "3.67M"},
                 {"channel_id": "UCU0DZhN-8KFLYO6beSaYljg", "name": "FitnessFAQs", "subscribers": "2.2M"},
                 {"channel_id": "UCpQ34afVgk8cRQBjSJ1xuJQ", "name": "MadFit", "subscribers": "10.6M"},
-                {"channel_id": "UCEtMRF1ywKMc4sf3EXYyDzw", "name": "Scott Herman Fitness", "subscribers": "2.7M"}
+                {"channel_id": "UCEtMRF1ywKMc4sf3EXYyDzw", "name": "Scott Herman Fitness", "subscribers": "2.7M"},
+                {"channel_id": "UCSswlFwBc9JSPD8fOUfK9Nw", "name": "GianzCoach", "subscribers": "435K"},
+                {"channel_id": "UC58d7cLvXt9ZZq7sG7O-KRA", "name": "Andrea Presti IFBB Pro", "subscribers": "208K"}
             ],
             "proven_formats": {
                 "workout_tutorial": 0.40,
