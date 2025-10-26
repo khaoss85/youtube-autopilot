@@ -142,8 +142,9 @@ class VisualScene(BaseModel):
 
     Step 07.3: Added voiceover_text for scene-level audio/visual synchronization.
     Step 07.5: Added segment_type for format engine integration.
+                scene_id=0 allowed for intro scenes.
     """
-    scene_id: int = Field(..., ge=1, description="Scene number in sequence")
+    scene_id: int = Field(..., ge=0, description="Scene number in sequence (0=intro, 1+=content)")
     prompt_for_veo: str = Field(..., description="Text prompt for Veo 3.x video generation API")
     est_duration_seconds: int = Field(..., ge=1, description="Estimated duration of this scene")
     voiceover_text: str = Field(
