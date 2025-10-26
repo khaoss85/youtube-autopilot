@@ -2,6 +2,7 @@
   "workspace_id": "tech_ai_creator",
   "workspace_name": "Tech & AI Creator",
   "vertical_id": "tech_ai",
+  "target_language": "en",
   "brand_tone": "Positivo, diretto, niente volgarità. Energico ma educativo, focus su tech e AI.",
   "visual_style": "Ritmo alto, colori caldi, testo grande in sovrimpressione stile Shorts verticali",
   "banned_topics": [

@@ -2,6 +2,7 @@
   "workspace_id": "gym_fitness_pro",
   "workspace_name": "Gym & Fitness Pro",
   "vertical_id": "fitness",
+  "target_language": "it",
   "brand_tone": "Motivazionale, energico, supportivo. Enfasi su progresso e salute, NO body shaming o giudizi negativi.",
   "visual_style": "Dinamico, colori caldi (arancione, rosso), musica energica, trasformazioni prima/dopo",
   "banned_topics": [

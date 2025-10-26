@@ -2,6 +2,7 @@
   "workspace_id": "gaming_channel",
   "workspace_name": "Gaming Channel",
   "vertical_id": "gaming",
+  "target_language": "en",
   "brand_tone": "Divertente, appassionato, inclusivo. Focus su community e gameplay, NO toxic behavior.",
   "visual_style": "Colorato, dinamico, montaggio rapido, highlights e momenti epici",
   "banned_topics": [

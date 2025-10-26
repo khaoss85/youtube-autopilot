@@ -47,9 +47,56 @@ ARCHITECTURE RULE:
 """
 
 from typing import List, Dict, Optional
+import re
 from yt_autopilot.core.schemas import TrendCandidate, VideoPlan
 from yt_autopilot.core.memory_store import get_banned_topics, get_recent_titles, get_brand_tone
 from yt_autopilot.core.logger import logger
+
+
+def _detect_language(text: str) -> str:
+    """
+    Detects language of text using simple heuristics.
+
+    Step 08 Phase A.3: Language detection for workspace preference matching
+
+    Args:
+        text: Text to analyze (typically trend title)
+
+    Returns:
+        "it" for Italian, "en" for English (default)
+
+    Algorithm:
+        - Check for Italian-specific characters (à, è, ì, ò, ù)
+        - Check for common Italian words (che, per, con, del, alla, della, delle, degli)
+        - Default to English if no Italian markers found
+
+    Example:
+        >>> _detect_language("ALLENO LE BRACCIA CON UN 212")
+        "it"
+        >>> _detect_language("5 Stretches Your Body Needs EVERY Morning")
+        "en"
+    """
+    text_lower = text.lower()
+
+    # Italian-specific characters
+    italian_chars = ['à', 'è', 'ì', 'ò', 'ù']
+    if any(char in text_lower for char in italian_chars):
+        return "it"
+
+    # Common Italian words (case-insensitive word boundaries)
+    italian_words = [
+        r'\bche\b', r'\bper\b', r'\bcon\b', r'\bdel\b', r'\bdella\b',
+        r'\bdelle\b', r'\bdegli\b', r'\balla\b', r'\bdal\b', r'\bdai\b',
+        r'\bnel\b', r'\bnella\b', r'\bsul\b', r'\bsulla\b', r'\bquesto\b',
+        r'\bquesto\b', r'\bquesta\b', r'\bcome\b', r'\bpiù\b', r'\banche\b'
+    ]
+
+    for pattern in italian_words:
+        if re.search(pattern, text_lower):
+            return "it"
+
+    # Default to English
+    return "en"
 
 
 def _is_topic_banned(trend: TrendCandidate, banned_topics: List[str]) -> bool:
@@ -147,6 +194,15 @@ def _calculate_priority_score(trend: TrendCandidate, memory: Dict) -> float:
     # Bonus for certain regions (if targeting specific markets)
     if trend.region.upper() in ["IT", "US", "GLOBAL"]:
         score += 0.1
+
+    # Step 08 Phase A.3: Language preference boost
+    # Bonus for content matching workspace target language
+    workspace_language = memory.get("target_language", "en")  # Default English
+    detected_language = _detect_language(trend.keyword)
+
+    if detected_language == workspace_language:
+        score += 0.15
+        logger.debug(f"Language bonus: +0.15 ({detected_language} matches workspace preference)")
 
     # Phase A.2: Source quality weighting (Reddit 4x > Channels 3x > HN 2x > YouTube 1x)
     # Prioritizes curated communities and influencer content over generic search results

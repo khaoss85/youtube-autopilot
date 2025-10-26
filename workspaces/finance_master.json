@@ -2,6 +2,7 @@
   "workspace_id": "finance_master",
   "workspace_name": "Finance Master",
   "vertical_id": "finance",
+  "target_language": "en",
   "brand_tone": "Professionale, educativo, trasparente. Focus su educazione finanziaria senza promesse di ricchezza facile.",
   "visual_style": "Pulito, professionale, grafici e dati visibili, colori blu/verde per fiducia",
   "banned_topics": [
