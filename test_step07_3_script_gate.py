@@ -26,11 +26,184 @@ BEFORE expensive asset generation.
 """
 
 import sys
+import os
+import subprocess
 from pathlib import Path
 
 # Add project root to path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
+
+
+def _display_topic_selection(script_draft):
+    """Helper: Display topic selection reasoning"""
+    print("=" * 70)
+    print("📊 TOPIC SELECTION REASONING:")
+    print("=" * 70)
+
+    video_plan = script_draft.get("video_plan", {})
+    print(f"Topic: {video_plan.get('working_title', 'N/A')}")
+    print(f"Strategic Angle: {video_plan.get('strategic_angle', 'N/A')}")
+    print(f"Target Audience: {video_plan.get('target_audience', 'N/A')}")
+    print()
+
+
+def _display_full_script(script_draft):
+    """Helper: Display complete script content"""
+    print("=" * 70)
+    print("📝 FULL SCRIPT CONTENT:")
+    print("=" * 70)
+
+    script = script_draft.get("script", {})
+
+    print("\n🎬 HOOK:")
+    print(f"  {script.get('hook', 'N/A')}")
+
+    print("\n📌 BULLETS:")
+    for i, bullet in enumerate(script.get('bullets', []), 1):
+        print(f"  {i}. {bullet}")
+
+    print("\n👋 OUTRO CTA:")
+    print(f"  {script.get('outro_cta', 'N/A')}")
+
+    # Scene voiceover map
+    scene_map = script.get('scene_voiceover_map', [])
+    if scene_map:
+        print("\n🎭 SCENE BREAKDOWN:")
+        for scene in scene_map:
+            print(f"  Scene {scene.get('scene_id')}: {scene.get('est_duration_seconds')}s")
+            text = scene.get('voiceover_text', '')
+            preview = text[:60] + "..." if len(text) > 60 else text
+            print(f"    \"{preview}\"")
+
+    print()
+
+
+def _display_tts_details(result_gate2):
+    """Helper: Display TTS audio details"""
+    print("=" * 70)
+    print("🎙️  TTS AUDIO DETAILS:")
+    print("=" * 70)
+
+    voiceover_path = result_gate2.get('voiceover_path')
+    if voiceover_path and os.path.exists(voiceover_path):
+        file_size = os.path.getsize(voiceover_path)
+        file_ext = os.path.splitext(voiceover_path)[1]
+        print(f"✓ Audio file: {voiceover_path}")
+        print(f"  Format: {file_ext}")
+        print(f"  Size: {file_size:,} bytes ({file_size / 1024:.1f} KB)")
+    else:
+        print(f"⚠️  Voiceover not found: {voiceover_path}")
+    print()
+
+
+def _display_video_details(final_video_path):
+    """Helper: Display complete video details using ffprobe"""
+    print("=" * 70)
+    print("🎬 COMPLETE VIDEO DETAILS:")
+    print("=" * 70)
+
+    if not final_video_path or not os.path.exists(final_video_path):
+        print(f"⚠️  Video not found: {final_video_path}")
+        print()
+        return
+
+    print(f"✓ Video file: {final_video_path}")
+    file_size = os.path.getsize(final_video_path)
+    print(f"  Size: {file_size:,} bytes ({file_size / 1024 / 1024:.2f} MB)")
+
+    # Try to use ffprobe for detailed info
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "stream=width,height,codec_name,duration,bit_rate",
+             "-of", "default=noprint_wrappers=1", final_video_path],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+
+        if result.returncode == 0:
+            output = result.stdout
+            lines = output.strip().split('\n')
+
+            # Parse ffprobe output
+            info = {}
+            for line in lines:
+                if '=' in line:
+                    key, value = line.split('=', 1)
+                    info[key] = value
+
+            if 'width' in info and 'height' in info:
+                print(f"  Resolution: {info['width']}x{info['height']}")
+            if 'codec_name' in info:
+                print(f"  Video Codec: {info['codec_name']}")
+            if 'duration' in info:
+                try:
+                    duration = float(info['duration'])
+                    print(f"  Duration: {duration:.2f}s")
+                except:
+                    pass
+            if 'bit_rate' in info:
+                try:
+                    bitrate = int(info['bit_rate']) / 1000
+                    print(f"  Bitrate: {bitrate:.0f} kbps")
+                except:
+                    pass
+        else:
+            print("  (ffprobe not available for detailed analysis)")
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        print("  (ffprobe not available for detailed analysis)")
+
+    print()
+
+
+def _display_asset_organization(result_gate2):
+    """Helper: Display asset directory structure"""
+    print("=" * 70)
+    print("📁 ASSET ORGANIZATION STRUCTURE:")
+    print("=" * 70)
+
+    output_dir = result_gate2.get('output_dir')
+    if not output_dir or not os.path.exists(output_dir):
+        print(f"⚠️  Output directory not found: {output_dir}")
+        print()
+        return
+
+    print(f"📂 {output_dir}/")
+
+    # List all files in the directory
+    try:
+        for root, dirs, files in os.walk(output_dir):
+            level = root.replace(output_dir, '').count(os.sep)
+            indent = "  " * level
+            folder_name = os.path.basename(root)
+            if level > 0:
+                print(f"{indent}📂 {folder_name}/")
+
+            sub_indent = "  " * (level + 1)
+            for file in sorted(files):
+                file_path = os.path.join(root, file)
+                file_size = os.path.getsize(file_path)
+                if file_size > 1024 * 1024:
+                    size_str = f"{file_size / 1024 / 1024:.2f} MB"
+                else:
+                    size_str = f"{file_size / 1024:.1f} KB"
+
+                # File icon based on extension
+                if file.endswith('.mp4'):
+                    icon = "🎬"
+                elif file.endswith(('.mp3', '.wav')):
+                    icon = "🎙️"
+                elif file.endswith(('.png', '.jpg', '.jpeg')):
+                    icon = "🖼️"
+                else:
+                    icon = "📄"
+
+                print(f"{sub_indent}{icon} {file} ({size_str})")
+    except Exception as e:
+        print(f"⚠️  Error reading directory: {e}")
+
+    print()
 
 
 def test_imports():
@@ -344,6 +517,10 @@ def test_two_gate_workflow():
         print(f"✓ Script in SCRIPT_PENDING_REVIEW state (waiting for human approval)")
         print()
 
+        # Step 07.4: Enhanced output - Topic selection and full script
+        _display_topic_selection(script_draft)
+        _display_full_script(script_draft)
+
         # Human approval simulation (normally done via review console)
         print("=" * 70)
         print("HUMAN APPROVAL: Simulating script approval...")
@@ -406,6 +583,11 @@ def test_two_gate_workflow():
             print(f"⚠️  Thumbnail not found: {thumbnail_path}")
 
         print()
+
+        # Step 07.4: Enhanced output - TTS, video details, and asset organization
+        _display_tts_details(result_gate2)
+        _display_video_details(final_video_path)
+        _display_asset_organization(result_gate2)
         print("=" * 70)
         print("2-GATE WORKFLOW SUMMARY:")
         print("=" * 70)
