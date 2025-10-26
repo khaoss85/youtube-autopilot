@@ -36,6 +36,9 @@ from yt_autopilot.agents.quality_reviewer import review
 # Import services (Step 06-fullrun: LLM integration)
 from yt_autopilot.services.llm_router import generate_text
 
+# Step 07.5: Series format engine
+from yt_autopilot.core import series_manager
+
 
 def _get_mock_trends() -> List[TrendCandidate]:
     """
@@ -208,6 +211,19 @@ def build_video_package() -> ReadyForFactory:
     logger.info(f"  Target audience: {video_plan.target_audience}")
     logger.info(f"  Compliance notes: {len(video_plan.compliance_notes)} checks")
 
+    # Step 3.5: Detect series format (Step 07.5: Format engine)
+    logger.info("Step 3.5: Detecting series format...")
+    serie_id = series_manager.detect_serie(
+        video_plan.working_title,
+        video_plan.strategic_angle
+    )
+    series_format = series_manager.load_format(serie_id)
+    logger.info(f"✓ Series format: {series_format.name} ({serie_id})")
+    logger.info(f"  Structure: {len(series_format.segments)} segments")
+
+    # Update video plan with series_id
+    video_plan.series_id = serie_id
+
     # Step 4: ScriptWriter - generate script (NEW: with LLM integration)
     logger.info("Step 4: Running ScriptWriter to generate script...")
 
@@ -279,7 +295,7 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
 
     # Step 4b: Pass LLM suggestion to ScriptWriter agent for validation
     logger.info("  Step 4b: ScriptWriter agent validating LLM output...")
-    script = write_script(video_plan, memory, llm_suggestion=llm_suggestion)
+    script = write_script(video_plan, memory, llm_suggestion=llm_suggestion, series_format=series_format)
 
     logger.info(f"✓ Script generated: {len(script.bullets)} content points")
     logger.info(f"  Hook: '{script.hook[:60]}...'")
@@ -287,7 +303,7 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
 
     # Step 5: VisualPlanner - create visual scenes
     logger.info("Step 5: Running VisualPlanner to create visual plan...")
-    visual_plan = generate_visual_plan(video_plan, script, memory)
+    visual_plan = generate_visual_plan(video_plan, script, memory, series_format=series_format)
     total_duration = _calculate_total_duration(visual_plan)
     logger.info(f"✓ Visual plan created: {len(visual_plan.scenes)} scenes")
     logger.info(f"  Total estimated duration: {total_duration}s")
@@ -322,7 +338,7 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
 
         # Regenerate dependent components
         logger.info("  Regenerating visual plan with improved script...")
-        revised_visual_plan = generate_visual_plan(video_plan, revised_script, memory)
+        revised_visual_plan = generate_visual_plan(video_plan, revised_script, memory, series_format=series_format)
         revised_duration = _calculate_total_duration(revised_visual_plan)
         logger.info(f"  Revised duration: {revised_duration}s (was {total_duration}s)")
 

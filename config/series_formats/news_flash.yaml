@@ -6,7 +6,7 @@
 
 serie_id: news_flash
 name: "News Flash"
-description: "Breaking news e aggiornamenti rapidi su tecnologia e innovazione"
+description: "Breaking news and rapid updates on any topic (cross-vertical)"
 
 # Intro video configuration (Sora 2 generated, cached per serie)
 intro_duration_seconds: 1

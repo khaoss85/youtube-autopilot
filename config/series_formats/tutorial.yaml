@@ -1,29 +1,30 @@
-# Serie: Tech Tutorial
-# Step 07.5: Format template for technology tutorial videos
+# Serie: Tutorial
+# Step 07.5: Format template for educational tutorial videos
 #
 # Structure: intro → hook → problem → solution → cta → outro
-# Target: 20-30 second engaging tech explainer
+# Target: 20-30 second engaging educational content
+# Cross-vertical: Works for tech, finance, fitness, cooking, any topic
 
-serie_id: tech_tutorial
-name: "Tech Tutorial"
-description: "Tutorial su tecnologia e innovazione per pubblico italiano tech-savvy"
+serie_id: tutorial
+name: "Tutorial"
+description: "Educational content teaching a specific skill or concept"
 
 # Intro video configuration (Sora 2 generated, cached per serie)
 intro_duration_seconds: 2
 intro_veo_prompt: |
-  Modern tech intro animation, vertical 9:16 format.
-  Bold animated text "TECH TUTORIAL" appears with energetic transition.
-  Dark background with vibrant blue and purple gradient.
-  Fast-paced, professional, high-quality production.
+  Modern educational intro animation, vertical 9:16 format.
+  Bold animated text "TUTORIAL" appears with energetic transition.
+  Clean professional background with dynamic gradient.
+  Fast-paced, high-quality production.
   Optimized for YouTube Shorts vertical mobile viewing.
 
 # Outro video configuration (Sora 2 generated, cached per serie)
 outro_duration_seconds: 3
 outro_veo_prompt: |
-  Tech tutorial outro with call-to-action overlay, vertical 9:16 format.
-  Animated text "ISCRIVITI PER ALTRI TUTORIAL" with subscribe button animation.
-  Professional closing sequence with tech aesthetic.
-  Warm inviting colors, bold readable text.
+  Educational tutorial outro with call-to-action overlay, vertical 9:16 format.
+  Animated text "SUBSCRIBE FOR MORE" with subscribe button animation.
+  Professional closing sequence with inviting aesthetic.
+  Warm colors, bold readable text.
   High-quality production optimized for mobile viewing.
 
 # Segment structure (ordered list defining video flow)

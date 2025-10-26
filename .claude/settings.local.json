@@ -13,7 +13,8 @@
       "Bash(cat:*)",
       "Bash(tee:*)",
       "Read(//private/tmp/**)",
-      "Bash(ffprobe:*)"
+      "Bash(ffprobe:*)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []

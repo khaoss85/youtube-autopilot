@@ -29,6 +29,8 @@ def create_asset_paths(video_id: str, base_output_dir: str = "output") -> AssetP
     """
     Creates unique directory structure for a video's assets.
 
+    Step 07.5: Added intro/outro paths for series format support.
+
     Args:
         video_id: Unique identifier for the video (typically script_internal_id)
         base_output_dir: Base output directory (default: "output")
@@ -61,7 +63,9 @@ def create_asset_paths(video_id: str, base_output_dir: str = "output") -> AssetP
         thumbnail_path=os.path.join(output_dir, "thumbnail.png"),
         voiceover_path=os.path.join(output_dir, "voiceover.mp3"),
         scene_video_paths=[],  # Will be populated as scenes are generated
-        metadata_path=os.path.join(output_dir, "metadata.json")
+        metadata_path=os.path.join(output_dir, "metadata.json"),
+        intro_path=os.path.join(output_dir, "intro.mp4"),  # Step 07.5: intro video
+        outro_path=os.path.join(output_dir, "outro.mp4")  # Step 07.5: outro video
     )
 
     return asset_paths
