@@ -253,12 +253,28 @@ def cmd_generate(args):
 
 def cmd_review_scripts(args):
     """List all scripts pending human review (Gate 1)."""
+    # Get workspace filter
+    if args.all_workspaces:
+        workspace_id = None
+        workspace_label = "all workspaces"
+    else:
+        try:
+            workspace = get_active_workspace()
+            workspace_id = workspace['workspace_id']
+            workspace_label = f"workspace: {workspace['workspace_name']}"
+        except RuntimeError:
+            print("\n⚠️  No active workspace found!")
+            print("Switch workspace with: python run.py workspace switch <id>")
+            print("Or use --all-workspaces to see all scripts\n")
+            return
+
     print("=" * 70)
     print("SCRIPT REVIEW QUEUE (GATE 1 - cheap)")
     print("=" * 70)
+    print(f"Showing scripts for: {workspace_label}")
     print()
 
-    pending = list_pending_script_review()
+    pending = list_pending_script_review(workspace_id=workspace_id)
 
     if not pending:
         print("No scripts pending review.")
@@ -274,6 +290,8 @@ def cmd_review_scripts(args):
     for i, script in enumerate(pending, 1):
         print(f"[{i}] {script['production_state']}")
         print(f"  script_internal_id: {script['script_internal_id']}")
+        if args.all_workspaces and script.get('workspace_id'):
+            print(f"  workspace: {script['workspace_id']}")
 
         # Extract key info from video_plan
         video_plan = script.get('video_plan', {})
@@ -604,12 +622,28 @@ def cmd_review_stats(args):
 
 def cmd_review_list(args):
     """List all videos pending human review."""
+    # Get workspace filter
+    if args.all_workspaces:
+        workspace_id = None
+        workspace_label = "all workspaces"
+    else:
+        try:
+            workspace = get_active_workspace()
+            workspace_id = workspace['workspace_id']
+            workspace_label = f"workspace: {workspace['workspace_name']}"
+        except RuntimeError:
+            print("\n⚠️  No active workspace found!")
+            print("Switch workspace with: python run.py workspace switch <id>")
+            print("Or use --all-workspaces to see all videos\n")
+            return
+
     print("=" * 70)
-    print("PENDING REVIEW QUEUE")
+    print("PENDING REVIEW QUEUE (GATE 2)")
     print("=" * 70)
+    print(f"Showing videos for: {workspace_label}")
     print()
 
-    pending = list_pending_review()
+    pending = list_pending_review(workspace_id=workspace_id)
 
     if not pending:
         print("No videos pending review.")
@@ -622,6 +656,8 @@ def cmd_review_list(args):
     for i, video in enumerate(pending, 1):
         print(f"[{i}] {video['production_state']}")
         print(f"  video_internal_id: {video['video_internal_id']}")
+        if args.all_workspaces and video.get('workspace_id'):
+            print(f"  workspace: {video['workspace_id']}")
         print(f"  final_video_path: {video['final_video_path']}")
         print(f"  thumbnail_path: {video['thumbnail_path']}")
         print(f"  proposed_title: {video['proposed_title']}")
@@ -871,6 +907,7 @@ def main():
 
     # Gate 1: Script review
     r_scripts = review_subparsers.add_parser("scripts", help="[Gate 1] List all scripts pending review")
+    r_scripts.add_argument("--all-workspaces", action="store_true", help="Show scripts from all workspaces (default: current workspace only)")
     r_scripts.set_defaults(func=cmd_review_scripts)
 
     r_show_script = review_subparsers.add_parser("show-script", help="[Gate 1] Show script details in 2-level format")
@@ -887,6 +924,7 @@ def main():
     r_stats.set_defaults(func=cmd_review_stats)
 
     r_list = review_subparsers.add_parser("list", help="[Gate 2] List all videos pending review")
+    r_list.add_argument("--all-workspaces", action="store_true", help="Show videos from all workspaces (default: current workspace only)")
     r_list.set_defaults(func=cmd_review_list)
 
     r_show = review_subparsers.add_parser("show", help="[Gate 2] Show details of a specific draft")

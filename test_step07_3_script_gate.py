@@ -372,7 +372,7 @@ def test_datastore_functions():
 
         # Generate a test package
         print("Generating test editorial package...")
-        package = build_video_package()
+        package = build_video_package(workspace_id="test_workspace")
 
         if package.status != "APPROVED":
             print(f"⚠️  Package rejected: {package.rejection_reason}")
@@ -383,7 +383,7 @@ def test_datastore_functions():
         # TEST: save_script_draft
         print("Testing save_script_draft()...")
         publish_datetime = "2025-10-26T18:00:00Z"
-        script_id = save_script_draft(package, publish_datetime)
+        script_id = save_script_draft(package, publish_datetime, "test_workspace")
         assert script_id is not None, "save_script_draft returned None"
         assert len(script_id) > 0, "save_script_draft returned empty string"
         print(f"✓ save_script_draft() created script_id: {script_id[:8]}...")
@@ -491,7 +491,7 @@ def test_two_gate_workflow():
         print("=" * 70)
         print()
 
-        result_gate1 = generate_script_draft(publish_datetime_iso="2025-10-26T18:00:00Z")
+        result_gate1 = generate_script_draft(publish_datetime_iso="2025-10-26T18:00:00Z", workspace_id="test_workspace")
 
         assert result_gate1.get("status") in ["SCRIPT_READY_FOR_REVIEW", "REJECTED"], \
             f"Unexpected Gate 1 status: {result_gate1.get('status')}"

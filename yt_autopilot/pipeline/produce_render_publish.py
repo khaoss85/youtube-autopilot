@@ -60,7 +60,7 @@ from yt_autopilot.io.datastore import (
 )
 
 
-def generate_script_draft(publish_datetime_iso: str) -> Dict[str, Any]:
+def generate_script_draft(publish_datetime_iso: str, workspace_id: str) -> Dict[str, Any]:
     """
     Step 07.3 - GATE 1: Generate script draft and save for human review.
 
@@ -79,6 +79,7 @@ def generate_script_draft(publish_datetime_iso: str) -> Dict[str, Any]:
 
     Args:
         publish_datetime_iso: Proposed publish datetime (e.g., "2025-11-01T18:00:00Z")
+        workspace_id: Workspace identifier for filtering and organization
 
     Returns:
         Dict with keys:
@@ -91,19 +92,20 @@ def generate_script_draft(publish_datetime_iso: str) -> Dict[str, Any]:
         - reason: Rejection reason (if REJECTED)
 
     Example:
-        >>> result = generate_script_draft("2025-11-01T18:00:00Z")
+        >>> result = generate_script_draft("2025-11-01T18:00:00Z", "tech_ai_creator")
         >>> if result["status"] == "SCRIPT_READY_FOR_REVIEW":
         ...     print(f"Script ID: {result['script_internal_id']}")
-        ...     print("Review via: review_console.py show-script <ID>")
-        ...     print("Approve via: review_console.py approve-script <ID>")
+        ...     print("Review via: run.py review show-script <ID>")
+        ...     print("Approve via: run.py review approve-script <ID>")
     """
     logger.info("=" * 70)
     logger.info("SCRIPT GENERATION: Gate 1 - Generate Script Draft")
     logger.info("=" * 70)
+    logger.info(f"Workspace: {workspace_id}")
 
     # STEP 1: Editorial Brain - Generate approved content package
     logger.info("STEP 1: Running editorial brain...")
-    ready = build_video_package()
+    ready = build_video_package(workspace_id=workspace_id)
 
     if ready.status == "REJECTED":
         logger.error(f"✗ Editorial brain rejected package")
@@ -125,7 +127,7 @@ def generate_script_draft(publish_datetime_iso: str) -> Dict[str, Any]:
     # STEP 2: Save script draft (NO asset generation yet)
     logger.info("")
     logger.info("STEP 2: Saving script draft for human review...")
-    script_internal_id = save_script_draft(ready, publish_datetime_iso)
+    script_internal_id = save_script_draft(ready, publish_datetime_iso, workspace_id)
 
     logger.info("")
     logger.info("=" * 70)
@@ -242,8 +244,15 @@ def produce_render_assets(script_internal_id: str) -> Dict[str, Any]:
 
     logger.info(f"✓ Script draft retrieved and approved")
     logger.info(f"  Title: '{script_draft.get('title')}'")
+    logger.info(f"  Workspace: {script_draft.get('workspace_id')}")
     logger.info(f"  Approved by: {script_draft.get('script_approved_by')}")
     logger.info(f"  Approved at: {script_draft.get('script_approved_at')}")
+
+    # Extract workspace_id for save_draft_package
+    workspace_id = script_draft.get("workspace_id")
+    if not workspace_id:
+        logger.warning("⚠ No workspace_id in script draft (legacy record) - using 'unknown'")
+        workspace_id = "unknown"
 
     # Reconstruct ReadyForFactory from saved script draft
     from yt_autopilot.core.schemas import VideoPlan, VideoScript, VisualPlan, PublishingPackage, VisualScene
@@ -336,6 +345,7 @@ def produce_render_assets(script_internal_id: str) -> Dict[str, Any]:
         final_video_path=str(asset_paths.final_video_path),
         thumbnail_path=str(asset_paths.thumbnail_path),
         publish_datetime_iso=publish_datetime_iso,
+        workspace_id=workspace_id,  # Step 08: Multi-workspace support
         llm_raw_script=ready.llm_raw_script,  # Step 07: Audit trail
         final_script=ready.final_script_text,  # Step 07: Audit trail
         thumbnail_prompt=ready.publishing.thumbnail_concept,  # Step 07.2: Creative quality

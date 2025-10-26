@@ -101,7 +101,7 @@ def test_multiple_video_generation():
             print()
 
             # Gate 1: Generate script
-            result_gate1 = generate_script_draft(publish_datetime_iso=f"2025-10-{25+i}T18:00:00Z")
+            result_gate1 = generate_script_draft(publish_datetime_iso=f"2025-10-{25+i}T18:00:00Z", workspace_id="test_workspace")
 
             if result_gate1.get("status") == "REJECTED":
                 print(f"⚠️  Script {i} rejected: {result_gate1.get('reason')}")

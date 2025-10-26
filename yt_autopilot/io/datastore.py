@@ -281,6 +281,7 @@ def save_draft_package(
     final_video_path: str,
     thumbnail_path: str,
     publish_datetime_iso: str,
+    workspace_id: str,
     llm_raw_script: Optional[str] = None,
     final_script: Optional[str] = None,
     thumbnail_prompt: Optional[str] = None,
@@ -309,6 +310,7 @@ def save_draft_package(
         final_video_path: Path to final assembled video
         thumbnail_path: Path to generated thumbnail image
         publish_datetime_iso: Proposed publish datetime in ISO format
+        workspace_id: Workspace identifier for filtering and organization
         llm_raw_script: (Optional) Raw LLM output before validation
         final_script: (Optional) Final validated script text
         thumbnail_prompt: (Optional) Step 07.2: Prompt used for thumbnail generation
@@ -329,6 +331,7 @@ def save_draft_package(
         ...     final_video_path="final.mp4",
         ...     thumbnail_path="thumb.png",
         ...     publish_datetime_iso="2025-10-25T18:00:00Z",
+        ...     workspace_id="tech_ai_creator",
         ...     script_internal_id="script-uuid-from-gate-1"
         ... )
         >>> print(f"Video draft saved: {video_id}")
@@ -343,6 +346,7 @@ def save_draft_package(
 
     record = {
         "video_internal_id": video_internal_id,
+        "workspace_id": workspace_id,  # Step 08: Multi-workspace support
         "script_internal_id": script_internal_id,  # Step 07.3: Link to script from Gate 1
         "production_state": "VIDEO_PENDING_REVIEW",  # Step 07.3: Updated state name
         "saved_at": datetime.now().isoformat(),
@@ -376,6 +380,7 @@ def save_draft_package(
 
     logger.info(f"✓ Draft package saved to {datastore_path}")
     logger.info(f"  Internal ID: {video_internal_id}")
+    logger.info(f"  Workspace: {workspace_id}")
     logger.info(f"  Title: '{ready.publishing.final_title}'")
     logger.info(f"  State: VIDEO_PENDING_REVIEW")  # Step 07.3: Updated state
     if script_internal_id:
@@ -567,27 +572,30 @@ def list_scheduled_videos() -> List[Dict[str, Any]]:
     return videos
 
 
-def list_pending_review() -> List[Dict[str, Any]]:
+def list_pending_review(workspace_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """
-    Returns list of all videos pending human review (Step 07.3: Gate 2).
+    Returns list of videos pending human review (Step 07.3: Gate 2).
 
     Step 07.3: Supports both VIDEO_PENDING_REVIEW and legacy HUMAN_REVIEW_PENDING.
     These are videos that have been generated but not yet approved for
     publication to YouTube.
 
-    Backward compatibility: Includes both new (VIDEO_PENDING_REVIEW) and
-    legacy (HUMAN_REVIEW_PENDING) states.
+    Args:
+        workspace_id: Optional workspace filter. If None, returns all workspaces.
 
     Returns:
         List of video records with metadata needed for review
 
     Example:
-        >>> pending = list_pending_review()
+        >>> pending = list_pending_review(workspace_id="tech_ai_creator")
         >>> for video in pending:
         ...     print(f"{video['video_internal_id']}: {video['proposed_title']}")
         123e4567-...: AI Video Generation 2025
     """
-    logger.info("Listing videos pending review from datastore...")
+    if workspace_id:
+        logger.info(f"Listing videos pending review for workspace: {workspace_id}")
+    else:
+        logger.info("Listing videos pending review from all workspaces...")
 
     datastore_path = _get_datastore_path()
 
@@ -602,19 +610,26 @@ def list_pending_review() -> List[Dict[str, Any]]:
 
             # Step 07.3: Include both new and legacy states for backward compatibility
             state = record.get("production_state")
-            if state in ["VIDEO_PENDING_REVIEW", "HUMAN_REVIEW_PENDING"]:
-                files = record.get("files", {})
-                videos.append({
-                    "video_internal_id": record.get("video_internal_id"),
-                    "production_state": record["production_state"],
-                    "final_video_path": files.get("final_video_path"),
-                    "thumbnail_path": files.get("thumbnail_path"),
-                    "proposed_title": record.get("title"),
-                    "proposed_description": record.get("publishing", {}).get("description"),
-                    "proposed_tags": record.get("publishing", {}).get("tags"),
-                    "suggested_publishAt": record.get("proposed_publish_at"),
-                    "saved_at": record.get("saved_at")
-                })
+            if state not in ["VIDEO_PENDING_REVIEW", "HUMAN_REVIEW_PENDING"]:
+                continue
+
+            # Filter by workspace if specified
+            if workspace_id and record.get("workspace_id") != workspace_id:
+                continue
+
+            files = record.get("files", {})
+            videos.append({
+                "video_internal_id": record.get("video_internal_id"),
+                "workspace_id": record.get("workspace_id"),
+                "production_state": record["production_state"],
+                "final_video_path": files.get("final_video_path"),
+                "thumbnail_path": files.get("thumbnail_path"),
+                "proposed_title": record.get("title"),
+                "proposed_description": record.get("publishing", {}).get("description"),
+                "proposed_tags": record.get("publishing", {}).get("tags"),
+                "suggested_publishAt": record.get("proposed_publish_at"),
+                "saved_at": record.get("saved_at")
+            })
 
     logger.info(f"✓ Found {len(videos)} videos pending review")
     return videos
@@ -626,7 +641,8 @@ def list_pending_review() -> List[Dict[str, Any]]:
 
 def save_script_draft(
     ready: ReadyForFactory,
-    publish_datetime_iso: str
+    publish_datetime_iso: str,
+    workspace_id: str
 ) -> str:
     """
     Saves script draft package pending human review (Step 07.3: Gate 1).
@@ -641,13 +657,14 @@ def save_script_draft(
     Args:
         ready: Editorial package from build_video_package()
         publish_datetime_iso: Proposed publish datetime (e.g., "2025-11-01T18:00:00Z")
+        workspace_id: Workspace identifier for filtering and organization
 
     Returns:
         script_internal_id: UUID for this script draft
 
     Example:
-        >>> ready = build_video_package()
-        >>> script_id = save_script_draft(ready, "2025-11-01T18:00:00Z")
+        >>> ready = build_video_package(workspace_id="tech_ai_creator")
+        >>> script_id = save_script_draft(ready, "2025-11-01T18:00:00Z", "tech_ai_creator")
         >>> # Human reviews script via review_console.py
         >>> # If approved: approve_script_for_generation(script_id, "dan@company")
     """
@@ -658,6 +675,7 @@ def save_script_draft(
 
     record = {
         "script_internal_id": script_internal_id,
+        "workspace_id": workspace_id,  # Step 08: Multi-workspace support
         "production_state": "SCRIPT_PENDING_REVIEW",
         "saved_at": datetime.now().isoformat(),
         "status": ready.status,  # APPROVED from quality reviewer
@@ -690,30 +708,37 @@ def save_script_draft(
 
     logger.info(f"✓ Script draft saved to {datastore_path}")
     logger.info(f"  Script ID: {script_internal_id}")
+    logger.info(f"  Workspace: {workspace_id}")
     logger.info(f"  Title: '{ready.publishing.final_title}'")
     logger.info(f"  State: SCRIPT_PENDING_REVIEW")
-    logger.info(f"  Next: Human review via review_console.py")
+    logger.info(f"  Next: Human review via run.py review scripts")
 
     return script_internal_id
 
 
-def list_pending_script_review() -> List[Dict[str, Any]]:
+def list_pending_script_review(workspace_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """
-    Returns list of all scripts pending human review (Step 07.3: Gate 1).
+    Returns list of scripts pending human review (Step 07.3: Gate 1).
 
     Only includes scripts with production_state="SCRIPT_PENDING_REVIEW".
     These are scripts that have passed QualityReviewer but not yet approved
     by human to proceed with expensive asset generation.
 
+    Args:
+        workspace_id: Optional workspace filter. If None, returns all workspaces.
+
     Returns:
         List of script draft dicts with metadata for review
 
     Example:
-        >>> scripts = list_pending_script_review()
+        >>> scripts = list_pending_script_review(workspace_id="tech_ai_creator")
         >>> for script in scripts:
         ...     print(f"{script['script_internal_id']}: {script['proposed_title']}")
     """
-    logger.info("Listing scripts pending review from datastore...")
+    if workspace_id:
+        logger.info(f"Listing scripts pending review for workspace: {workspace_id}")
+    else:
+        logger.info("Listing scripts pending review from all workspaces...")
 
     datastore_path = _get_datastore_path()
 
@@ -730,18 +755,26 @@ def list_pending_script_review() -> List[Dict[str, Any]]:
 
             record = json.loads(line.strip())
 
-            # Only include pending script review
-            if record.get("production_state") == "SCRIPT_PENDING_REVIEW":
-                scripts.append({
-                    "script_internal_id": record.get("script_internal_id"),
-                    "production_state": record["production_state"],
-                    "proposed_title": record.get("title"),
-                    "proposed_description": record.get("publishing", {}).get("description"),
-                    "script": record.get("script"),  # Full script for display
-                    "visuals": record.get("visuals"),  # Visual plan for display
-                    "suggested_publishAt": record.get("proposed_publish_at"),
-                    "saved_at": record.get("saved_at")
-                })
+            # Filter by state
+            if record.get("production_state") != "SCRIPT_PENDING_REVIEW":
+                continue
+
+            # Filter by workspace if specified
+            if workspace_id and record.get("workspace_id") != workspace_id:
+                continue
+
+            scripts.append({
+                "script_internal_id": record.get("script_internal_id"),
+                "workspace_id": record.get("workspace_id"),
+                "production_state": record["production_state"],
+                "proposed_title": record.get("title"),
+                "proposed_description": record.get("publishing", {}).get("description"),
+                "script": record.get("script"),  # Full script for display
+                "visuals": record.get("visuals"),  # Visual plan for display
+                "video_plan": record.get("video_plan"),  # Video plan for display
+                "suggested_publishAt": record.get("proposed_publish_at"),
+                "saved_at": record.get("saved_at")
+            })
 
     logger.info(f"✓ Found {len(scripts)} scripts pending review")
     return scripts
