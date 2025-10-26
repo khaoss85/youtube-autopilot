@@ -302,9 +302,25 @@ def build_video_package(
     logger.info(f"  Target audience: {video_plan.target_audience}")
     logger.info(f"  Compliance notes: {len(video_plan.compliance_notes)} checks")
 
+    # Step 3.1: Log top 5 candidates (transparency + debugging)
+    logger.info("=" * 70)
+    logger.info("TOP 5 TREND CANDIDATES (Ranked by Enhanced Scoring):")
+    logger.info("=" * 70)
+    from yt_autopilot.agents.trend_hunter import _calculate_priority_score
+    for i, candidate in enumerate(top_candidates, 1):
+        score = _calculate_priority_score(candidate, memory)
+        keyword_display = candidate.keyword[:60] + "..." if len(candidate.keyword) > 60 else candidate.keyword
+        logger.info(f"#{i}: '{keyword_display}'")
+        logger.info(f"     Score: {score:.3f} | Source: {candidate.source}")
+        logger.info(f"     Momentum: {candidate.momentum_score:.2f} | Virality: {candidate.virality_score:.2f}")
+        logger.info(f"     Competition: {candidate.competition_level} | CPM: ${candidate.cpm_estimate:.1f}")
+        if i == 1:
+            logger.info(f"     ✓ SELECTED (Deterministic)")
+    logger.info("=" * 70)
+
     # Step 3.2: AI-assisted final selection (Phase C - OPTIONAL)
-    # TODO: Enable this when ready for AI-powered selection
-    use_ai_selection = False  # Set to True to enable AI selection
+    # Step 08 Phase 3: AI selection with robust JSON extraction + duplicate prevention
+    use_ai_selection = False  # Set to True to enable AI selection (costs ~$0.01-0.05 per video)
 
     if use_ai_selection and len(top_candidates) >= 3:
         logger.info("Step 3.2: Running AI-assisted final selection (Phase C)...")
@@ -355,12 +371,38 @@ Return ONLY a JSON object:
             ai_response_text = generate_text(
                 role="content_strategist",
                 task=ai_prompt,
+                context=f"Workspace: {memory.get('workspace_name', 'Unknown')}, Vertical: {vertical_id}",
                 style_hints={"format": "json", "length": "concise"}
             )
 
-            # Parse LLM response
+            # Log raw response for debugging
+            logger.debug(f"  Raw LLM response ({len(ai_response_text)} chars): {ai_response_text[:200]}...")
+
+            # Parse LLM response (robust JSON extraction)
             import json
-            ai_response = json.loads(ai_response_text)
+            import re
+
+            # Try direct JSON parse first
+            try:
+                ai_response = json.loads(ai_response_text)
+            except json.JSONDecodeError:
+                # Fallback: Extract JSON with regex (handles text before/after JSON)
+                logger.debug("  Direct JSON parse failed, trying regex extraction...")
+                json_match = re.search(
+                    r'\{[^}]*"selected_index"[^}]*"reasoning"[^}]*\}',
+                    ai_response_text,
+                    re.DOTALL
+                )
+                if json_match:
+                    json_str = json_match.group(0)
+                    logger.debug(f"  Extracted JSON: {json_str[:100]}...")
+                    ai_response = json.loads(json_str)
+                else:
+                    raise ValueError(
+                        f"No valid JSON found in LLM response. "
+                        f"Response preview: {ai_response_text[:200]}"
+                    )
+
             ai_index = ai_response.get("selected_index", 0)
             ai_reasoning = ai_response.get("reasoning", "No reasoning provided")
 

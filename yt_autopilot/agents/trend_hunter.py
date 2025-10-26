@@ -51,6 +51,7 @@ import re
 from yt_autopilot.core.schemas import TrendCandidate, VideoPlan
 from yt_autopilot.core.memory_store import get_banned_topics, get_recent_titles, get_brand_tone
 from yt_autopilot.core.logger import logger
+from yt_autopilot.io.datastore import is_topic_already_produced
 
 
 def _detect_language(text: str) -> str:
@@ -302,6 +303,8 @@ def generate_video_plan(
 
     # Filter out banned and similar topics
     suitable_trends = []
+    workspace_id = memory.get("workspace_id")  # For workspace-scoped duplicate check
+
     for trend in trends:
         if _is_topic_banned(trend, banned_topics):
             logger.debug(f"Filtered out trend '{trend.keyword}': contains banned topic")
@@ -309,6 +312,11 @@ def generate_video_plan(
 
         if _is_too_similar_to_recent(trend, recent_titles):
             logger.debug(f"Filtered out trend '{trend.keyword}': too similar to recent content")
+            continue
+
+        # Step 08 Phase 3: Check if already produced (fuzzy match with datastore)
+        if is_topic_already_produced(trend.keyword, workspace_id=workspace_id):
+            logger.debug(f"Filtered out trend '{trend.keyword}': already produced/scheduled")
             continue
 
         suitable_trends.append(trend)

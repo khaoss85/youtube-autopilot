@@ -14,7 +14,11 @@
       "Bash(tee:*)",
       "Read(//private/tmp/**)",
       "Bash(ffprobe:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(git push:*)",
+      "Bash(git remote add:*)",
+      "Bash(gh auth login:*)",
+      "Bash(gh auth:*)"
     ],
     "deny": [],
     "ask": []

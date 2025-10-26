@@ -889,3 +889,118 @@ def approve_script_for_generation(
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
     logger.info(f"✓ Datastore updated: {datastore_path}")
+
+
+def _fuzzy_match(text1: str, text2: str, threshold: float = 0.7) -> bool:
+    """
+    Check if two texts have significant word overlap.
+
+    Uses simple word-based matching to detect similar topics.
+
+    Args:
+        text1: First text to compare
+        text2: Second text to compare
+        threshold: Minimum overlap ratio (default 0.7 = 70%)
+
+    Returns:
+        True if overlap ratio > threshold
+
+    Example:
+        >>> _fuzzy_match("AI tools productivity", "Productivity with AI tools", 0.7)
+        True
+        >>> _fuzzy_match("Python tutorial", "JavaScript guide", 0.7)
+        False
+    """
+    if not text1 or not text2:
+        return False
+
+    # Normalize and tokenize
+    words1 = set(text1.lower().split())
+    words2 = set(text2.lower().split())
+
+    if not words1 or not words2:
+        return False
+
+    # Calculate overlap ratio (Jaccard similarity)
+    overlap = len(words1 & words2)
+    union = len(words1 | words2)
+
+    if union == 0:
+        return False
+
+    similarity = overlap / union
+    return similarity > threshold
+
+
+def is_topic_already_produced(working_title: str, workspace_id: Optional[str] = None) -> bool:
+    """
+    Checks if a topic (working_title) has already been produced or scheduled.
+
+    Checks against all records in datastore across all production states:
+    - SCRIPT_PENDING_REVIEW: Script waiting for human review
+    - READY_FOR_GENERATION: Script approved, generating video assets
+    - VIDEO_PENDING_REVIEW: Video generated, waiting for human review
+    - SCHEDULED_ON_YOUTUBE: Video uploaded and scheduled
+
+    Uses fuzzy matching (70% word overlap) to detect similar topics even
+    if phrasing is slightly different.
+
+    Step 08 Phase 3: Duplicate prevention for trend selection
+
+    Args:
+        working_title: Original trend keyword from TrendCandidate
+        workspace_id: Optional workspace filter (check only within workspace)
+
+    Returns:
+        True if topic already exists in datastore
+
+    Example:
+        >>> is_topic_already_produced("AI productivity tools")
+        False  # New topic
+        >>> is_topic_already_produced("Productivity with AI tools")
+        True   # Already produced (fuzzy match)
+    """
+    logger.debug(f"Checking if topic already produced: '{working_title}'")
+
+    datastore_path = _get_datastore_path()
+
+    if not datastore_path.exists():
+        logger.debug("Datastore file does not exist yet - no duplicates")
+        return False
+
+    with open(datastore_path, "r", encoding="utf-8") as f:
+        for line in f:
+            if not line.strip():
+                continue
+
+            record = json.loads(line.strip())
+
+            # Filter by workspace if specified
+            if workspace_id:
+                video_plan = record.get("video_plan", {})
+                record_workspace = video_plan.get("workspace_id")
+                if record_workspace and record_workspace != workspace_id:
+                    continue
+
+            # Check both working_title (from video_plan) and final title
+            video_plan = record.get("video_plan", {})
+            existing_working = video_plan.get("working_title", "")
+            existing_final = record.get("title", "")
+
+            # Fuzzy match against both
+            if _fuzzy_match(working_title, existing_working, threshold=0.7):
+                logger.debug(
+                    f"  Duplicate found (working_title): '{existing_working}' "
+                    f"(state: {record.get('production_state', 'N/A')})"
+                )
+                return True
+
+            if _fuzzy_match(working_title, existing_final, threshold=0.7):
+                logger.debug(
+                    f"  Duplicate found (final_title): '{existing_final}' "
+                    f"(state: {record.get('production_state', 'N/A')})"
+                )
+                return True
+
+    logger.debug("  No duplicates found")
+    return False
