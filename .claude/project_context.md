@@ -125,8 +125,11 @@ Il lavoro avanza in **step incrementali**. Ogni step sa:
 
 ## Note per Claude Code
 
+- **LEGGI SEMPRE** `.claude/rules.md` - regole NON NEGOZIABILI
 - Usa TodoWrite per tracciare task multipli
-- Mantieni separazione layer rigorosa
+- Mantieni separazione layer rigorosa (vedi `.claude/rules.md`)
 - Type hints e Pydantic validation ovunque
 - Logging centralizzato via `core.logger`
 - Prima di aggiungere nuovi schemas, verifica non esistano già in `core/schemas.py`
+- Per storia del progetto: `docs/history.md`
+- Per architettura dettagliata: README.md (sezioni Architecture e Layer Rules)
