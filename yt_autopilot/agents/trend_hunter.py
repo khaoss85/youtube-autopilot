@@ -257,7 +257,11 @@ def _calculate_priority_score(trend: TrendCandidate, memory: Dict) -> float:
     return score
 
 
-def generate_video_plan(trends: List[TrendCandidate], memory: Dict) -> VideoPlan:
+def generate_video_plan(
+    trends: List[TrendCandidate],
+    memory: Dict,
+    return_top_candidates: int = 0
+):
     """
     Selects the best trending topic and generates a strategic video plan.
 
@@ -268,15 +272,23 @@ def generate_video_plan(trends: List[TrendCandidate], memory: Dict) -> VideoPlan
     - Content freshness (not too similar to recent videos)
     - Strategic fit with channel goals
 
+    Step 08 Phase A.3: Added support for returning top N candidates for AI-assisted selection
+
     Args:
         trends: List of trend candidates to evaluate
         memory: Channel memory dict containing brand_tone, banned_topics, recent_titles
+        return_top_candidates: If > 0, also return top N ranked trends (default: 0)
 
     Returns:
-        VideoPlan for the selected trend
+        If return_top_candidates == 0: VideoPlan for the selected trend
+        If return_top_candidates > 0: Tuple of (VideoPlan, List[top N TrendCandidates])
 
     Raises:
         ValueError: If no suitable trends found after filtering
+
+    Example:
+        >>> plan = generate_video_plan(trends, memory)  # Returns VideoPlan only
+        >>> plan, top5 = generate_video_plan(trends, memory, return_top_candidates=5)  # Returns both
     """
     if not trends:
         raise ValueError("Cannot generate video plan: no trends provided")
@@ -342,6 +354,13 @@ def generate_video_plan(trends: List[TrendCandidate], memory: Dict) -> VideoPlan
     )
 
     logger.info(f"Generated VideoPlan: '{video_plan.working_title}'")
+
+    # Return top candidates if requested (for AI-assisted selection)
+    if return_top_candidates > 0:
+        top_n = min(return_top_candidates, len(ranked_trends))
+        logger.info(f"  Also returning top {top_n} ranked candidates for AI selection")
+        return video_plan, ranked_trends[:top_n]
+
     return video_plan
 
 

@@ -291,11 +291,113 @@ def build_video_package(
 
     # Step 3: TrendHunter - select best topic (Phase A source weighting applied)
     logger.info("Step 3: Running TrendHunter to select best topic...")
-    logger.info("  Phase A source weighting: Reddit 3x > HN 2x > YouTube 1x")
-    video_plan = generate_video_plan(trends, memory)
-    logger.info(f"✓ Selected trend: '{video_plan.working_title}'")
+    logger.info("  Phase A source weighting: Reddit 4x > Channels 3x > HN 2x > YouTube 1x")
+    logger.info("  Enhanced scoring: Real statistics (views, engagement, recency)")
+    logger.info("  Language boost: +0.15 for content matching workspace language")
+
+    # Get top 5 candidates for potential AI selection
+    video_plan, top_candidates = generate_video_plan(trends, memory, return_top_candidates=5)
+
+    logger.info(f"✓ TrendHunter selected: '{video_plan.working_title}'")
     logger.info(f"  Target audience: {video_plan.target_audience}")
     logger.info(f"  Compliance notes: {len(video_plan.compliance_notes)} checks")
+
+    # Step 3.2: AI-assisted final selection (Phase C - OPTIONAL)
+    # TODO: Enable this when ready for AI-powered selection
+    use_ai_selection = False  # Set to True to enable AI selection
+
+    if use_ai_selection and len(top_candidates) >= 3:
+        logger.info("Step 3.2: Running AI-assisted final selection (Phase C)...")
+        logger.info(f"  Evaluating top {len(top_candidates)} candidates with LLM")
+
+        try:
+            # Format candidates for LLM
+            candidates_text = "\n".join([
+                f"{i+1}. '{c.keyword}'\n"
+                f"   Source: {c.source}\n"
+                f"   Why hot: {c.why_hot}\n"
+                f"   Momentum: {c.momentum_score:.2f}, Virality: {c.virality_score:.2f}\n"
+                f"   Competition: {c.competition_level}, CPM: ${c.cpm_estimate:.1f}\n"
+                for i, c in enumerate(top_candidates)
+            ])
+
+            # Build LLM prompt for strategic selection
+            ai_prompt = f"""You are a YouTube content strategist for {memory.get('workspace_name', 'our channel')}.
+
+**Our Brand:**
+- Tone: {memory.get('brand_tone', 'Educational and engaging')}
+- Recent videos: {', '.join(memory.get('recent_titles', [])[:3]) if memory.get('recent_titles') else 'None yet'}
+- Target audience: {video_plan.target_audience}
+
+**Top {len(top_candidates)} Trend Candidates (already filtered and scored):**
+
+{candidates_text}
+
+**Your Task:**
+Analyze which trend has the BEST strategic fit considering:
+
+1. **Brand Alignment**: Does this match our tone and positioning?
+2. **Audience Engagement**: Will our specific audience connect with this?
+3. **Timing Advantage**: Is this the right moment to publish on this topic?
+4. **Content Uniqueness**: Can we offer a differentiated angle?
+5. **Production Viability**: Can we execute this well with our resources?
+
+**Important**: Don't just pick #1. Consider strategic nuance that numbers don't capture.
+
+Return ONLY a JSON object:
+{{
+  "selected_index": <0 to {len(top_candidates)-1}>,
+  "title": "<exact title of selected trend>",
+  "reasoning": "<2-3 sentences explaining why this is strategically best>"
+}}"""
+
+            # Call LLM
+            ai_response_text = generate_text(
+                role="content_strategist",
+                task=ai_prompt,
+                style_hints={"format": "json", "length": "concise"}
+            )
+
+            # Parse LLM response
+            import json
+            ai_response = json.loads(ai_response_text)
+            ai_index = ai_response.get("selected_index", 0)
+            ai_reasoning = ai_response.get("reasoning", "No reasoning provided")
+
+            # Validate index
+            if 0 <= ai_index < len(top_candidates):
+                ai_selected_trend = top_candidates[ai_index]
+
+                logger.info(f"✓ AI selected candidate #{ai_index + 1}: '{ai_selected_trend.keyword}'")
+                logger.info(f"  AI reasoning: {ai_reasoning}")
+
+                # Compare with deterministic selection
+                if ai_selected_trend.keyword != video_plan.working_title:
+                    logger.info(f"  Note: AI chose different from deterministic (#1)")
+                    logger.info(f"       Deterministic: '{video_plan.working_title}'")
+                    logger.info(f"       AI strategic: '{ai_selected_trend.keyword}'")
+
+                    # Rebuild VideoPlan with AI selection
+                    video_plan = VideoPlan(
+                        working_title=ai_selected_trend.keyword,
+                        strategic_angle=f"{ai_selected_trend.why_hot}. AI selection reasoning: {ai_reasoning}",
+                        target_audience=video_plan.target_audience,
+                        language=ai_selected_trend.language,
+                        compliance_notes=video_plan.compliance_notes
+                    )
+                    logger.info("  ✓ Updated VideoPlan with AI-selected trend")
+                else:
+                    logger.info("  AI confirmed deterministic selection (same choice)")
+            else:
+                logger.warning(f"  AI returned invalid index {ai_index}, keeping deterministic selection")
+
+        except Exception as e:
+            logger.warning(f"AI selection failed: {e}")
+            logger.warning("Falling back to deterministic selection")
+    elif use_ai_selection:
+        logger.info("Step 3.2: AI selection skipped (not enough candidates)")
+    else:
+        logger.info("Step 3.2: AI-assisted selection disabled (use_ai_selection=False)")
 
     # Step 3.5: Detect series format (Step 07.5: Format engine)
     logger.info("Step 3.5: Detecting series format...")
