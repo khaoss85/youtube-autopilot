@@ -264,6 +264,65 @@ def _check_title_quality(publishing: PublishingPackage) -> Tuple[bool, str]:
     return True, ""
 
 
+def _check_narrator_persona_consistency(script: VideoScript, narrator_config: Dict) -> Tuple[bool, str]:
+    """
+    Checks if script maintains narrator persona consistency.
+
+    Step 09: Narrator Persona Integration
+
+    Validates that the script respects narrator persona guidelines,
+    particularly tone of address (tu/voi), WITHOUT enforcing rigid
+    template adherence.
+
+    Args:
+        script: Video script to check
+        narrator_config: Narrator persona configuration from workspace
+
+    Returns:
+        (is_consistent, issue_description)
+    """
+    if not narrator_config or not narrator_config.get('enabled'):
+        # Narrator persona disabled - skip check
+        return True, ""
+
+    voiceover = script.full_voiceover_text.lower()
+    expected_tone = narrator_config.get('tone_of_address', '')
+
+    # CHECK: Tone of address consistency
+    if expected_tone == 'tu_informale':
+        # Check for unwanted formal "voi" usage
+        voi_patterns = [
+            'vi mostro', 'vi spiego', 'vi dico', 'vi consiglio',
+            'vediamo insieme', 'vi invito', 'vi chiedo', 'vi presento'
+        ]
+
+        for pattern in voi_patterns:
+            if pattern in voiceover:
+                return False, (
+                    f"Script uses formal 'voi' ('{pattern}') but workspace requires 'tu informale'. "
+                    "Narrator persona expects informal direct address (tu/ti)."
+                )
+
+    elif expected_tone == 'voi_formale':
+        # Check for unwanted informal "tu" usage
+        tu_patterns = [
+            'ti mostro', 'ti spiego', 'ti dico', 'ti consiglio',
+            'guarda qui', 'ti invito', 'ti chiedo', 'ascolta'
+        ]
+
+        for pattern in tu_patterns:
+            if pattern in voiceover:
+                return False, (
+                    f"Script uses informal 'tu' ('{pattern}') but workspace requires 'voi formale'. "
+                    "Narrator persona expects formal address (voi/vi)."
+                )
+
+    # NOTE: We do NOT enforce rigid signature phrase presence
+    # Format determines if signature phrases are appropriate, not quality reviewer
+
+    return True, ""
+
+
 def review(
     plan: VideoPlan,
     script: VideoScript,
@@ -300,6 +359,9 @@ def review(
     banned_topics = get_banned_topics(memory)
     brand_tone = get_brand_tone(memory)
 
+    # Step 09: Load narrator persona for consistency checks
+    narrator_config = memory.get('narrator_persona', {})
+
     # Combine all text for comprehensive checks
     all_text = " ".join([
         plan.working_title,
@@ -316,6 +378,7 @@ def review(
         ("Medical Claims", lambda: _check_medical_claims(all_text)),
         ("Copyright", lambda: _check_copyright_violations(all_text)),
         ("Brand Tone", lambda: _check_brand_tone_compliance(script, brand_tone)),
+        ("Narrator Persona", lambda: _check_narrator_persona_consistency(script, narrator_config)),  # Step 09
         ("Hook Quality", lambda: _check_hook_quality(script)),
         ("Video Duration", lambda: _check_video_duration(visuals)),
         ("Title Quality", lambda: _check_title_quality(publishing)),

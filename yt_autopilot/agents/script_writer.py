@@ -436,6 +436,135 @@ def _create_scene_voiceover_map(
     return scene_map
 
 
+def _build_persona_aware_prompt(
+    plan: VideoPlan,
+    narrator: Dict,
+    content_formula: Dict,
+    series_format: Optional[SeriesFormat],
+    brand_tone: str
+) -> str:
+    """
+    Builds LLM prompt enhanced with narrator persona guidelines.
+
+    Step 09: Narrator Persona Integration
+
+    This function creates a comprehensive prompt that:
+    1. Provides narrator identity and signature phrases
+    2. Respects video format as primary driver
+    3. Gives creative freedom to adapt guidelines appropriately
+    4. Maintains brand tone consistency
+
+    Args:
+        plan: Video plan with topic and strategic angle
+        narrator: Narrator persona config from workspace
+        content_formula: Content formula config from workspace
+        series_format: Optional series format template
+        brand_tone: Brand tone from workspace
+
+    Returns:
+        Enhanced LLM prompt string
+    """
+    format_name = series_format.serie_id if series_format else 'generic'
+    format_style = series_format.style_guide if series_format else 'engaging, concise'
+    target_duration = content_formula.get('target_duration_seconds', 60)
+
+    # Build signature phrases section
+    signature_phrases_text = ""
+    if narrator.get('signature_phrases'):
+        phrases = narrator.get('signature_phrases', [])
+        signature_phrases_text = f"""
+Signature phrases (use strategically if format allows):
+  Opening phrase: "{phrases[0] if len(phrases) > 0 else ''}"
+  Mid-content phrase: "{phrases[1] if len(phrases) > 1 else ''}"
+  Closing phrase: "{phrases[2] if len(phrases) > 2 else phrases[-1]}"
+"""
+
+    # Build credibility markers section
+    credibility_text = ""
+    if narrator.get('credibility_markers'):
+        markers = narrator.get('credibility_markers', [])
+        credibility_text = f"""
+Credibility markers (mention when relevant):
+{chr(10).join([f'  - {marker}' for marker in markers])}
+"""
+
+    prompt = f"""Write a script for YouTube Shorts about: {plan.working_title}
+
+Strategic angle: {plan.strategic_angle}
+
+─────────────────────────────────────────────
+BRAND IDENTITY (interpret appropriately for format):
+─────────────────────────────────────────────
+Narrator: {narrator.get('name', 'Host')} - {narrator.get('identity', 'Content creator')}
+Relationship with audience: {narrator.get('relationship', 'informative')}
+Tone of address: {narrator.get('tone_of_address', 'tu_informale')}
+{signature_phrases_text}{credibility_text}
+Brand tone: {brand_tone}
+
+─────────────────────────────────────────────
+VIDEO FORMAT (primary structure driver):
+─────────────────────────────────────────────
+Format: {format_name}
+Style: {format_style}
+Target duration: {target_duration} seconds
+Target audience: {plan.target_audience}
+
+─────────────────────────────────────────────
+ADAPTATION GUIDELINES:
+─────────────────────────────────────────────
+1. FORMAT drives structure - let the format dictate pacing and flow
+2. NARRATOR PERSONA drives tone and credibility anchoring
+3. Signature phrases: Use ONLY if they enhance the format naturally
+   - Tutorial/How-to: YES (establish authority at start)
+   - News/Breaking: MINIMAL or NO (urgency > personality)
+   - Story-driven: YES in closing (emotional anchor)
+   - Quick Tips (<30s): NO (too brief)
+
+4. Narrator name in hook:
+   - Tutorial/How-to: YES (builds trust)
+   - News/Breaking: NO (focus on facts)
+   - Story: DEPENDS (1st person = yes, 3rd person = no)
+   - Quick Tips: NO (brevity first)
+
+5. Tone of address: ALWAYS maintain "{narrator.get('tone_of_address', 'tu_informale')}"
+
+6. Credibility: Reference subtly when it strengthens the point
+
+─────────────────────────────────────────────
+CREATIVE FREEDOM:
+─────────────────────────────────────────────
+You have FULL AUTONOMY to interpret these guidelines.
+Prioritize: VIEWER RETENTION > BRAND CONSISTENCY > RIGID TEMPLATE
+
+- If signature phrase doesn't fit → skip it
+- If narrator name slows hook → omit it
+- If credibility helps trust → mention it naturally
+- Make it feel NATURAL, not forced
+
+Goal: Maximum watch time + subtle brand consistency
+
+─────────────────────────────────────────────
+OUTPUT FORMAT:
+─────────────────────────────────────────────
+HOOK:
+[Engaging opening - consider narrator introduction if appropriate for format]
+
+BULLETS:
+- [Main point 1]
+- [Main point 2]
+- [Main point 3]
+[Add more if needed for {target_duration}s target]
+
+CTA:
+[Call to action - consider signature closing if appropriate]
+
+VOICEOVER:
+[Complete narration text combining all sections naturally]
+"""
+
+    return prompt
+
+
 def write_script(
     plan: VideoPlan,
     memory: Dict,
@@ -483,6 +612,16 @@ def write_script(
 
     # Load brand tone
     brand_tone = get_brand_tone(memory)
+
+    # Step 09: Load narrator persona and content formula
+    narrator = memory.get('narrator_persona', {})
+    content_formula = memory.get('content_formula', {})
+    narrator_enabled = narrator.get('enabled', False)
+
+    if narrator_enabled:
+        logger.info(f"  Narrator persona enabled: {narrator.get('name', 'Unknown')}")
+        logger.info(f"  Relationship: {narrator.get('relationship', 'Unknown')}")
+        logger.info(f"  Tone of address: {narrator.get('tone_of_address', 'Unknown')}")
 
     # Try to use LLM suggestion if provided
     llm_parsed = None

@@ -13,5 +13,19 @@
     "get-rich-quick schemes",
     "uso di musica protetta da copyright"
   ],
-  "recent_titles": []
+  "recent_titles": [],
+  "narrator_persona": {
+    "enabled": false
+  },
+  "voice_config": {
+    "tts_provider": "openai",
+    "voice_model": "echo",
+    "speed": 1.0
+  },
+  "content_formula": {
+    "hook_pattern": "stat_shock",
+    "cta_style": "soft_ask",
+    "target_duration_seconds": 60,
+    "pacing": "medium"
+  }
 }

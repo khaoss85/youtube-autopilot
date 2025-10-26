@@ -21,5 +21,19 @@
     "I rebuilt DeepSeek's OCR model in Rust so anyone can run it locally (no Python!) - Tutti Ne Parlano!",
     "Ludicrous $6 billion Counter Strike 2 skins market crashes, loses $3 billion overnight — game upd...",
     "A single point of failure triggered the Amazon outage affecting millions | A DNS manager in a sin..."
-  ]
+  ],
+  "narrator_persona": {
+    "enabled": false
+  },
+  "voice_config": {
+    "tts_provider": "openai",
+    "voice_model": "alloy",
+    "speed": 1.05
+  },
+  "content_formula": {
+    "hook_pattern": "statement",
+    "cta_style": "soft_ask",
+    "target_duration_seconds": 60,
+    "pacing": "medium"
+  }
 }

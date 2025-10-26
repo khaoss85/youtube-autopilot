@@ -12,5 +12,19 @@
     "hate speech o discriminazione",
     "uso di musica protetta da copyright"
   ],
-  "recent_titles": []
+  "recent_titles": [],
+  "narrator_persona": {
+    "enabled": false
+  },
+  "voice_config": {
+    "tts_provider": "openai",
+    "voice_model": "fable",
+    "speed": 1.15
+  },
+  "content_formula": {
+    "hook_pattern": "energetic_question",
+    "cta_style": "direct_action",
+    "target_duration_seconds": 60,
+    "pacing": "fast"
+  }
 }

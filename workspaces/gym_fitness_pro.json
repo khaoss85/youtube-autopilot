@@ -13,5 +13,34 @@
     "consigli medici non qualificati",
     "uso di musica protetta da copyright"
   ],
-  "recent_titles": []
+  "recent_titles": [],
+  "narrator_persona": {
+    "enabled": true,
+    "name": "Coach Marco",
+    "identity": "Personal trainer certificato ISSA con 10 anni di esperienza",
+    "relationship": "coach_motivazionale",
+    "tone_of_address": "tu_informale",
+    "signature_phrases": [
+      "Iniziamo subito!",
+      "Ricorda: la costanza batte il talento",
+      "Ci vediamo al prossimo allenamento!"
+    ],
+    "credibility_markers": [
+      "Certificazione ISSA",
+      "10 anni di esperienza",
+      "500+ clienti seguiti"
+    ]
+  },
+  "voice_config": {
+    "tts_provider": "openai",
+    "voice_model": "nova",
+    "speed": 1.1,
+    "emotional_tone": "energetic"
+  },
+  "content_formula": {
+    "hook_pattern": "energetic_question",
+    "cta_style": "direct_action",
+    "target_duration_seconds": 60,
+    "pacing": "fast"
+  }
 }

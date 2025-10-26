@@ -19,7 +19,7 @@ from yt_autopilot.core.logger import logger
 from yt_autopilot.services import provider_tracker
 
 
-def _call_tts_provider(text: str, voice_id: str = "alloy") -> bytes:
+def _call_tts_provider(text: str, voice_id: str = "alloy", speed: float = 1.05) -> bytes:
     """
     Calls TTS provider API to generate speech audio.
 
@@ -27,6 +27,7 @@ def _call_tts_provider(text: str, voice_id: str = "alloy") -> bytes:
 
     Step 07.2: Uses tts-1-hd model for creator-grade quality and speed parameter
     for energetic delivery.
+    Step 09: Workspace-configurable voice and speed for brand consistency
 
     NOTE: OpenAI TTS does NOT have explicit Italian-only voices or style parameters.
     Language is auto-detected from input text. For true Italian creator voice,
@@ -36,6 +37,8 @@ def _call_tts_provider(text: str, voice_id: str = "alloy") -> bytes:
     Args:
         text: Text to convert to speech
         voice_id: Voice identifier (default: "alloy" for OpenAI TTS)
+                  Options: alloy, echo, fable, onyx, nova, shimmer
+        speed: Playback speed (0.25-4.0, default: 1.05 for slight energy boost)
 
     Returns:
         Audio bytes (MP3 or WAV format)
@@ -54,6 +57,7 @@ def _call_tts_provider(text: str, voice_id: str = "alloy") -> bytes:
 
     logger.info("  Calling OpenAI TTS API...")
     logger.debug(f"    Voice: {voice_id}")
+    logger.debug(f"    Speed: {speed}")
     logger.debug(f"    Text length: {len(text)} characters")
 
     # OpenAI TTS API endpoint
@@ -64,12 +68,12 @@ def _call_tts_provider(text: str, voice_id: str = "alloy") -> bytes:
         "Content-Type": "application/json",
     }
 
-    # Step 07.2: Use high-quality model and speed for creator-grade energetic voice
+    # Step 07.2/09: Use high-quality model with workspace-configurable voice and speed
     payload = {
         "model": "tts-1-hd",  # High-quality model for creator content
         "input": text,
-        "voice": voice_id,
-        "speed": 1.05,  # Slightly faster for energetic, dynamic delivery
+        "voice": voice_id,    # Workspace-configurable (Step 09)
+        "speed": speed,       # Workspace-configurable (Step 09)
         "response_format": "mp3"
     }
 
@@ -102,7 +106,8 @@ def _call_tts_provider(text: str, voice_id: str = "alloy") -> bytes:
 def synthesize_voiceover(
     script: VideoScript,
     asset_paths: AssetPaths,
-    voice_id: str = "alloy"
+    voice_id: str = "alloy",
+    workspace_config: dict = None
 ) -> str:
     """
     Converts script text to speech audio file.
@@ -110,6 +115,7 @@ def synthesize_voiceover(
     Step 07: Real TTS integration with automatic fallback
     Step 07.3: Scene-aware generation with timing diagnostics
     Step 07.4: Updated to use AssetPaths for organized output
+    Step 09: Workspace-specific voice configuration for brand consistency
 
     Tries to use real TTS provider (OpenAI TTS, ElevenLabs, Google Cloud TTS, etc.)
     Falls back to silent WAV if TTS unavailable or fails.
@@ -123,6 +129,9 @@ def synthesize_voiceover(
         script: Video script with full voiceover text and scene_voiceover_map
         asset_paths: AssetPaths object for organized output directory
         voice_id: TTS voice identifier (default: "alloy" for OpenAI)
+                  NOTE: Overridden by workspace_config.voice_config if provided
+        workspace_config: Optional workspace configuration dict with voice_config
+                          (Step 09: enables voice model + speed from workspace)
 
     Returns:
         Path to generated audio file (.wav or .mp3) in asset-specific directory
@@ -145,9 +154,27 @@ def synthesize_voiceover(
         >>> print(f"Audio saved to: {audio_path}")
         Audio saved to: output/video_123/voiceover.mp3
     """
-    logger.info("Synthesizing voiceover audio...")
-    logger.info(f"  Text length: {len(script.full_voiceover_text)} characters")
-    logger.info(f"  Voice ID: {voice_id}")
+    # Step 09: Extract voice configuration from workspace if provided
+    if workspace_config:
+        voice_config = workspace_config.get('voice_config', {})
+        configured_voice = voice_config.get('voice_model', voice_id)
+        configured_speed = voice_config.get('speed', 1.05)
+
+        logger.info("Synthesizing voiceover audio (workspace-configured)...")
+        logger.info(f"  Workspace voice config:")
+        logger.info(f"    Voice model: {configured_voice}")
+        logger.info(f"    Speed: {configured_speed}")
+        logger.info(f"  Text length: {len(script.full_voiceover_text)} characters")
+
+        # Use workspace voice config
+        voice_id = configured_voice
+        speed = configured_speed
+    else:
+        # Legacy mode: use default parameters
+        logger.info("Synthesizing voiceover audio (default config)...")
+        logger.info(f"  Voice ID: {voice_id}")
+        logger.info(f"  Text length: {len(script.full_voiceover_text)} characters")
+        speed = 1.05  # Default speed
 
     # Step 07.3: Log scene-level timing information for diagnostics
     if script.scene_voiceover_map and len(script.scene_voiceover_map) > 0:
@@ -171,7 +198,7 @@ def synthesize_voiceover(
 
     # Try real TTS provider first
     try:
-        audio_bytes = _call_tts_provider(script.full_voiceover_text, voice_id)
+        audio_bytes = _call_tts_provider(script.full_voiceover_text, voice_id, speed)
 
         # Step 07.4: Save audio to asset-specific directory
         audio_path = Path(asset_paths.voiceover_path)

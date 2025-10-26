@@ -59,6 +59,9 @@ from yt_autopilot.io.datastore import (
     _asset_paths_to_dict  # Step 07.4: AssetPaths serialization
 )
 
+# Import workspace manager (Step 09: Narrator persona)
+from yt_autopilot.core.workspace_manager import load_workspace_config
+
 
 def generate_script_draft(publish_datetime_iso: str, workspace_id: str) -> Dict[str, Any]:
     """
@@ -254,6 +257,16 @@ def produce_render_assets(script_internal_id: str) -> Dict[str, Any]:
         logger.warning("⚠ No workspace_id in script draft (legacy record) - using 'unknown'")
         workspace_id = "unknown"
 
+    # Step 09: Load workspace configuration for voice config
+    workspace_config = None
+    if workspace_id and workspace_id != "unknown":
+        try:
+            workspace_config = load_workspace_config(workspace_id)
+            logger.info(f"  Loaded workspace config: {workspace_config.get('workspace_name')}")
+        except Exception as e:
+            logger.warning(f"  Failed to load workspace config: {e}")
+            logger.warning("  Will use default voice configuration")
+
     # Reconstruct ReadyForFactory from saved script draft
     from yt_autopilot.core.schemas import VideoPlan, VideoScript, VisualPlan, PublishingPackage, VisualScene
 
@@ -296,7 +309,12 @@ def produce_render_assets(script_internal_id: str) -> Dict[str, Any]:
     logger.info(f"  Text length: {len(ready.script.full_voiceover_text)} chars")
 
     try:
-        voiceover_path = synthesize_voiceover(ready.script, asset_paths)
+        # Step 09: Pass workspace_config for voice consistency
+        voiceover_path = synthesize_voiceover(
+            ready.script,
+            asset_paths,
+            workspace_config=workspace_config
+        )
         logger.info(f"✓ Voiceover generated: {voiceover_path}")
     except Exception as e:
         logger.error(f"✗ Voiceover generation failed: {e}")
