@@ -31,7 +31,7 @@ from yt_autopilot.core.logger import logger
 
 # Import agents
 from yt_autopilot.agents.trend_hunter import generate_video_plan
-from yt_autopilot.agents.script_writer import write_script
+from yt_autopilot.agents.script_writer import write_script, _build_persona_aware_prompt  # Step 09: narrator persona
 from yt_autopilot.agents.visual_planner import generate_visual_plan
 from yt_autopilot.agents.seo_manager import generate_publishing_package
 from yt_autopilot.agents.quality_reviewer import review
@@ -506,7 +506,32 @@ Return ONLY a JSON object:
 
     brand_tone = workspace.get('brand_tone', 'Direct, positive, educational')
 
-    llm_context = f"""
+    # Step 09: Check if narrator persona is enabled
+    narrator = workspace.get('narrator_persona', {})
+    content_formula = workspace.get('content_formula', {})
+    narrator_enabled = narrator.get('enabled', False)
+
+    if narrator_enabled:
+        # Use narrator persona-aware prompt builder (Step 09)
+        logger.info("  Using narrator persona-aware prompt...")
+        logger.info(f"  Narrator: {narrator.get('name', 'Unknown')}")
+        logger.info(f"  Relationship: {narrator.get('relationship', 'Unknown')}")
+
+        llm_task = _build_persona_aware_prompt(
+            plan=video_plan,
+            narrator=narrator,
+            content_formula=content_formula,
+            series_format=series_format,
+            brand_tone=brand_tone
+        )
+
+        # Context for narrator-aware prompt (strategic angle only, prompt has full context)
+        llm_context = video_plan.strategic_angle
+    else:
+        # Fallback to legacy generic prompt (backward compatible)
+        logger.info("  Using legacy generic prompt (narrator persona disabled)...")
+
+        llm_context = f"""
 Topic: {video_plan.working_title}
 Strategic Angle: {video_plan.strategic_angle}
 Target Audience: {video_plan.target_audience}
@@ -515,7 +540,7 @@ Format: YouTube Shorts (vertical 9:16, max 60 seconds)
 Brand Tone: {brand_tone}
     """.strip()
 
-    llm_task = """
+        llm_task = """
 Scrivi uno script completo per un YouTube Short in formato strutturato.
 
 REQUISITI:
@@ -554,6 +579,7 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
 - Energetico ma non urlato, coinvolgente ma non artificiale
     """.strip()
 
+    # Generate LLM suggestion (same for both narrator-aware and legacy paths)
     llm_suggestion = generate_text(
         role="script_writer",
         task=llm_task,
