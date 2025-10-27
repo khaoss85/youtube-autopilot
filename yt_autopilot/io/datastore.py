@@ -274,6 +274,82 @@ def get_metrics_history(video_id: str) -> List[VideoMetrics]:
     return history
 
 
+def get_videos_performance_summary(
+    titles: List[str],
+    workspace_id: Optional[str] = None
+) -> Dict[str, int]:
+    """
+    Retrieves performance summary (views) for a list of video titles.
+
+    This function enables learning loops by connecting video titles to their
+    actual performance metrics. Used to inform AI selection with what worked.
+
+    Graceful fallback behavior:
+    - Video not in datastore → skip (not produced yet)
+    - Video not published (youtube_video_id = None) → skip (no metrics possible)
+    - Video published but no metrics → skip (metrics not collected yet)
+    - Metrics exist → return latest views count
+
+    Args:
+        titles: List of video titles (typically from workspace recent_titles)
+        workspace_id: Optional workspace filter for multi-channel setups
+
+    Returns:
+        Dict mapping title → views for videos with available metrics.
+        Dict may be empty if no metrics available (graceful fallback).
+
+    Example:
+        >>> titles = ["5 errori gambe", "Proteine: quante?", "Stretching mattutino"]
+        >>> perf = get_videos_performance_summary(titles, "gym_fitness_pro")
+        >>> print(perf)
+        {'5 errori gambe': 12500, 'Proteine: quante?': 3200}
+        # "Stretching mattutino" not in result (no metrics yet)
+    """
+    logger.info(f"Retrieving performance summary for {len(titles)} titles...")
+
+    config = get_config()
+    datastore_path = _get_datastore_path()
+
+    if not datastore_path.exists():
+        logger.info("Datastore does not exist yet (no videos produced)")
+        return {}
+
+    # Build title → youtube_video_id mapping from datastore
+    title_to_video_id = {}
+
+    with open(datastore_path, "r", encoding="utf-8") as f:
+        for line in f:
+            record = json.loads(line.strip())
+
+            # Filter by workspace if specified
+            if workspace_id and record.get("workspace_id") != workspace_id:
+                continue
+
+            title = record.get("title")
+            youtube_id = record.get("youtube_video_id")
+
+            # Only consider published videos (with real YouTube ID)
+            if title in titles and youtube_id:
+                title_to_video_id[title] = youtube_id
+
+    logger.info(f"  Found {len(title_to_video_id)} published videos")
+
+    # Retrieve metrics for each video
+    performance_summary = {}
+
+    for title, youtube_id in title_to_video_id.items():
+        metrics_history = get_metrics_history(youtube_id)
+
+        if metrics_history:
+            # Use latest metrics (most recent snapshot)
+            latest_metrics = metrics_history[-1]
+            performance_summary[title] = latest_metrics.views
+            logger.debug(f"  '{title[:50]}': {latest_metrics.views:,} views")
+
+    logger.info(f"✓ Performance summary built: {len(performance_summary)} videos with metrics")
+    return performance_summary
+
+
 def save_draft_package(
     ready: ReadyForFactory,
     scene_paths: List[str],

@@ -45,6 +45,9 @@ from yt_autopilot.services.llm_trend_curator import curate_trends_with_llm
 # Step 08: Real trend fetching
 from yt_autopilot.services.trend_source import fetch_trends
 
+# Step 08 Phase 4: Learning loop - performance-aware selection
+from yt_autopilot.io.datastore import get_videos_performance_summary
+
 # Step 07.5: Series format engine
 from yt_autopilot.core import series_manager
 
@@ -342,7 +345,29 @@ def build_video_package(
 
             # Format recent videos for semantic duplicate check
             recent_titles = memory.get('recent_titles', [])[:10]
-            recent_videos_text = "\n".join([f"- {title}" for title in recent_titles]) if recent_titles else "- None yet"
+
+            # Step 08 Phase 4: Learning loop - retrieve performance data
+            performance_data = get_videos_performance_summary(recent_titles, workspace_id) if recent_titles else {}
+
+            # Format with performance indicators when available
+            if recent_titles:
+                recent_videos_lines = []
+                for title in recent_titles:
+                    if title in performance_data:
+                        views = performance_data[title]
+                        # Categorize performance: <2K=low, 2-10K=medium, >10K=high
+                        if views > 10000:
+                            recent_videos_lines.append(f"- {title} | 🔥 {views:,} views (high performer)")
+                        elif views > 2000:
+                            recent_videos_lines.append(f"- {title} | 📊 {views:,} views (medium)")
+                        else:
+                            recent_videos_lines.append(f"- {title} | 📉 {views:,} views (low)")
+                    else:
+                        # No metrics yet (video not published or metrics not collected)
+                        recent_videos_lines.append(f"- {title}")
+                recent_videos_text = "\n".join(recent_videos_lines)
+            else:
+                recent_videos_text = "- None yet"
 
             # Build LLM prompt for strategic selection + semantic duplicate detection
             ai_prompt = f"""You are a YouTube content strategist for {memory.get('workspace_name', 'our channel')}.
@@ -378,6 +403,13 @@ Analyze which trend has the BEST strategic fit considering:
   * "Push-ups mistakes to avoid" ≠ "Perfect push-ups tutorial" (DIFFERENT FOCUS)
   * "Weight loss diet plan" ≠ "Weight loss workout routine" (DIFFERENT APPROACH)
 - If a candidate is semantically similar to recent videos: SKIP IT or explain why the angle is sufficiently different
+
+**LEARNING FROM PERFORMANCE (Step 08 Phase 4):**
+- When performance indicators are shown (🔥 high / 📊 medium / 📉 low), use them to inform selection
+- High performers (🔥) indicate topics/angles that resonate with our audience
+- Consider selecting trends SIMILAR to our high performers (if not semantic duplicates)
+- Avoid patterns that led to low performers (📉) unless there's a compelling reason
+- If no performance data available yet, make strategic choice based on other factors
 
 **Important**: Don't just pick #1. Consider strategic nuance that numbers don't capture.
 
