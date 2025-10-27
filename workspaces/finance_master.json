@@ -48,5 +48,16 @@
   },
   "visual_contexts": {
     "enabled": false
+  },
+  "character_profiles": {
+    "enabled": true,
+    "primary_character": {
+      "character_id": "finance_analyst",
+      "persona": "Professional financial analyst, mid 30s, trustworthy educational presenter",
+      "physical_traits": "Professional short hair, business-appropriate build, neutral skin tone, professional appearance",
+      "typical_clothing": "Business casual attire, dress shirt in blue or white tones, professional demeanor",
+      "distinctive_features": "Calm composed expression, professional posture, educational hand gestures",
+      "context_matching": ["office", "studio", "professional"]
+    }
   }
 }

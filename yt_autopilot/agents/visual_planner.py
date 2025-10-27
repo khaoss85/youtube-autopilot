@@ -103,6 +103,55 @@ def _select_visual_context(series_format: Optional[SeriesFormat], visual_context
     return selected_context
 
 
+def _build_character_description(character_profile: Dict) -> str:
+    """
+    Builds a persistent identity anchor from character profile.
+
+    Step 09.5: Character Consistency - creates concise description for Veo/Sora
+    to maintain same character across all scenes.
+
+    Args:
+        character_profile: Primary character profile from workspace config
+
+    Returns:
+        Persistent identity anchor string (e.g., "Same athletic male trainer with short dark hair...")
+
+    Example:
+        >>> profile = {
+        ...     "persona": "Athletic male fitness trainer, early 30s",
+        ...     "physical_traits": "Short dark brown hair, athletic build",
+        ...     "typical_clothing": "Black athletic tank top"
+        ... }
+        >>> desc = _build_character_description(profile)
+        >>> "Same athletic male" in desc
+        True
+    """
+    # Extract key elements
+    persona = character_profile.get('persona', '')
+    physical_traits = character_profile.get('physical_traits', '')
+    clothing = character_profile.get('typical_clothing', '')
+
+    # Build concise identity anchor (20-30 words optimal)
+    # Format: "Same [persona descriptor], [physical traits], wearing [clothing]"
+    parts = []
+
+    if persona:
+        # Extract key descriptor from persona (e.g., "Athletic male fitness trainer, early 30s" → "athletic male trainer")
+        persona_parts = persona.lower().split(',')
+        persona_descriptor = persona_parts[0].strip() if persona_parts else persona.lower().strip()
+        parts.append(f"Same {persona_descriptor}")
+
+    if physical_traits:
+        parts.append(physical_traits.lower())
+
+    if clothing:
+        parts.append(f"wearing {clothing.lower()}")
+
+    description = ", ".join(parts) if parts else "Same person"
+
+    return description
+
+
 def _create_scene_segments(script: VideoScript) -> List[Tuple[str, str]]:
     """
     Divides script into logical scene segments.
@@ -142,13 +191,15 @@ def _generate_veo_prompt(
     plan: VideoPlan,
     visual_style: str,
     brand_manual: Optional[Dict] = None,
-    visual_context: Optional[Dict] = None
+    visual_context: Optional[Dict] = None,
+    character_description: Optional[str] = None
 ) -> str:
     """
     Generates a descriptive prompt for Veo video generation API.
 
     Step 09: Enhanced with color palette enforcement from brand manual
              and visual context support for recurring scenarios.
+    Step 09.5: Enhanced with character consistency support.
 
     Args:
         segment_name: Name of the segment (hook, content_1, etc.)
@@ -157,6 +208,7 @@ def _generate_veo_prompt(
         visual_style: Channel's visual style from memory
         brand_manual: Optional visual brand manual with color palette (Step 09)
         visual_context: Optional visual context with veo_prompt_prefix (Step 09)
+        character_description: Optional character identity anchor for consistency (Step 09.5)
 
     Returns:
         Veo-compatible prompt string
@@ -204,11 +256,17 @@ def _generate_veo_prompt(
         if context_prefix:
             context_prefix = context_prefix + ". "  # Add period and space as separator
 
+    # Step 09.5: Add character description after context
+    character_prefix = ""
+    if character_description:
+        character_prefix = character_description + ". "
+
     # Build prompt based on segment type
     if segment_name == "hook":
         # Hook: attention-grabbing, dynamic
         prompt = (
             f"{context_prefix}"  # Step 09: Prepend visual context
+            f"{character_prefix}"  # Step 09.5: Character identity anchor
             f"Dynamic vertical video shot, {plan.working_title} theme. "
             f"Fast-paced camera movement, {colors_hook}, "
             f"modern aesthetic. High energy opening sequence. "
@@ -220,6 +278,7 @@ def _generate_veo_prompt(
         # Content: informative, clear
         prompt = (
             f"{context_prefix}"  # Step 09: Prepend visual context
+            f"{character_prefix}"  # Step 09.5: Character identity anchor
             f"Engaging vertical video, explaining {plan.working_title}. "
             f"Clean composition, {colors_content}, "
             f"informative visual elements. Smooth camera transitions. "
@@ -231,6 +290,7 @@ def _generate_veo_prompt(
         # Outro: call-to-action, memorable
         prompt = (
             f"{context_prefix}"  # Step 09: Prepend visual context
+            f"{character_prefix}"  # Step 09.5: Character identity anchor
             f"Closing vertical video shot, {plan.working_title} conclusion. "
             f"Positive and inviting atmosphere, {colors_outro}, "
             f"call-to-action visual. "
@@ -242,6 +302,7 @@ def _generate_veo_prompt(
         # Generic fallback
         prompt = (
             f"{context_prefix}"  # Step 09: Prepend visual context
+            f"{character_prefix}"  # Step 09.5: Character identity anchor
             f"Professional vertical video, {plan.working_title} content. "
             f"{'Warm color scheme' if has_warm_colors else 'Dynamic colors'}, "
             f"high production quality, engaging visuals."
@@ -321,6 +382,19 @@ def generate_visual_plan(
         visual_contexts_config = workspace_config.get('visual_contexts', {})
         visual_context = _select_visual_context(series_format, visual_contexts_config)
 
+    # Step 09.5: Extract character profile and build description if enabled
+    character_description = None
+    character_profile_id = None
+    if workspace_config:
+        character_profiles_config = workspace_config.get('character_profiles', {})
+        if character_profiles_config and character_profiles_config.get('enabled'):
+            primary_character = character_profiles_config.get('primary_character', {})
+            if primary_character:
+                character_profile_id = primary_character.get('character_id')
+                character_description = _build_character_description(primary_character)
+                logger.info(f"  Character consistency enabled: {character_profile_id}")
+                logger.debug(f"    Identity anchor: {character_description}")
+
     # Step 07.3/07.5: Use scene_voiceover_map if available (new), else fall back to legacy segmentation
     scenes: List[VisualScene] = []
 
@@ -354,13 +428,15 @@ def generate_visual_plan(
 
             # Generate Veo prompt for this scene
             # Step 09: Pass brand_manual for color palette enforcement and visual_context for recurring scenarios
+            # Step 09.5: Pass character_description for character consistency
             veo_prompt = _generate_veo_prompt(
                 segment_name,
                 scene_vo.voiceover_text,
                 plan,
                 visual_style,
                 brand_manual=brand_manual,
-                visual_context=visual_context
+                visual_context=visual_context,
+                character_description=character_description
             )
 
             # Create VisualScene with embedded voiceover text (Step 07.3)
@@ -391,7 +467,8 @@ def generate_visual_plan(
         for scene_id, (segment_name, segment_text) in enumerate(segments, start=1):
             # Generate Veo prompt
             # Step 09: Pass brand_manual for color palette enforcement and visual_context for recurring scenarios
-            veo_prompt = _generate_veo_prompt(segment_name, segment_text, plan, visual_style, brand_manual=brand_manual, visual_context=visual_context)
+            # Step 09.5: Pass character_description for character consistency
+            veo_prompt = _generate_veo_prompt(segment_name, segment_text, plan, visual_style, brand_manual=brand_manual, visual_context=visual_context, character_description=character_description)
 
             # Estimate duration
             duration = _estimate_duration_from_text(segment_text)
@@ -433,7 +510,9 @@ def generate_visual_plan(
         style_notes=visual_style,
         scenes=scenes,
         visual_context_id=visual_context.get('context_id') if visual_context else None,
-        visual_context_name=visual_context.get('name') if visual_context else None
+        visual_context_name=visual_context.get('name') if visual_context else None,
+        character_profile_id=character_profile_id,  # Step 09.5: Character consistency tracking
+        character_description=character_description  # Step 09.5: Persistent identity anchor
     )
 
     logger.info(

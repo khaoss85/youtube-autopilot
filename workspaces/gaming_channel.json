@@ -77,5 +77,16 @@
         "use_frequency": 0.3
       }
     ]
+  },
+  "character_profiles": {
+    "enabled": true,
+    "primary_character": {
+      "character_id": "gamerpro_streamer",
+      "persona": "Energetic male gaming content creator, mid 20s, competitive esports player",
+      "physical_traits": "Styled medium-length hair with highlights, athletic gamer build, medium skin tone, expressive face",
+      "typical_clothing": "Gaming jersey or branded esports hoodie in red/orange tones, gaming headset around neck, casual athletic wear",
+      "distinctive_features": "Energetic expressions, excited gestures, competitive gamer vibe, enthusiastic presence",
+      "context_matching": ["gaming_setup", "competitive_arena"]
+    }
   }
 }

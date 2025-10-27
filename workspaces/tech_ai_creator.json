@@ -88,5 +88,16 @@
         "use_frequency": 0.4
       }
     ]
+  },
+  "character_profiles": {
+    "enabled": true,
+    "primary_character": {
+      "character_id": "tech_insider_alex",
+      "persona": "Male tech professional, late 20s, software engineer and AI enthusiast",
+      "physical_traits": "Neat short black hair, slim athletic build, light skin tone, clean modern look",
+      "typical_clothing": "Dark navy blue hoodie or casual tech company t-shirt, black jeans, sneakers",
+      "distinctive_features": "Focused expression, hand gestures when explaining, tech-savvy demeanor",
+      "context_matching": ["coding_workspace", "tech_news_studio"]
+    }
   }
 }

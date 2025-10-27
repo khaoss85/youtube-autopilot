@@ -756,6 +756,14 @@ def save_script_draft(
     datastore_path = _get_datastore_path()
     script_internal_id = str(uuid.uuid4())
 
+    # Step 09: Extract visual context tracking from visuals for top-level access
+    visual_context_id = ready.visuals.visual_context_id if hasattr(ready.visuals, 'visual_context_id') else None
+    visual_context_name = ready.visuals.visual_context_name if hasattr(ready.visuals, 'visual_context_name') else None
+
+    # Step 09.5: Extract character profile tracking from visuals for top-level access
+    character_profile_id = ready.visuals.character_profile_id if hasattr(ready.visuals, 'character_profile_id') else None
+    character_description = ready.visuals.character_description if hasattr(ready.visuals, 'character_description') else None
+
     record = {
         "script_internal_id": script_internal_id,
         "workspace_id": workspace_id,  # Step 08: Multi-workspace support
@@ -774,6 +782,14 @@ def save_script_draft(
         # Audit trail (Step 07)
         "llm_raw_script": ready.llm_raw_script,
         "final_script": ready.final_script_text,
+
+        # Step 09: Visual context tracking (top-level for analytics)
+        "visual_context_id": visual_context_id,
+        "visual_context_name": visual_context_name,
+
+        # Step 09.5: Character consistency tracking (top-level for analytics)
+        "character_profile_id": character_profile_id,
+        "character_description": character_description,
 
         # Placeholders (will be filled after Gate 2)
         "video_internal_id": None,  # Assigned when assets generated

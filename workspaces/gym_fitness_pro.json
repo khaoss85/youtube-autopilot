@@ -14,6 +14,12 @@
     "uso di musica protetta da copyright"
   ],
   "recent_titles": [
+    "If you can do 20 push-ups, you’re closer to a 90° than you think 🔥 - Tutti Ne Parlano!",
+    "FIX YOUR MUSCLE UP With ONLY 5 Exercises 💪🏽 - Tutti Ne Parlano!",
+    "17 Minute Beginner Stretch Routine V6! (FOLLOW ALONG) - Tutti Ne Parlano!",
+    "SFIDO IL BAVARO SU 7 PROVE DI FORZA (COSA HA VINTO?) - Tutti Ne Parlano!",
+    "ALLENO LE BRACCIA CON UN 212 - RAW SERIES - Tutti Ne Parlano!",
+    "REAGISCO ALL'OLYMPIA CON MIA MADRE! - Tutti Ne Parlano!",
     "SHOULDER DAY CON SAMSON DAUDA | MR. OLYMPIA 2024 - RAW SERIES - Tutti Ne Parlano!"
   ],
   "narrator_persona": {
@@ -69,17 +75,36 @@
       {
         "context_id": "home_gym",
         "name": "Home Gym Setting",
-        "applicable_formats": ["tutorial", "how_to", "demonstration"],
+        "applicable_formats": [
+          "tutorial",
+          "how_to",
+          "demonstration"
+        ],
         "veo_prompt_prefix": "Modern home gym with professional equipment, natural lighting from large windows, motivational posters on walls, clean minimalist aesthetic, warm inviting atmosphere",
         "use_frequency": 0.7
       },
       {
         "context_id": "outdoor_training",
         "name": "Outdoor Training",
-        "applicable_formats": ["challenge", "motivation", "tutorial"],
+        "applicable_formats": [
+          "challenge",
+          "motivation",
+          "tutorial"
+        ],
         "veo_prompt_prefix": "Outdoor training environment, urban park setting with greenery, golden hour sunrise lighting, energetic inspiring atmosphere, natural backdrop",
         "use_frequency": 0.3
       }
     ]
+  },
+  "character_profiles": {
+    "enabled": true,
+    "primary_character": {
+      "character_id": "marco_trainer",
+      "persona": "Athletic male fitness trainer, early 30s, approachable professional coach",
+      "physical_traits": "Short dark brown hair, athletic muscular build, medium-tan skin tone, clean-shaven",
+      "typical_clothing": "Black fitted athletic tank top or t-shirt, dark training shorts, white athletic sneakers",
+      "distinctive_features": "Confident smile, strong posture, energetic presence",
+      "context_matching": ["home_gym", "outdoor_training"]
+    }
   }
 }
