@@ -88,5 +88,8 @@
       "distinctive_features": "Energetic expressions, excited gestures, competitive gamer vibe, enthusiastic presence",
       "context_matching": ["gaming_setup", "competitive_arena"]
     }
+  },
+  "video_style_mode": {
+    "type": "character_based"
   }
 }

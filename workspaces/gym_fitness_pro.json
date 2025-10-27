@@ -106,5 +106,8 @@
       "distinctive_features": "Confident smile, strong posture, energetic presence",
       "context_matching": ["home_gym", "outdoor_training"]
     }
+  },
+  "video_style_mode": {
+    "type": "character_based"
   }
 }

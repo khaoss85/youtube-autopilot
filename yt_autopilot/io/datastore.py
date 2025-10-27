@@ -764,6 +764,9 @@ def save_script_draft(
     character_profile_id = ready.visuals.character_profile_id if hasattr(ready.visuals, 'character_profile_id') else None
     character_description = ready.visuals.character_description if hasattr(ready.visuals, 'character_description') else None
 
+    # Step 09.6: Extract video style mode tracking from visuals for top-level access
+    video_style_mode = ready.visuals.video_style_mode if hasattr(ready.visuals, 'video_style_mode') else "character_based"
+
     record = {
         "script_internal_id": script_internal_id,
         "workspace_id": workspace_id,  # Step 08: Multi-workspace support
@@ -790,6 +793,9 @@ def save_script_draft(
         # Step 09.5: Character consistency tracking (top-level for analytics)
         "character_profile_id": character_profile_id,
         "character_description": character_description,
+
+        # Step 09.6: Video style mode tracking (top-level for analytics)
+        "video_style_mode": video_style_mode,
 
         # Placeholders (will be filled after Gate 2)
         "video_internal_id": None,  # Assigned when assets generated

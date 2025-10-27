@@ -99,5 +99,8 @@
       "distinctive_features": "Focused expression, hand gestures when explaining, tech-savvy demeanor",
       "context_matching": ["coding_workspace", "tech_news_studio"]
     }
+  },
+  "video_style_mode": {
+    "type": "character_based"
   }
 }

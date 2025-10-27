@@ -163,6 +163,7 @@ class VisualPlan(BaseModel):
 
     Step 09: Added visual context tracking for analytics.
     Step 09.5: Added character consistency tracking.
+    Step 09.6: Added faceless video mode support.
     """
     aspect_ratio: str = Field(default="9:16", description="Video aspect ratio (e.g., '9:16' for Shorts)")
     style_notes: str = Field(..., description="Visual style guidance (colors, pacing, overlays)")
@@ -173,6 +174,8 @@ class VisualPlan(BaseModel):
     # Step 09.5: Character consistency tracking
     character_profile_id: Optional[str] = Field(default=None, description="ID of character profile used (e.g., 'marco_trainer')")
     character_description: Optional[str] = Field(default=None, description="Persistent identity anchor used in all scene prompts")
+    # Step 09.6: Faceless video mode tracking
+    video_style_mode: Optional[str] = Field(default="character_based", description="Video style mode: 'faceless' or 'character_based'")
 
 
 class PublishingPackage(BaseModel):

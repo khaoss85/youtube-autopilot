@@ -152,6 +152,153 @@ def _build_character_description(character_profile: Dict) -> str:
     return description
 
 
+def _select_faceless_theme(faceless_config: Dict, segment_name: str) -> Optional[Dict]:
+    """
+    Selects a visual theme for faceless b-roll based on segment type.
+
+    Step 09.6: Faceless Video Mode - theme-based prompt generation without people.
+
+    Args:
+        faceless_config: Faceless configuration from workspace with visual_themes
+        segment_name: Segment type (hook, content_X, outro)
+
+    Returns:
+        Selected theme dict with theme_id, name, description, or None if no themes
+
+    Example:
+        >>> config = {"visual_themes": [{"theme_id": "charts", "use_frequency": 0.6}]}
+        >>> theme = _select_faceless_theme(config, "hook")
+        >>> theme["theme_id"]
+        'charts'
+    """
+    if not faceless_config:
+        return None
+
+    themes = faceless_config.get('visual_themes', [])
+    if not themes:
+        return None
+
+    # Weighted random selection based on use_frequency
+    weights = [theme.get('use_frequency', 0.25) for theme in themes]
+    selected_theme = random.choices(themes, weights=weights, k=1)[0]
+
+    logger.debug(f"  Faceless theme selected: {selected_theme.get('name')} (segment: {segment_name})")
+
+    return selected_theme
+
+
+def _generate_faceless_prompt(
+    segment_name: str,
+    segment_text: str,
+    plan: VideoPlan,
+    visual_style: str,
+    brand_manual: Optional[Dict] = None,
+    faceless_config: Optional[Dict] = None
+) -> str:
+    """
+    Generates faceless b-roll prompt for Veo/Sora (NO PEOPLE visible).
+
+    Step 09.6: Faceless Video Mode - professional stock footage aesthetic.
+
+    Args:
+        segment_name: Name of the segment (hook, content_1, etc.)
+        segment_text: Text content of the segment
+        plan: Video plan for context
+        visual_style: Channel's visual style from memory
+        brand_manual: Optional visual brand manual with color palette
+        faceless_config: Faceless configuration with visual_themes
+
+    Returns:
+        Faceless-optimized Veo/Sora prompt string
+
+    Example Prompt:
+        "Cinematic b-roll footage: stock market charts rising on digital screen,
+        green candlesticks, NO PEOPLE VISIBLE, focus on data visualization, slow
+        zoom into numbers, professional financial aesthetic, space for text overlay"
+    """
+    # Extract key visual elements
+    has_warm_colors = "caldi" in visual_style.lower()
+    is_vertical = "verticali" in visual_style.lower() or "9:16" in visual_style.lower()
+
+    # Extract color palette from brand manual if enabled
+    color_description = None
+    if brand_manual and brand_manual.get('enabled'):
+        palette = brand_manual.get('color_palette', {})
+        if palette:
+            primary = palette.get('primary', '')
+            secondary = palette.get('secondary', '')
+            accent = palette.get('accent', '')
+            background = palette.get('background', '')
+
+            color_description = (
+                f"vibrant {primary} primary tones with {secondary} accents, "
+                f"{accent} highlights, {background} backgrounds"
+            )
+
+    # Use color from brand manual or fallback
+    if color_description:
+        colors = color_description
+    else:
+        colors = 'warm vibrant colors' if has_warm_colors else 'professional colors'
+
+    # Select visual theme for this segment
+    theme = _select_faceless_theme(faceless_config, segment_name)
+    theme_description = theme.get('description', 'professional business visuals') if theme else 'professional business visuals'
+
+    # Extract camera and lighting preferences
+    camera_movement = faceless_config.get('camera_movement', 'slow_pan') if faceless_config else 'slow_pan'
+    lighting = faceless_config.get('lighting', 'professional') if faceless_config else 'professional'
+
+    # Build faceless prompt based on segment type
+    if segment_name == "hook":
+        # Hook: attention-grabbing b-roll
+        prompt = (
+            f"Cinematic b-roll footage: {theme_description}. "
+            f"NO PEOPLE VISIBLE, NO FACES. Focus on objects and concepts only. "
+            f"Dynamic {camera_movement} camera movement, {colors}, "
+            f"dramatic lighting, high energy opening aesthetic. "
+            f"{lighting} quality. Clean composition with space for text overlay. "
+            f"Professional stock footage style."
+        )
+
+    elif segment_name.startswith("content"):
+        # Content: explanatory/illustrative b-roll
+        prompt = (
+            f"Professional b-roll footage: {theme_description}. "
+            f"NO PEOPLE VISIBLE, NO FACES. Focus on objects, data, concepts. "
+            f"Smooth {camera_movement}, {colors}, "
+            f"clean {lighting}, informative visual clarity. "
+            f"Educational aesthetic. Space for text overlay. "
+            f"Professional stock footage style."
+        )
+
+    elif segment_name == "outro":
+        # Outro: aspirational/motivational b-roll
+        prompt = (
+            f"Inspirational b-roll footage: {theme_description}. "
+            f"NO PEOPLE VISIBLE, NO FACES. Focus on success symbols and concepts. "
+            f"Smooth {camera_movement}, {colors}, "
+            f"positive uplifting atmosphere, {lighting} quality. "
+            f"Motivational aesthetic. Clean composition with text overlay space. "
+            f"Professional stock footage style."
+        )
+
+    else:
+        # Generic fallback
+        prompt = (
+            f"Professional b-roll footage: {theme_description}. "
+            f"NO PEOPLE VISIBLE, NO FACES. Clean composition, {colors}, "
+            f"{lighting} quality, engaging visuals. "
+            f"Professional stock footage aesthetic."
+        )
+
+    # Add vertical format specification
+    if is_vertical:
+        prompt += " Vertical 9:16 aspect ratio optimized for mobile viewing."
+
+    return prompt
+
+
 def _create_scene_segments(script: VideoScript) -> List[Tuple[str, str]]:
     """
     Divides script into logical scene segments.
@@ -395,6 +542,19 @@ def generate_visual_plan(
                 logger.info(f"  Character consistency enabled: {character_profile_id}")
                 logger.debug(f"    Identity anchor: {character_description}")
 
+    # Step 09.6: Determine video style mode (faceless vs character_based)
+    video_style_mode = "character_based"  # Default
+    faceless_config = None
+    if workspace_config:
+        video_style_config = workspace_config.get('video_style_mode', {})
+        video_style_mode = video_style_config.get('type', 'character_based')
+        if video_style_mode == 'faceless':
+            faceless_config = video_style_config.get('faceless_config', {})
+            logger.info(f"  Video style: FACELESS mode")
+            logger.debug(f"    Themes: {len(faceless_config.get('visual_themes', []))} configured")
+        else:
+            logger.info(f"  Video style: CHARACTER-BASED mode")
+
     # Step 07.3/07.5: Use scene_voiceover_map if available (new), else fall back to legacy segmentation
     scenes: List[VisualScene] = []
 
@@ -429,15 +589,26 @@ def generate_visual_plan(
             # Generate Veo prompt for this scene
             # Step 09: Pass brand_manual for color palette enforcement and visual_context for recurring scenarios
             # Step 09.5: Pass character_description for character consistency
-            veo_prompt = _generate_veo_prompt(
-                segment_name,
-                scene_vo.voiceover_text,
-                plan,
-                visual_style,
-                brand_manual=brand_manual,
-                visual_context=visual_context,
-                character_description=character_description
-            )
+            # Step 09.6: Route to faceless or character-based prompt generation
+            if video_style_mode == 'faceless':
+                veo_prompt = _generate_faceless_prompt(
+                    segment_name,
+                    scene_vo.voiceover_text,
+                    plan,
+                    visual_style,
+                    brand_manual=brand_manual,
+                    faceless_config=faceless_config
+                )
+            else:
+                veo_prompt = _generate_veo_prompt(
+                    segment_name,
+                    scene_vo.voiceover_text,
+                    plan,
+                    visual_style,
+                    brand_manual=brand_manual,
+                    visual_context=visual_context,
+                    character_description=character_description
+                )
 
             # Create VisualScene with embedded voiceover text (Step 07.3)
             # and segment_type (Step 07.5)
@@ -468,7 +639,11 @@ def generate_visual_plan(
             # Generate Veo prompt
             # Step 09: Pass brand_manual for color palette enforcement and visual_context for recurring scenarios
             # Step 09.5: Pass character_description for character consistency
-            veo_prompt = _generate_veo_prompt(segment_name, segment_text, plan, visual_style, brand_manual=brand_manual, visual_context=visual_context, character_description=character_description)
+            # Step 09.6: Route to faceless or character-based prompt generation
+            if video_style_mode == 'faceless':
+                veo_prompt = _generate_faceless_prompt(segment_name, segment_text, plan, visual_style, brand_manual=brand_manual, faceless_config=faceless_config)
+            else:
+                veo_prompt = _generate_veo_prompt(segment_name, segment_text, plan, visual_style, brand_manual=brand_manual, visual_context=visual_context, character_description=character_description)
 
             # Estimate duration
             duration = _estimate_duration_from_text(segment_text)
@@ -505,6 +680,7 @@ def generate_visual_plan(
 
     # Create VisualPlan
     # Step 09: Include visual context tracking for analytics
+    # Step 09.6: Include video_style_mode tracking
     visual_plan = VisualPlan(
         aspect_ratio="9:16",  # YouTube Shorts vertical format
         style_notes=visual_style,
@@ -512,7 +688,8 @@ def generate_visual_plan(
         visual_context_id=visual_context.get('context_id') if visual_context else None,
         visual_context_name=visual_context.get('name') if visual_context else None,
         character_profile_id=character_profile_id,  # Step 09.5: Character consistency tracking
-        character_description=character_description  # Step 09.5: Persistent identity anchor
+        character_description=character_description,  # Step 09.5: Persistent identity anchor
+        video_style_mode=video_style_mode  # Step 09.6: Faceless vs character-based tracking
     )
 
     logger.info(
