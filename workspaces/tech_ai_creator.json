@@ -101,6 +101,15 @@
     }
   },
   "video_style_mode": {
-    "type": "character_based"
+    "type": "character_based",
+    "ai_style_preferences": {
+      "vertical_aesthetic": "modern_tech",
+      "brand_vibe": "energetic, educational, cutting-edge",
+      "preferred_styles": [
+        "character_based",
+        "kinetic_typography",
+        "code_visualization"
+      ]
+    }
   }
 }

@@ -108,6 +108,15 @@
     }
   },
   "video_style_mode": {
-    "type": "character_based"
+    "type": "character_based",
+    "ai_style_preferences": {
+      "vertical_aesthetic": "energetic_fitness",
+      "brand_vibe": "motivational, supportive, results-driven",
+      "preferred_styles": [
+        "character_based",
+        "workout_demonstration",
+        "transformation_montage"
+      ]
+    }
   }
 }

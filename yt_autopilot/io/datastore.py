@@ -767,6 +767,10 @@ def save_script_draft(
     # Step 09.6: Extract video style mode tracking from visuals for top-level access
     video_style_mode = ready.visuals.video_style_mode if hasattr(ready.visuals, 'video_style_mode') else "character_based"
 
+    # Step 09.7: Extract AI-selected format tracking from visuals for analytics
+    ai_selected_format = ready.visuals.ai_selected_format if hasattr(ready.visuals, 'ai_selected_format') else None
+    format_rationale = ready.visuals.format_rationale if hasattr(ready.visuals, 'format_rationale') else None
+
     record = {
         "script_internal_id": script_internal_id,
         "workspace_id": workspace_id,  # Step 08: Multi-workspace support
@@ -796,6 +800,10 @@ def save_script_draft(
 
         # Step 09.6: Video style mode tracking (top-level for analytics)
         "video_style_mode": video_style_mode,
+
+        # Step 09.7: AI-selected format tracking (top-level for analytics)
+        "ai_selected_format": ai_selected_format,
+        "format_rationale": format_rationale,
 
         # Placeholders (will be filled after Gate 2)
         "video_internal_id": None,  # Assigned when assets generated

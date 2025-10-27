@@ -164,6 +164,7 @@ class VisualPlan(BaseModel):
     Step 09: Added visual context tracking for analytics.
     Step 09.5: Added character consistency tracking.
     Step 09.6: Added faceless video mode support.
+    Step 09.7: Added AI-driven format selection tracking.
     """
     aspect_ratio: str = Field(default="9:16", description="Video aspect ratio (e.g., '9:16' for Shorts)")
     style_notes: str = Field(..., description="Visual style guidance (colors, pacing, overlays)")
@@ -176,6 +177,9 @@ class VisualPlan(BaseModel):
     character_description: Optional[str] = Field(default=None, description="Persistent identity anchor used in all scene prompts")
     # Step 09.6: Faceless video mode tracking
     video_style_mode: Optional[str] = Field(default="character_based", description="Video style mode: 'faceless' or 'character_based'")
+    # Step 09.7: AI-driven format selection tracking
+    ai_selected_format: Optional[str] = Field(default=None, description="AI-selected visual format for faceless videos (e.g., 'whiteboard_animation', 'kinetic_typography')")
+    format_rationale: Optional[str] = Field(default=None, description="Why AI chose this format (for analytics and debugging)")
 
 
 class PublishingPackage(BaseModel):

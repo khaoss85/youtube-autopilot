@@ -152,6 +152,129 @@ def _build_character_description(character_profile: Dict) -> str:
     return description
 
 
+def _select_ai_visual_format(
+    script: VideoScript,
+    plan: VideoPlan,
+    ai_style_preferences: Dict,
+    vertical_id: str
+) -> Tuple[str, str]:
+    """
+    Uses LLM to select optimal visual format for faceless video based on content.
+
+    Step 09.7: AI-driven format selection with consistency across all scenes.
+    Called ONCE per video to ensure format coherence.
+
+    Args:
+        script: Complete video script with hook, bullets, CTA
+        plan: Video plan with title and strategic angle
+        ai_style_preferences: AI preferences from workspace config
+        vertical_id: Content vertical (e.g., 'finance', 'tech_ai', 'gaming')
+
+    Returns:
+        Tuple of (format_id, rationale)
+        format_id: Selected format (e.g., 'whiteboard_animation', 'kinetic_typography')
+        rationale: Why this format was chosen
+
+    Supported Formats:
+        - whiteboard_animation: Hand-drawn style explanations
+        - kinetic_typography: Animated text with motion graphics
+        - animated_infographics: Data visualization and charts
+        - cinematic_broll: Professional stock footage
+        - podcast_style: Audio-focused with waveforms/minimal visuals
+        - stop_motion: Stop-motion animation aesthetic
+        - code_visualization: Code snippets and terminal displays (tech verticals)
+
+    Example:
+        >>> format_id, rationale = _select_ai_visual_format(script, plan, prefs, "finance")
+        >>> print(format_id)
+        'animated_infographics'
+        >>> print(rationale)
+        'Financial data explanation benefits from chart animations and data viz'
+    """
+    from yt_autopilot.services.llm_router import generate_text
+
+    logger.info("  🎨 AI Visual Format Selector: Analyzing script...")
+
+    # Build context for LLM
+    vertical_aesthetic = ai_style_preferences.get('vertical_aesthetic', 'professional')
+    brand_vibe = ai_style_preferences.get('brand_vibe', 'engaging and informative')
+    preferred_styles = ai_style_preferences.get('preferred_styles', [])
+
+    # Format preferences hint
+    preferences_hint = ""
+    if preferred_styles:
+        preferences_hint = f"\nPreferred styles for this channel: {', '.join(preferred_styles)}"
+
+    task = """Select the SINGLE BEST visual format for this entire faceless video.
+Choose ONE format that will be used consistently across ALL scenes.
+
+Available formats:
+- whiteboard_animation: Hand-drawn explanations (great for education, step-by-step)
+- kinetic_typography: Animated text with motion graphics (great for quotes, stats, energy)
+- animated_infographics: Data visualization and animated charts (great for numbers, trends)
+- cinematic_broll: Professional stock footage (great for storytelling, aspirational)
+- podcast_style: Audio-focused with waveforms and minimal visuals (great for commentary)
+- stop_motion: Stop-motion animation aesthetic (great for creative, unique content)
+- code_visualization: Code snippets and terminal displays (tech/programming only)
+
+Return your response in this EXACT format:
+FORMAT: <format_id>
+RATIONALE: <one sentence explanation>"""
+
+    context = f"""Video Title: {plan.working_title}
+Strategic Angle: {plan.strategic_angle}
+Vertical: {vertical_id}
+Aesthetic: {vertical_aesthetic}
+Brand Vibe: {brand_vibe}{preferences_hint}
+
+Script Hook: {script.hook}
+Main Points: {', '.join(script.bullets[:3])}
+CTA: {script.outro_cta}"""
+
+    style_hints = {
+        "output_format": "FORMAT: <id>\\nRATIONALE: <explanation>",
+        "constraint": "Choose ONE format for the entire video, not different formats per scene"
+    }
+
+    try:
+        llm_response = generate_text(
+            role="visual_format_selector",
+            task=task,
+            context=context,
+            style_hints=style_hints
+        )
+
+        # Parse LLM response
+        format_id = "cinematic_broll"  # default fallback
+        rationale = "Professional stock footage for broad appeal"
+
+        lines = llm_response.strip().split('\n')
+        for line in lines:
+            if line.startswith('FORMAT:'):
+                format_id = line.replace('FORMAT:', '').strip()
+            elif line.startswith('RATIONALE:'):
+                rationale = line.replace('RATIONALE:', '').strip()
+
+        # Validate format_id
+        valid_formats = [
+            'whiteboard_animation', 'kinetic_typography', 'animated_infographics',
+            'cinematic_broll', 'podcast_style', 'stop_motion', 'code_visualization'
+        ]
+        if format_id not in valid_formats:
+            logger.warning(f"  ⚠️  Invalid format '{format_id}', falling back to cinematic_broll")
+            format_id = "cinematic_broll"
+            rationale = "Fallback to professional stock footage"
+
+        logger.info(f"  ✓ AI selected format: {format_id}")
+        logger.info(f"    Rationale: {rationale}")
+
+        return format_id, rationale
+
+    except Exception as e:
+        logger.error(f"  ✗ AI format selection failed: {e}, using fallback")
+        return "cinematic_broll", "Fallback due to AI selection error"
+
+
 def _select_faceless_theme(faceless_config: Dict, segment_name: str) -> Optional[Dict]:
     """
     Selects a visual theme for faceless b-roll based on segment type.
@@ -192,32 +315,32 @@ def _generate_faceless_prompt(
     segment_text: str,
     plan: VideoPlan,
     visual_style: str,
-    brand_manual: Optional[Dict] = None,
-    faceless_config: Optional[Dict] = None
+    ai_format: str,
+    brand_manual: Optional[Dict] = None
 ) -> str:
     """
-    Generates faceless b-roll prompt for Veo/Sora (NO PEOPLE visible).
+    Generates format-specific faceless prompt for Veo/Sora (NO PEOPLE visible).
 
-    Step 09.6: Faceless Video Mode - professional stock footage aesthetic.
+    Step 09.7: AI-driven format selection - applies consistent visual format across all scenes.
 
     Args:
         segment_name: Name of the segment (hook, content_1, etc.)
         segment_text: Text content of the segment
         plan: Video plan for context
         visual_style: Channel's visual style from memory
+        ai_format: AI-selected format ID (e.g., 'kinetic_typography', 'animated_infographics')
         brand_manual: Optional visual brand manual with color palette
-        faceless_config: Faceless configuration with visual_themes
 
     Returns:
-        Faceless-optimized Veo/Sora prompt string
+        Format-specific Veo/Sora prompt string
 
-    Example Prompt:
-        "Cinematic b-roll footage: stock market charts rising on digital screen,
-        green candlesticks, NO PEOPLE VISIBLE, focus on data visualization, slow
-        zoom into numbers, professional financial aesthetic, space for text overlay"
+    Example Prompts by Format:
+        kinetic_typography: "Animated text motion graphics: 'MARKET CRASHES 30%' appears
+                            with kinetic energy, bold sans-serif typography..."
+        animated_infographics: "Data visualization animation: stock market chart rising
+                               with animated candlesticks, numbers counting up..."
     """
     # Extract key visual elements
-    has_warm_colors = "caldi" in visual_style.lower()
     is_vertical = "verticali" in visual_style.lower() or "9:16" in visual_style.lower()
 
     # Extract color palette from brand manual if enabled
@@ -229,72 +352,136 @@ def _generate_faceless_prompt(
             secondary = palette.get('secondary', '')
             accent = palette.get('accent', '')
             background = palette.get('background', '')
-
             color_description = (
-                f"vibrant {primary} primary tones with {secondary} accents, "
-                f"{accent} highlights, {background} backgrounds"
+                f"{primary} primary, {secondary} secondary, {accent} accents, {background} background"
             )
 
-    # Use color from brand manual or fallback
-    if color_description:
-        colors = color_description
-    else:
-        colors = 'warm vibrant colors' if has_warm_colors else 'professional colors'
+    # Use color from brand manual or default
+    colors = color_description if color_description else "professional vibrant colors"
 
-    # Select visual theme for this segment
-    theme = _select_faceless_theme(faceless_config, segment_name)
-    theme_description = theme.get('description', 'professional business visuals') if theme else 'professional business visuals'
+    # Content topic for context
+    topic = plan.working_title
 
-    # Extract camera and lighting preferences
-    camera_movement = faceless_config.get('camera_movement', 'slow_pan') if faceless_config else 'slow_pan'
-    lighting = faceless_config.get('lighting', 'professional') if faceless_config else 'professional'
+    # Format-specific prompt generation
+    if ai_format == "whiteboard_animation":
+        if segment_name == "hook":
+            prompt = (
+                f"Whiteboard animation style: Hand-drawn sketch appearing on white background. "
+                f"Topic: {topic}. NO PEOPLE VISIBLE, only the drawing hand and whiteboard. "
+                f"Bold marker strokes revealing key concept, {colors}, fast energetic drawing, "
+                f"educational aesthetic, clean minimalist style. Vertical 9:16 format."
+            )
+        else:
+            prompt = (
+                f"Whiteboard animation: Hand drawing explains {topic}. "
+                f"NO PEOPLE VISIBLE, only drawing hand. Diagrams, arrows, text appearing progressively, "
+                f"{colors}, clear educational style, marker on whiteboard, step-by-step visual explanation. "
+                f"Vertical 9:16 format."
+            )
 
-    # Build faceless prompt based on segment type
-    if segment_name == "hook":
-        # Hook: attention-grabbing b-roll
-        prompt = (
-            f"Cinematic b-roll footage: {theme_description}. "
-            f"NO PEOPLE VISIBLE, NO FACES. Focus on objects and concepts only. "
-            f"Dynamic {camera_movement} camera movement, {colors}, "
-            f"dramatic lighting, high energy opening aesthetic. "
-            f"{lighting} quality. Clean composition with space for text overlay. "
-            f"Professional stock footage style."
-        )
+    elif ai_format == "kinetic_typography":
+        if segment_name == "hook":
+            prompt = (
+                f"Kinetic typography animation: Bold text '{segment_text[:40]}...' bursts onto screen. "
+                f"NO PEOPLE VISIBLE. Dynamic text movement, {colors}, modern sans-serif fonts, "
+                f"motion graphics energy, text scales/rotates/zooms, high impact opening. "
+                f"Vertical 9:16 format optimized for mobile."
+            )
+        else:
+            prompt = (
+                f"Kinetic typography: Animated text explaining {topic}. NO PEOPLE VISIBLE. "
+                f"Words appear with motion graphics energy, {colors}, smooth transitions, "
+                f"bold modern fonts, text emphasis through scale and movement. "
+                f"Vertical 9:16 format."
+            )
 
-    elif segment_name.startswith("content"):
-        # Content: explanatory/illustrative b-roll
-        prompt = (
-            f"Professional b-roll footage: {theme_description}. "
-            f"NO PEOPLE VISIBLE, NO FACES. Focus on objects, data, concepts. "
-            f"Smooth {camera_movement}, {colors}, "
-            f"clean {lighting}, informative visual clarity. "
-            f"Educational aesthetic. Space for text overlay. "
-            f"Professional stock footage style."
-        )
+    elif ai_format == "animated_infographics":
+        if segment_name == "hook":
+            prompt = (
+                f"Animated infographic: Data visualization about {topic} appears dynamically. "
+                f"NO PEOPLE VISIBLE. Charts rising, numbers counting up, {colors}, "
+                f"clean modern design, icons and graphs animating in, professional data viz aesthetic. "
+                f"Vertical 9:16 format."
+            )
+        else:
+            prompt = (
+                f"Animated infographic: {topic} explained through data visualization. "
+                f"NO PEOPLE VISIBLE. Bar charts, pie charts, line graphs animating smoothly, "
+                f"{colors}, clean professional design, numbers and percentages appearing, "
+                f"educational data-driven aesthetic. Vertical 9:16 format."
+            )
 
-    elif segment_name == "outro":
-        # Outro: aspirational/motivational b-roll
-        prompt = (
-            f"Inspirational b-roll footage: {theme_description}. "
-            f"NO PEOPLE VISIBLE, NO FACES. Focus on success symbols and concepts. "
-            f"Smooth {camera_movement}, {colors}, "
-            f"positive uplifting atmosphere, {lighting} quality. "
-            f"Motivational aesthetic. Clean composition with text overlay space. "
-            f"Professional stock footage style."
-        )
+    elif ai_format == "podcast_style":
+        if segment_name == "hook":
+            prompt = (
+                f"Podcast visual style: Audio waveform pulsing with voice about {topic}. "
+                f"NO PEOPLE VISIBLE. Animated waveform visualization, {colors}, "
+                f"minimal aesthetic, frequency bars moving to speech rhythm, clean modern design. "
+                f"Vertical 9:16 format."
+            )
+        else:
+            prompt = (
+                f"Podcast visual: Audio waveform visualization for {topic} discussion. "
+                f"NO PEOPLE VISIBLE. Smooth waveform animation, {colors}, minimal clean design, "
+                f"frequency visualization, text captions appearing, audio-focused aesthetic. "
+                f"Vertical 9:16 format."
+            )
 
-    else:
-        # Generic fallback
-        prompt = (
-            f"Professional b-roll footage: {theme_description}. "
-            f"NO PEOPLE VISIBLE, NO FACES. Clean composition, {colors}, "
-            f"{lighting} quality, engaging visuals. "
-            f"Professional stock footage aesthetic."
-        )
+    elif ai_format == "stop_motion":
+        if segment_name == "hook":
+            prompt = (
+                f"Stop-motion animation: Objects related to {topic} move frame-by-frame. "
+                f"NO PEOPLE VISIBLE (only hands may appear briefly moving objects). "
+                f"{colors}, creative handmade aesthetic, physical objects, charming stop-motion style, "
+                f"unique visual appeal. Vertical 9:16 format."
+            )
+        else:
+            prompt = (
+                f"Stop-motion animation: {topic} explained through physical objects. "
+                f"NO PEOPLE VISIBLE (only hands may briefly move objects). "
+                f"Frame-by-frame movement, {colors}, creative handcrafted style, "
+                f"physical props and materials, charming stop-motion aesthetic. "
+                f"Vertical 9:16 format."
+            )
 
-    # Add vertical format specification
-    if is_vertical:
-        prompt += " Vertical 9:16 aspect ratio optimized for mobile viewing."
+    elif ai_format == "code_visualization":
+        if segment_name == "hook":
+            prompt = (
+                f"Code visualization: Terminal screen showing code related to {topic}. "
+                f"NO PEOPLE VISIBLE. Code appearing line-by-line, {colors}, "
+                f"syntax highlighting, cursor blinking, developer aesthetic, "
+                f"clean monospace font, dark terminal theme. Vertical 9:16 format."
+            )
+        else:
+            prompt = (
+                f"Code visualization: Programming code demonstrating {topic}. "
+                f"NO PEOPLE VISIBLE. Code editor with syntax highlighting, {colors}, "
+                f"code scrolling/typing animation, terminal commands executing, "
+                f"technical developer aesthetic, clean code display. Vertical 9:16 format."
+            )
+
+    else:  # cinematic_broll (default fallback)
+        if segment_name == "hook":
+            prompt = (
+                f"Cinematic b-roll: High-quality stock footage about {topic}. "
+                f"NO PEOPLE VISIBLE, NO FACES. Professional objects and concepts, {colors}, "
+                f"dramatic lighting, slow cinematic camera movement, high production value, "
+                f"engaging visual storytelling. Vertical 9:16 format."
+            )
+        elif segment_name == "outro":
+            prompt = (
+                f"Inspirational b-roll: Aspirational visuals about {topic}. "
+                f"NO PEOPLE VISIBLE, NO FACES. Success symbols and concepts, {colors}, "
+                f"uplifting atmosphere, smooth camera movement, motivational aesthetic, "
+                f"positive emotional tone. Vertical 9:16 format."
+            )
+        else:
+            prompt = (
+                f"Professional b-roll: Stock footage explaining {topic}. "
+                f"NO PEOPLE VISIBLE, NO FACES. Clear visual concepts, {colors}, "
+                f"informative aesthetic, smooth camera work, educational clarity, "
+                f"professional production quality. Vertical 9:16 format."
+            )
 
     return prompt
 
@@ -542,16 +729,29 @@ def generate_visual_plan(
                 logger.info(f"  Character consistency enabled: {character_profile_id}")
                 logger.debug(f"    Identity anchor: {character_description}")
 
-    # Step 09.6: Determine video style mode (faceless vs character_based)
+    # Step 09.6/09.7: Determine video style mode (faceless vs character_based)
     video_style_mode = "character_based"  # Default
-    faceless_config = None
+    ai_selected_format = None
+    format_rationale = None
+
     if workspace_config:
         video_style_config = workspace_config.get('video_style_mode', {})
         video_style_mode = video_style_config.get('type', 'character_based')
+
         if video_style_mode == 'faceless':
-            faceless_config = video_style_config.get('faceless_config', {})
-            logger.info(f"  Video style: FACELESS mode")
-            logger.debug(f"    Themes: {len(faceless_config.get('visual_themes', []))} configured")
+            # Step 09.7: AI-driven format selection (once per video for consistency)
+            ai_style_preferences = video_style_config.get('ai_style_preferences', {})
+            vertical_id = workspace_config.get('vertical_id', 'general')
+
+            ai_selected_format, format_rationale = _select_ai_visual_format(
+                script=script,
+                plan=plan,
+                ai_style_preferences=ai_style_preferences,
+                vertical_id=vertical_id
+            )
+
+            logger.info(f"  Video style: FACELESS mode ({ai_selected_format})")
+            logger.debug(f"    Rationale: {format_rationale}")
         else:
             logger.info(f"  Video style: CHARACTER-BASED mode")
 
@@ -589,15 +789,15 @@ def generate_visual_plan(
             # Generate Veo prompt for this scene
             # Step 09: Pass brand_manual for color palette enforcement and visual_context for recurring scenarios
             # Step 09.5: Pass character_description for character consistency
-            # Step 09.6: Route to faceless or character-based prompt generation
+            # Step 09.6/09.7: Route to faceless (AI-driven format) or character-based prompt generation
             if video_style_mode == 'faceless':
                 veo_prompt = _generate_faceless_prompt(
                     segment_name,
                     scene_vo.voiceover_text,
                     plan,
                     visual_style,
-                    brand_manual=brand_manual,
-                    faceless_config=faceless_config
+                    ai_format=ai_selected_format,
+                    brand_manual=brand_manual
                 )
             else:
                 veo_prompt = _generate_veo_prompt(
@@ -639,9 +839,9 @@ def generate_visual_plan(
             # Generate Veo prompt
             # Step 09: Pass brand_manual for color palette enforcement and visual_context for recurring scenarios
             # Step 09.5: Pass character_description for character consistency
-            # Step 09.6: Route to faceless or character-based prompt generation
+            # Step 09.6/09.7: Route to faceless (AI-driven format) or character-based prompt generation
             if video_style_mode == 'faceless':
-                veo_prompt = _generate_faceless_prompt(segment_name, segment_text, plan, visual_style, brand_manual=brand_manual, faceless_config=faceless_config)
+                veo_prompt = _generate_faceless_prompt(segment_name, segment_text, plan, visual_style, ai_format=ai_selected_format, brand_manual=brand_manual)
             else:
                 veo_prompt = _generate_veo_prompt(segment_name, segment_text, plan, visual_style, brand_manual=brand_manual, visual_context=visual_context, character_description=character_description)
 
@@ -681,6 +881,7 @@ def generate_visual_plan(
     # Create VisualPlan
     # Step 09: Include visual context tracking for analytics
     # Step 09.6: Include video_style_mode tracking
+    # Step 09.7: Include AI-selected format tracking for faceless videos
     visual_plan = VisualPlan(
         aspect_ratio="9:16",  # YouTube Shorts vertical format
         style_notes=visual_style,
@@ -689,7 +890,9 @@ def generate_visual_plan(
         visual_context_name=visual_context.get('name') if visual_context else None,
         character_profile_id=character_profile_id,  # Step 09.5: Character consistency tracking
         character_description=character_description,  # Step 09.5: Persistent identity anchor
-        video_style_mode=video_style_mode  # Step 09.6: Faceless vs character-based tracking
+        video_style_mode=video_style_mode,  # Step 09.6: Faceless vs character-based tracking
+        ai_selected_format=ai_selected_format,  # Step 09.7: AI format selection
+        format_rationale=format_rationale  # Step 09.7: Why this format was chosen
     )
 
     logger.info(

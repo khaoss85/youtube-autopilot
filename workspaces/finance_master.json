@@ -54,36 +54,14 @@
   },
   "video_style_mode": {
     "type": "faceless",
-    "faceless_config": {
-      "visual_themes": [
-        {
-          "theme_id": "financial_charts",
-          "name": "Financial Charts & Data",
-          "description": "Stock market charts rising, candlestick patterns, trading screens with live data, financial dashboards",
-          "use_frequency": 0.4
-        },
-        {
-          "theme_id": "money_concepts",
-          "name": "Money & Wealth Visuals",
-          "description": "Coins stacking up, cash bills fanning out, piggy banks, calculator with numbers, wallet with cards",
-          "use_frequency": 0.3
-        },
-        {
-          "theme_id": "business_workspace",
-          "name": "Professional Business Setting",
-          "description": "Modern office desk with laptop showing graphs, keyboard and mouse, notepad with pen, coffee cup, professional workspace aesthetic",
-          "use_frequency": 0.2
-        },
-        {
-          "theme_id": "abstract_financial",
-          "name": "Abstract Financial Concepts",
-          "description": "Geometric patterns representing growth, flowing data streams, digital currency symbols, abstract wealth visualization",
-          "use_frequency": 0.1
-        }
-      ],
-      "b_roll_style": "cinematic_professional",
-      "camera_movement": "slow_pan_or_zoom",
-      "lighting": "clean_professional"
+    "ai_style_preferences": {
+      "vertical_aesthetic": "professional_financial",
+      "brand_vibe": "trustworthy, data-driven, sophisticated",
+      "preferred_styles": [
+        "kinetic_typography",
+        "animated_infographics",
+        "cinematic_broll"
+      ]
     }
   }
 }
