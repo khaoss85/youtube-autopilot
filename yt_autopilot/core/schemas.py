@@ -160,10 +160,15 @@ class VisualScene(BaseModel):
 class VisualPlan(BaseModel):
     """
     Complete visual direction for video production.
+
+    Step 09: Added visual context tracking for analytics.
     """
     aspect_ratio: str = Field(default="9:16", description="Video aspect ratio (e.g., '9:16' for Shorts)")
     style_notes: str = Field(..., description="Visual style guidance (colors, pacing, overlays)")
     scenes: List[VisualScene] = Field(..., description="Ordered list of visual scenes")
+    # Step 09: Visual context tracking for retention analytics
+    visual_context_id: Optional[str] = Field(default=None, description="ID of visual context used (e.g., 'home_gym')")
+    visual_context_name: Optional[str] = Field(default=None, description="Name of visual context used (e.g., 'Home Gym Setting')")
 
 
 class PublishingPackage(BaseModel):

@@ -87,28 +87,33 @@ def _parse_llm_suggestion(llm_text: str) -> Optional[Dict[str, any]]:
             line_stripped = line.strip()
 
             # Check for section markers (case-insensitive)
+            # Step 09: Support format variations (# Hook, **HOOK**, Hook:, etc.)
             line_upper = line_stripped.upper()
+            line_clean = line_upper.replace("#", "").replace("*", "").replace(":", "").strip()
 
-            if line_upper.startswith("HOOK:"):
+            if line_clean.startswith("HOOK") or line_upper.startswith("HOOK:"):
                 current_section = "hook"
-                # Extract text after "HOOK:" if present on same line
-                hook_text = line_stripped[5:].strip()
-                if hook_text:
-                    hook = hook_text
-            elif line_upper.startswith("BULLETS:"):
+                # Extract text after marker if present on same line
+                if ":" in line_stripped:
+                    hook_text = line_stripped.split(":", 1)[1].strip()
+                    if hook_text:
+                        hook = hook_text
+            elif line_clean.startswith("BULLETS") or line_upper.startswith("BULLETS:"):
                 current_section = "bullets"
-            elif line_upper.startswith("CTA:"):
+            elif line_clean.startswith("CTA") or line_clean.startswith("CALL TO ACTION") or line_upper.startswith("CTA:"):
                 current_section = "cta"
-                # Extract text after "CTA:" if present on same line
-                cta_text = line_stripped[4:].strip()
-                if cta_text:
-                    outro_cta = cta_text
-            elif line_upper.startswith("VOICEOVER:"):
+                # Extract text after marker if present on same line
+                if ":" in line_stripped:
+                    cta_text = line_stripped.split(":", 1)[1].strip()
+                    if cta_text:
+                        outro_cta = cta_text
+            elif line_clean.startswith("VOICEOVER") or line_clean.startswith("VOICE OVER") or line_upper.startswith("VOICEOVER:"):
                 current_section = "voiceover"
-                # Extract text after "VOICEOVER:" if present on same line
-                vo_text = line_stripped[10:].strip()
-                if vo_text:
-                    voiceover_lines.append(vo_text)
+                # Extract text after marker if present on same line
+                if ":" in line_stripped:
+                    vo_text = line_stripped.split(":", 1)[1].strip()
+                    if vo_text:
+                        voiceover_lines.append(vo_text)
             elif not line_stripped:
                 # Empty line - skip
                 continue
@@ -132,7 +137,8 @@ def _parse_llm_suggestion(llm_text: str) -> Optional[Dict[str, any]]:
         full_voiceover_text = " ".join(voiceover_lines).strip() if voiceover_lines else None
 
         # Validate we got required components
-        if hook and outro_cta and len(bullets) >= 3:
+        # Step 09: More tolerant parsing - accept 2+ bullets instead of 3+
+        if hook and outro_cta and len(bullets) >= 2:
             result = {
                 "hook": hook,
                 "bullets": bullets,
@@ -145,6 +151,16 @@ def _parse_llm_suggestion(llm_text: str) -> Optional[Dict[str, any]]:
 
             return result
 
+        # Step 09: Enhanced logging to understand why parsing failed
+        missing = []
+        if not hook:
+            missing.append("hook")
+        if not outro_cta:
+            missing.append("CTA")
+        if len(bullets) < 2:
+            missing.append(f"bullets (found {len(bullets)}, need 2+)")
+
+        logger.debug(f"Parser validation failed - missing: {', '.join(missing)}")
         return None
 
     except Exception as e:
@@ -231,6 +247,84 @@ def _generate_outro_cta(plan: VideoPlan) -> str:
         return ctas[2]  # Focus on staying updated
     else:
         return ctas[0]  # Generic subscribe CTA
+
+
+def _generate_narrator_aware_fallback(
+    plan: VideoPlan,
+    narrator_config: Dict,
+    content_formula: Dict,
+    series_format: Optional[SeriesFormat],
+    brand_tone: str
+) -> Dict[str, any]:
+    """
+    Generates script components with narrator persona integrated (Step 09).
+
+    This is used as intelligent fallback when LLM output parsing fails.
+    Unlike pure deterministic generation, this maintains narrator identity.
+
+    Args:
+        plan: Video plan
+        narrator_config: Narrator persona configuration
+        content_formula: Content formula configuration
+        series_format: Series format template
+        brand_tone: Brand tone string
+
+    Returns:
+        Dict with keys 'hook', 'bullets', 'outro_cta' including narrator elements
+    """
+    narrator_name = narrator_config.get('name', '')
+    tone_of_address = narrator_config.get('tone_of_address', 'tu_informale')
+    signature_phrases = narrator_config.get('signature_phrases', [])
+    relationship = narrator_config.get('relationship', 'informative')
+
+    # Determine if we should include narrator name in hook based on format
+    format_type = series_format.serie_id if series_format else 'generic'
+    include_name_in_hook = format_type in ['tutorial', 'how_to', 'demonstration']
+
+    # Generate hook with narrator identity
+    if include_name_in_hook and narrator_name:
+        # Tutorial/How-to: Include narrator name to build trust
+        hook = f"Ehi, sono {narrator_name}! {plan.strategic_angle}"
+    else:
+        # Other formats: Use strategic angle directly
+        hook = f"Attenzione! {plan.strategic_angle}"
+
+    # Use opening signature phrase if available and format allows
+    if len(signature_phrases) > 0 and format_type in ['tutorial', 'challenge', 'motivation']:
+        hook = f"{signature_phrases[0]} {hook}"
+
+    # Generate bullets (deterministic but tone-aware)
+    if tone_of_address == 'tu_informale':
+        bullets = [
+            f"Ti mostro cosa rende {plan.working_title} così importante",
+            f"Devi sapere questi dettagli chiave",
+            f"Ecco come ti impatta direttamente",
+            f"Ti spiego cosa fare con questa informazione"
+        ]
+    else:  # voi_formale
+        bullets = [
+            f"Vi mostro cosa rende {plan.working_title} così importante",
+            f"Dovete sapere questi dettagli chiave",
+            f"Ecco come vi impatta direttamente",
+            f"Vi spiego cosa fare con questa informazione"
+        ]
+
+    # Generate CTA with signature phrase if available
+    if len(signature_phrases) >= 3:
+        # Use closing signature phrase
+        outro_cta = f"{signature_phrases[2]} Iscriviti per altri contenuti!"
+    elif len(signature_phrases) > 0:
+        # Use last available phrase
+        outro_cta = f"{signature_phrases[-1]} Iscriviti per altri contenuti!"
+    else:
+        # Generic CTA
+        outro_cta = "Iscriviti al canale per non perdere i prossimi video!"
+
+    return {
+        "hook": hook,
+        "bullets": bullets,
+        "outro_cta": outro_cta
+    }
 
 
 def _compose_full_voiceover(hook: str, bullets: List[str], outro_cta: str) -> str:
@@ -465,7 +559,7 @@ def _build_persona_aware_prompt(
         Enhanced LLM prompt string
     """
     format_name = series_format.serie_id if series_format else 'generic'
-    format_style = series_format.style_guide if series_format else 'engaging, concise'
+    format_style = series_format.description if series_format else 'engaging, concise'
     target_duration = content_formula.get('target_duration_seconds', 60)
 
     # Build signature phrases section
@@ -649,12 +743,28 @@ def write_script(
             full_voiceover_text = _compose_full_voiceover(hook, bullets, outro_cta)
             logger.info("  Using LLM-generated hook, bullets, CTA (voiceover composed)")
     else:
-        # Fallback to deterministic generation
-        hook = _generate_hook(plan, brand_tone)
-        bullets = _generate_content_bullets(plan)
-        outro_cta = _generate_outro_cta(plan)
-        full_voiceover_text = _compose_full_voiceover(hook, bullets, outro_cta)
-        logger.info("  Using deterministic script generation")
+        # Fallback generation
+        # Step 09: Use narrator-aware fallback if narrator enabled, otherwise use generic deterministic
+        if narrator_enabled:
+            logger.info("  Using narrator-aware fallback generation")
+            fallback_components = _generate_narrator_aware_fallback(
+                plan=plan,
+                narrator_config=narrator,
+                content_formula=content_formula,
+                series_format=series_format,
+                brand_tone=brand_tone
+            )
+            hook = fallback_components["hook"]
+            bullets = fallback_components["bullets"]
+            outro_cta = fallback_components["outro_cta"]
+            full_voiceover_text = _compose_full_voiceover(hook, bullets, outro_cta)
+        else:
+            # Generic deterministic generation (backward compatibility)
+            logger.info("  Using deterministic script generation")
+            hook = _generate_hook(plan, brand_tone)
+            bullets = _generate_content_bullets(plan)
+            outro_cta = _generate_outro_cta(plan)
+            full_voiceover_text = _compose_full_voiceover(hook, bullets, outro_cta)
 
     # Apply safety rules (regardless of source)
     # TODO: Add explicit safety checks here in future:

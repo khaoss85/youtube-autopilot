@@ -27,5 +27,26 @@
     "cta_style": "soft_ask",
     "target_duration_seconds": 60,
     "pacing": "medium"
+  },
+  "visual_brand_manual": {
+    "enabled": true,
+    "color_palette": {
+      "primary": "#1976D2",
+      "secondary": "#4CAF50",
+      "accent": "#FFC107",
+      "background": "#263238",
+      "text": "#FFFFFF"
+    },
+    "lower_thirds": {
+      "enabled": false,
+      "display_narrator_name": false,
+      "position": "bottom_left",
+      "font_size": 24,
+      "duration_seconds": 3,
+      "fade_duration": 0.5
+    }
+  },
+  "visual_contexts": {
+    "enabled": false
   }
 }

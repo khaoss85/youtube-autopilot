@@ -635,7 +635,8 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
 
     # Step 5: VisualPlanner - create visual scenes
     logger.info("Step 5: Running VisualPlanner to create visual plan...")
-    visual_plan = generate_visual_plan(video_plan, script, memory, series_format=series_format)
+    # Step 09: Pass workspace_config for visual brand manual (color palette enforcement)
+    visual_plan = generate_visual_plan(video_plan, script, memory, series_format=series_format, workspace_config=workspace)
     total_duration = _calculate_total_duration(visual_plan)
     logger.info(f"✓ Visual plan created: {len(visual_plan.scenes)} scenes")
     logger.info(f"  Total estimated duration: {total_duration}s")
@@ -670,7 +671,8 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
 
         # Regenerate dependent components
         logger.info("  Regenerating visual plan with improved script...")
-        revised_visual_plan = generate_visual_plan(video_plan, revised_script, memory, series_format=series_format)
+        # Step 09: Pass workspace_config for visual brand manual
+        revised_visual_plan = generate_visual_plan(video_plan, revised_script, memory, series_format=series_format, workspace_config=workspace)
         revised_duration = _calculate_total_duration(revised_visual_plan)
         logger.info(f"  Revised duration: {revised_duration}s (was {total_duration}s)")
 

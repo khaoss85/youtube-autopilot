@@ -39,6 +39,7 @@ NEW: Visual format engine with intro/outro support
 """
 
 from typing import Dict, List, Tuple, Optional
+import random
 from yt_autopilot.core.schemas import VideoPlan, VideoScript, VisualPlan, VisualScene, SceneVoiceover, SeriesFormat
 from yt_autopilot.core.memory_store import get_visual_style
 from yt_autopilot.core.logger import logger
@@ -59,6 +60,47 @@ def _estimate_duration_from_text(text: str) -> int:
     word_count = len(text.split())
     duration = max(3, int(word_count / 2.5))  # 2.5 words/sec average speaking rate
     return duration
+
+
+def _select_visual_context(series_format: Optional[SeriesFormat], visual_contexts_config: Dict) -> Optional[Dict]:
+    """
+    Selects a visual context for content scenes based on format and frequency.
+
+    Step 09: Visual Contexts - recurring scenarios boost retention through pattern recognition.
+
+    Args:
+        series_format: Series format template (to check format type)
+        visual_contexts_config: Visual contexts configuration from workspace
+
+    Returns:
+        Selected context dict with context_id, name, veo_prompt_prefix, or None if no match
+    """
+    if not visual_contexts_config or not visual_contexts_config.get('enabled'):
+        return None
+
+    contexts = visual_contexts_config.get('contexts', [])
+    if not contexts:
+        return None
+
+    # Get format type
+    format_type = series_format.serie_id if series_format else 'generic'
+
+    # Filter contexts by applicable_formats
+    applicable_contexts = [
+        ctx for ctx in contexts
+        if format_type in ctx.get('applicable_formats', [])
+    ]
+
+    if not applicable_contexts:
+        return None
+
+    # Weighted random selection based on use_frequency
+    weights = [ctx.get('use_frequency', 0.5) for ctx in applicable_contexts]
+    selected_context = random.choices(applicable_contexts, weights=weights, k=1)[0]
+
+    logger.info(f"  Visual context selected: {selected_context['name']} (frequency: {selected_context.get('use_frequency')*100:.0f}%)")
+
+    return selected_context
 
 
 def _create_scene_segments(script: VideoScript) -> List[Tuple[str, str]]:
@@ -98,16 +140,23 @@ def _generate_veo_prompt(
     segment_name: str,
     segment_text: str,
     plan: VideoPlan,
-    visual_style: str
+    visual_style: str,
+    brand_manual: Optional[Dict] = None,
+    visual_context: Optional[Dict] = None
 ) -> str:
     """
     Generates a descriptive prompt for Veo video generation API.
+
+    Step 09: Enhanced with color palette enforcement from brand manual
+             and visual context support for recurring scenarios.
 
     Args:
         segment_name: Name of the segment (hook, content_1, etc.)
         segment_text: Text content of the segment
         plan: Video plan for context
         visual_style: Channel's visual style from memory
+        brand_manual: Optional visual brand manual with color palette (Step 09)
+        visual_context: Optional visual context with veo_prompt_prefix (Step 09)
 
     Returns:
         Veo-compatible prompt string
@@ -120,12 +169,48 @@ def _generate_veo_prompt(
     has_text_overlay = "testo" in visual_style.lower()
     is_vertical = "verticali" in visual_style.lower() or "9:16" in visual_style.lower()
 
+    # Step 09: Extract color palette from brand manual if enabled
+    color_description = None
+    if brand_manual and brand_manual.get('enabled'):
+        palette = brand_manual.get('color_palette', {})
+        if palette:
+            # Build color description from palette
+            primary = palette.get('primary', '')
+            secondary = palette.get('secondary', '')
+            accent = palette.get('accent', '')
+            background = palette.get('background', '')
+
+            color_description = (
+                f"vibrant {primary} primary tones with {secondary} accents, "
+                f"{accent} highlights, cinematic {background} backgrounds"
+            )
+
+    # Step 09: Use color_description from brand manual if available, else fall back to legacy logic
+    if color_description:
+        # Brand manual enabled - use specific color palette
+        colors_hook = color_description
+        colors_content = color_description
+        colors_outro = color_description
+    else:
+        # Legacy color logic
+        colors_hook = 'warm vibrant colors' if has_warm_colors else 'bold colors'
+        colors_content = 'warm color palette' if has_warm_colors else 'professional colors'
+        colors_outro = 'warm friendly colors' if has_warm_colors else 'bright colors'
+
+    # Step 09: Extract visual context prefix if provided
+    context_prefix = ""
+    if visual_context:
+        context_prefix = visual_context.get('veo_prompt_prefix', '')
+        if context_prefix:
+            context_prefix = context_prefix + ". "  # Add period and space as separator
+
     # Build prompt based on segment type
     if segment_name == "hook":
         # Hook: attention-grabbing, dynamic
         prompt = (
+            f"{context_prefix}"  # Step 09: Prepend visual context
             f"Dynamic vertical video shot, {plan.working_title} theme. "
-            f"Fast-paced camera movement, {'warm vibrant colors' if has_warm_colors else 'bold colors'}, "
+            f"Fast-paced camera movement, {colors_hook}, "
             f"modern aesthetic. High energy opening sequence. "
             f"{'Large text overlay visible' if has_text_overlay else 'Clean visual focus'}. "
             f"Cinematic lighting, professional quality."
@@ -134,8 +219,9 @@ def _generate_veo_prompt(
     elif segment_name.startswith("content"):
         # Content: informative, clear
         prompt = (
+            f"{context_prefix}"  # Step 09: Prepend visual context
             f"Engaging vertical video, explaining {plan.working_title}. "
-            f"Clean composition, {'warm color palette' if has_warm_colors else 'professional colors'}, "
+            f"Clean composition, {colors_content}, "
             f"informative visual elements. Smooth camera transitions. "
             f"{'Key text overlays for emphasis' if has_text_overlay else 'Visual clarity'}. "
             f"Modern production style."
@@ -144,8 +230,9 @@ def _generate_veo_prompt(
     elif segment_name == "outro":
         # Outro: call-to-action, memorable
         prompt = (
+            f"{context_prefix}"  # Step 09: Prepend visual context
             f"Closing vertical video shot, {plan.working_title} conclusion. "
-            f"Positive and inviting atmosphere, {'warm friendly colors' if has_warm_colors else 'bright colors'}, "
+            f"Positive and inviting atmosphere, {colors_outro}, "
             f"call-to-action visual. "
             f"{'Large CTA text overlay' if has_text_overlay else 'Engaging final frame'}. "
             f"Professional quality finish."
@@ -154,6 +241,7 @@ def _generate_veo_prompt(
     else:
         # Generic fallback
         prompt = (
+            f"{context_prefix}"  # Step 09: Prepend visual context
             f"Professional vertical video, {plan.working_title} content. "
             f"{'Warm color scheme' if has_warm_colors else 'Dynamic colors'}, "
             f"high production quality, engaging visuals."
@@ -170,7 +258,8 @@ def generate_visual_plan(
     plan: VideoPlan,
     script: VideoScript,
     memory: Dict,
-    series_format: Optional[SeriesFormat] = None
+    series_format: Optional[SeriesFormat] = None,
+    workspace_config: Optional[Dict] = None
 ) -> VisualPlan:
     """
     Generates a complete visual plan with scene-by-scene prompts for Veo.
@@ -187,6 +276,10 @@ def generate_visual_plan(
     Step 07.5: Format engine - adds intro/outro scenes and tags with segment_type.
     If series_format is provided, creates intro/outro scenes from template.
 
+    Step 09: Color palette enforcement from visual_brand_manual.
+    If workspace_config contains visual_brand_manual with color palette,
+    enforces those colors in Veo prompts.
+
     Optimized for YouTube Shorts (vertical 9:16 format, ~60 seconds total).
 
     Args:
@@ -194,6 +287,7 @@ def generate_visual_plan(
         script: Complete video script (with scene_voiceover_map in Step 07.3+)
         memory: Channel memory dict containing visual_style
         series_format: Optional series format template for intro/outro (Step 07.5)
+        workspace_config: Optional workspace configuration with visual_brand_manual (Step 09)
 
     Returns:
         VisualPlan with scene list and style notes (includes intro/outro if series_format)
@@ -211,6 +305,21 @@ def generate_visual_plan(
 
     # Load visual style from memory
     visual_style = get_visual_style(memory)
+
+    # Step 09: Extract visual brand manual if provided
+    brand_manual = None
+    if workspace_config:
+        brand_manual = workspace_config.get('visual_brand_manual', {})
+        if brand_manual and brand_manual.get('enabled'):
+            palette = brand_manual.get('color_palette', {})
+            logger.info(f"  Using workspace color palette: primary={palette.get('primary')}, "
+                       f"secondary={palette.get('secondary')}, accent={palette.get('accent')}")
+
+    # Step 09: Select visual context for content scenes if enabled
+    visual_context = None
+    if workspace_config:
+        visual_contexts_config = workspace_config.get('visual_contexts', {})
+        visual_context = _select_visual_context(series_format, visual_contexts_config)
 
     # Step 07.3/07.5: Use scene_voiceover_map if available (new), else fall back to legacy segmentation
     scenes: List[VisualScene] = []
@@ -244,11 +353,14 @@ def generate_visual_plan(
                 segment_name = f"content_{scene_vo.scene_id - 1}"
 
             # Generate Veo prompt for this scene
+            # Step 09: Pass brand_manual for color palette enforcement and visual_context for recurring scenarios
             veo_prompt = _generate_veo_prompt(
                 segment_name,
                 scene_vo.voiceover_text,
                 plan,
-                visual_style
+                visual_style,
+                brand_manual=brand_manual,
+                visual_context=visual_context
             )
 
             # Create VisualScene with embedded voiceover text (Step 07.3)
@@ -278,7 +390,8 @@ def generate_visual_plan(
 
         for scene_id, (segment_name, segment_text) in enumerate(segments, start=1):
             # Generate Veo prompt
-            veo_prompt = _generate_veo_prompt(segment_name, segment_text, plan, visual_style)
+            # Step 09: Pass brand_manual for color palette enforcement and visual_context for recurring scenarios
+            veo_prompt = _generate_veo_prompt(segment_name, segment_text, plan, visual_style, brand_manual=brand_manual, visual_context=visual_context)
 
             # Estimate duration
             duration = _estimate_duration_from_text(segment_text)
@@ -314,10 +427,13 @@ def generate_visual_plan(
     total_duration = sum(scene.est_duration_seconds for scene in scenes)
 
     # Create VisualPlan
+    # Step 09: Include visual context tracking for analytics
     visual_plan = VisualPlan(
         aspect_ratio="9:16",  # YouTube Shorts vertical format
         style_notes=visual_style,
-        scenes=scenes
+        scenes=scenes,
+        visual_context_id=visual_context.get('context_id') if visual_context else None,
+        visual_context_name=visual_context.get('name') if visual_context else None
     )
 
     logger.info(

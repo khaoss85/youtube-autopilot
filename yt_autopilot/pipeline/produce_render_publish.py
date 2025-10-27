@@ -326,11 +326,13 @@ def produce_render_assets(script_internal_id: str) -> Dict[str, Any]:
 
     try:
         # Step 07.4: Pass asset_paths for organized output
+        # Step 09: Pass workspace_config for lower thirds with narrator name
         final_video_path = assemble_final_video(
             scene_paths=scene_paths,
             voiceover_path=voiceover_path,
             visuals=ready.visuals,
-            asset_paths=asset_paths
+            asset_paths=asset_paths,
+            workspace_config=workspace_config
         )
         logger.info(f"✓ Final video assembled: {final_video_path}")
     except Exception as e:
@@ -370,7 +372,9 @@ def produce_render_assets(script_internal_id: str) -> Dict[str, Any]:
         video_provider_used=providers["video_provider"],  # Step 07.2: Provider tracking
         voice_provider_used=providers["voice_provider"],  # Step 07.2: Provider tracking
         thumb_provider_used=providers["thumb_provider"],   # Step 07.2: Provider tracking
-        script_internal_id=script_internal_id  # Step 07.3: Link to approved script
+        script_internal_id=script_internal_id,  # Step 07.3: Link to approved script
+        visual_context_id=ready.visuals.visual_context_id,  # Step 09: Visual context tracking
+        visual_context_name=ready.visuals.visual_context_name  # Step 09: Visual context tracking
     )
 
     logger.info("")

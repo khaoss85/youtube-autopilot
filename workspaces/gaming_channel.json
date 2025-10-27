@@ -14,7 +14,21 @@
   ],
   "recent_titles": [],
   "narrator_persona": {
-    "enabled": false
+    "enabled": true,
+    "name": "GamerPro",
+    "identity": "Professional gamer e content creator con 5+ anni di esperienza competitiva",
+    "relationship": "gaming_buddy",
+    "tone_of_address": "tu_informale",
+    "signature_phrases": [
+      "Let's go!",
+      "Questo è pazzesco!",
+      "Ci vediamo in game!"
+    ],
+    "credibility_markers": [
+      "5+ anni di gaming competitivo",
+      "Top 1% global rank",
+      "1M+ views su Twitch"
+    ]
   },
   "voice_config": {
     "tts_provider": "openai",
@@ -26,5 +40,42 @@
     "cta_style": "direct_action",
     "target_duration_seconds": 60,
     "pacing": "fast"
+  },
+  "visual_brand_manual": {
+    "enabled": true,
+    "color_palette": {
+      "primary": "#FF4444",
+      "secondary": "#FF9800",
+      "accent": "#00E5FF",
+      "background": "#0A0E27",
+      "text": "#FFFFFF"
+    },
+    "lower_thirds": {
+      "enabled": true,
+      "display_narrator_name": true,
+      "position": "bottom_left",
+      "font_size": 26,
+      "duration_seconds": 3,
+      "fade_duration": 0.5
+    }
+  },
+  "visual_contexts": {
+    "enabled": true,
+    "contexts": [
+      {
+        "context_id": "gaming_setup",
+        "name": "Epic Gaming Setup",
+        "applicable_formats": ["gameplay", "review", "tips"],
+        "veo_prompt_prefix": "Professional gaming setup, RGB keyboard and mouse, multiple monitors with game footage, LED strip lighting, gaming chair, headset on stand, esports aesthetic",
+        "use_frequency": 0.7
+      },
+      {
+        "context_id": "competitive_arena",
+        "name": "Competitive Arena",
+        "applicable_formats": ["tournament", "competitive", "challenge"],
+        "veo_prompt_prefix": "Esports arena environment, stage lighting, competitive gaming atmosphere, tournament vibes, professional broadcast quality",
+        "use_frequency": 0.3
+      }
+    ]
   }
 }

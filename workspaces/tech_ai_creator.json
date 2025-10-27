@@ -12,6 +12,8 @@
     "uso di musica protetta da copyright"
   ],
   "recent_titles": [
+    "Espionage #softwareengineer #webdevelopment #javascript #programmerhumor #programming #coding #espio",
+    "US-EAST-1 is humanity’s weakest link… - Tutti Ne Parlano!",
     "Tech investor declares 'AI games are going to be amazing,' posts an AI-generated 'demo' of a god-...",
     "Sora might have a 'pervert' problem on its hands - Tutti Ne Parlano!",
     "Strategie di produttività con AI tools - Tutti Ne Parlano!",
@@ -23,17 +25,68 @@
     "A single point of failure triggered the Amazon outage affecting millions | A DNS manager in a sin..."
   ],
   "narrator_persona": {
-    "enabled": false
+    "enabled": true,
+    "name": "Tech Insider",
+    "identity": "Software engineer e AI enthusiast con 8+ anni nell'industria tech",
+    "relationship": "tech_peer",
+    "tone_of_address": "tu_informale",
+    "signature_phrases": [
+      "Andiamo dritti al punto",
+      "Questo cambia tutto",
+      "Link e risorse nella descrizione"
+    ],
+    "credibility_markers": [
+      "8+ anni nell'industria tech",
+      "Contributor open-source",
+      "Esperto AI/ML"
+    ]
   },
   "voice_config": {
     "tts_provider": "openai",
-    "voice_model": "alloy",
-    "speed": 1.05
+    "voice_model": "onyx",
+    "speed": 1.1
   },
   "content_formula": {
-    "hook_pattern": "statement",
+    "hook_pattern": "urgent_fact",
     "cta_style": "soft_ask",
     "target_duration_seconds": 60,
-    "pacing": "medium"
+    "pacing": "fast"
+  },
+  "visual_brand_manual": {
+    "enabled": true,
+    "color_palette": {
+      "primary": "#2196F3",
+      "secondary": "#00BCD4",
+      "accent": "#9C27B0",
+      "background": "#1A237E",
+      "text": "#FFFFFF"
+    },
+    "lower_thirds": {
+      "enabled": true,
+      "display_narrator_name": true,
+      "position": "bottom_left",
+      "font_size": 24,
+      "duration_seconds": 3,
+      "fade_duration": 0.5
+    }
+  },
+  "visual_contexts": {
+    "enabled": true,
+    "contexts": [
+      {
+        "context_id": "coding_workspace",
+        "name": "Modern Coding Workspace",
+        "applicable_formats": ["tutorial", "how_to", "code_review"],
+        "veo_prompt_prefix": "Modern developer workspace, multiple monitors with code visible, keyboard and mouse on desk, tech gadgets, LED lighting, clean minimalist setup, tech aesthetic",
+        "use_frequency": 0.6
+      },
+      {
+        "context_id": "tech_news_studio",
+        "name": "Tech News Studio",
+        "applicable_formats": ["news_flash", "breaking", "industry_update"],
+        "veo_prompt_prefix": "Professional tech studio setup, clean background with tech company logos visible, modern lighting, broadcast quality, sleek contemporary design",
+        "use_frequency": 0.4
+      }
+    ]
   }
 }

@@ -364,7 +364,9 @@ def save_draft_package(
     video_provider_used: Optional[str] = None,
     voice_provider_used: Optional[str] = None,
     thumb_provider_used: Optional[str] = None,
-    script_internal_id: Optional[str] = None
+    script_internal_id: Optional[str] = None,
+    visual_context_id: Optional[str] = None,
+    visual_context_name: Optional[str] = None
 ) -> str:
     """
     Saves a draft video package pending human review (Step 07.3: Gate 2).
@@ -394,6 +396,8 @@ def save_draft_package(
         voice_provider_used: (Optional) Step 07.2: Voice provider (REAL_TTS/FALLBACK_SILENT)
         thumb_provider_used: (Optional) Step 07.2: Thumbnail provider (OPENAI_IMAGE/FALLBACK_PLACEHOLDER)
         script_internal_id: (Optional) Step 07.3: Link to approved script from Gate 1
+        visual_context_id: (Optional) Step 09: Visual context ID used (e.g., 'home_gym')
+        visual_context_name: (Optional) Step 09: Visual context name used (e.g., 'Home Gym Setting')
 
     Returns:
         video_internal_id: Unique identifier for this draft (UUID4 string)
@@ -447,7 +451,10 @@ def save_draft_package(
         "thumbnail_prompt": thumbnail_prompt,
         "video_provider_used": video_provider_used,
         "voice_provider_used": voice_provider_used,
-        "thumb_provider_used": thumb_provider_used
+        "thumb_provider_used": thumb_provider_used,
+        # Step 09: Visual context tracking for retention analytics
+        "visual_context_id": visual_context_id,
+        "visual_context_name": visual_context_name
     }
 
     # Append to JSONL file
