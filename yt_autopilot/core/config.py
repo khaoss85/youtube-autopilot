@@ -314,20 +314,38 @@ def get_vertical_configs() -> Dict[str, Dict[str, Any]]:
             "vertical_id": "finance",
             "cpm_baseline": 30.0,
             "target_keywords": [
+                # Original keywords
                 "finance", "investing", "money", "stocks", "crypto",
                 "trading", "passive income", "budget", "real estate",
-                "financial freedom", "wealth"
+                "financial freedom", "wealth",
+                # 2025 trending keywords
+                "AI investing", "recession proof", "inflation hedge",
+                "dividend income", "tax strategy", "side hustle",
+                "compound interest", "retirement planning", "emergency fund",
+                "credit score", "401k", "IRA", "debt payoff", "financial literacy"
             ],
             "reddit_subreddits": [
+                # Original subreddits
                 "personalfinance", "investing", "financialindependence",
-                "stocks", "wallstreetbets", "CryptoCurrency"
+                "stocks", "wallstreetbets", "CryptoCurrency",
+                # Added: High-quality educational
+                "Bogleheads", "fire", "StockMarket",
+                # Added: Macro trends and alternative assets
+                "Economics", "RealEstate", "DebtFree"
             ],
             "youtube_category_id": "26",  # Howto & Style
             "youtube_channels": [
+                # Original: Traditional finance educators
                 {"channel_id": "UCV6KDgJskWaEckne5aPA0aQ", "name": "Graham Stephan", "subscribers": "4.22M"},
                 {"channel_id": "UCGy7SkBjcIAgTiwkXEtPnYg", "name": "Andrei Jikh", "subscribers": "2.27M"},
                 {"channel_id": "UCT3EznhW_CNFcfOlyDNTLLw", "name": "Minority Mindset", "subscribers": "2M"},
-                {"channel_id": "UCUvvj5lwue7PspotMDjk5UA", "name": "Meet Kevin", "subscribers": "2M"}
+                {"channel_id": "UCUvvj5lwue7PspotMDjk5UA", "name": "Meet Kevin", "subscribers": "2M"},
+                # Added: Faceless & shorts-focused creators (ideal for our format)
+                {"channel_id": "UCqK0ukwGsTDf0d7u8uV5KOg", "name": "Wall Street Memes", "subscribers": "1.1M"},
+                {"channel_id": "UCiUnrCUGCJTCC0KT8HhAZ-g", "name": "Financially Aware", "subscribers": "800K"},
+                {"channel_id": "UCmo-omZRCiKxx7HKHFrP-yw", "name": "Stock Moe", "subscribers": "900K"},
+                {"channel_id": "UC_a9E8gPT8CsqHcnZvLKJLw", "name": "Finance Explained", "subscribers": "650K"},
+                {"channel_id": "UCrM7B7SL_g1edFOnmj-SDKg", "name": "New Money", "subscribers": "400K"}
             ],
             "proven_formats": {
                 "tutorial": 0.30,
