@@ -335,16 +335,12 @@ def get_vertical_configs() -> Dict[str, Dict[str, Any]]:
             ],
             "youtube_category_id": "25",  # News & Politics (better for finance than Howto & Style)
             "youtube_channels": [
-                # Traditional finance educators
+                # Traditional finance educators (verified working channel IDs)
                 {"channel_id": "UCV6KDgJskWaEckne5aPA0aQ", "name": "Graham Stephan", "subscribers": "4.22M"},
                 {"channel_id": "UCGy7SkBjcIAgTiwkXEtPnYg", "name": "Andrei Jikh", "subscribers": "2.27M"},
                 {"channel_id": "UCT3EznhW_CNFcfOlyDNTLLw", "name": "Minority Mindset", "subscribers": "2M"},
                 {"channel_id": "UCUvvj5lwue7PspotMDjk5UA", "name": "Meet Kevin", "subscribers": "2M"},
-                # Finance shorts & explainers (verified channel IDs)
-                {"channel_id": "UCrM7B7SL_g1edFOnmj-SDKg", "name": "New Money", "subscribers": "400K"},
-                {"channel_id": "UCf5POn4NNKYIGxQcyrfKX9Q", "name": "Nate O'Brien", "subscribers": "1.24M"},
-                {"channel_id": "UC8-3w5vXn2KZ8vKZ1kzFr9Q", "name": "Ryan Scribner", "subscribers": "815K"},
-                {"channel_id": "UCH5VP_hCI0OenR4D93JdCyA", "name": "Humphrey Yang", "subscribers": "3.53M"}
+                {"channel_id": "UCrM7B7SL_g1edFOnmj-SDKg", "name": "New Money", "subscribers": "400K"}
             ],
             "proven_formats": {
                 "tutorial": 0.30,

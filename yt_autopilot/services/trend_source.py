@@ -124,11 +124,9 @@ def _fetch_youtube_trending(
                 if kw.lower() in title_lower or kw.lower() in description_lower
             )
 
-            # Step 08.1: Stricter filtering for YouTube trending/search (require 2+ keywords)
-            # Curated sources (Reddit, Channels) remain at 0 threshold
-            if target_keywords and keyword_matches < 2:
-                logger.debug(f"Skipping video '{title[:50]}' - insufficient keyword matches ({keyword_matches}/2 required)")
-                continue
+            # Step 08.1 revised: Track keyword matches but don't filter out
+            # Scoring function will penalize low keyword match counts
+            # This allows YouTube trending to show results while preferring relevant ones
 
             # Generate "why_hot" explanation
             why_hot = f"Trending on YouTube ({view_count:,} views). "

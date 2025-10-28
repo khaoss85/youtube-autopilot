@@ -86,7 +86,8 @@ def cmd_trends(args):
     """Show trending topics for active workspace without generating video"""
     from yt_autopilot.core.logger import logger
     from yt_autopilot.services.trend_source import fetch_trends
-    from yt_autopilot.agents.trend_hunter import generate_video_plan
+    from yt_autopilot.agents.trend_hunter import _calculate_priority_score
+    from yt_autopilot.core.memory_store import load_channel_memory
 
     try:
         workspace = get_active_workspace()
@@ -147,12 +148,20 @@ def cmd_trends(args):
 
         print(f"📊 Top {len(trends)} Trending Topics (from {len(all_trends)} total):\n")
 
-        # Display trends
-        for i, trend in enumerate(trends, 1):
-            # Calculate score manually (simplified version from trend_hunter)
-            score = trend.momentum_score + (trend.cpm_estimate / 50.0) * 0.3
+        # Load channel memory for proper scoring
+        memory = load_channel_memory(workspace_id)
 
-            print(f"{i}. [{score:.2f}] {trend.keyword}")
+        # Display trends with real scores from trend_hunter
+        for i, trend in enumerate(trends, 1):
+            # Use actual scoring function from trend_hunter
+            score = _calculate_priority_score(trend, memory)
+
+            # Show keyword matches if available
+            keyword_info = ""
+            if hasattr(trend, 'keyword_match_count') and trend.keyword_match_count > 0:
+                keyword_info = f" ({trend.keyword_match_count} keywords)"
+
+            print(f"{i}. [{score:.2f}] {trend.keyword}{keyword_info}")
             print(f"   Source: {trend.source}")
             print(f"   CPM: ${trend.cpm_estimate:.1f} | Competition: {trend.competition_level} | Virality: {trend.virality_score:.2f}")
             print(f"   Why: {trend.why_hot[:80]}...")
@@ -339,6 +348,47 @@ def cmd_generate(args):
         print("=" * 70)
         print(f"Status: {package.status}")
         print(f"Title: {package.video_plan.working_title}")
+        print()
+
+        # Extract metadata
+        hook = package.script.hook if hasattr(package.script, 'hook') else "N/A"
+        num_scenes = len(package.visuals.scenes) if hasattr(package.visuals, 'scenes') else 0
+        total_duration = sum(
+            scene.est_duration_seconds
+            for scene in package.visuals.scenes
+            if hasattr(scene, 'est_duration_seconds')
+        ) if hasattr(package.visuals, 'scenes') else 0
+
+        # Show hook and metadata
+        if hook != "N/A":
+            # Truncate long hooks
+            hook_display = hook[:100] + "..." if len(hook) > 100 else hook
+            print(f"Hook: \"{hook_display}\"")
+
+        print(f"Scenes: {num_scenes} scenes | Duration: ~{total_duration} seconds")
+        print()
+
+        # Show script ID if available
+        script_id = getattr(package, 'script_internal_id', None)
+        if script_id:
+            print(f"Script ID: {script_id}")
+            print()
+
+        # Show rejection reason if rejected
+        if package.status == "REJECTED":
+            rejection_reason = getattr(package, 'rejection_reason', 'No reason provided')
+            print(f"⚠️  Rejection reason: {rejection_reason}")
+            print()
+
+        # Next steps
+        if package.status == "APPROVED" and script_id:
+            print("💡 Next steps:")
+            print(f"  - Review full script: python run.py review show-script {script_id}")
+            print(f"  - Approve for asset generation: python run.py review approve-script {script_id} --approved-by \"you@company\"")
+        elif package.status == "APPROVED":
+            print("💡 Next steps:")
+            print("  - Review pending scripts: python run.py review scripts")
+
         print("=" * 70)
         print()
 
