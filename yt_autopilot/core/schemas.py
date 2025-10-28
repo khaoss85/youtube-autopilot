@@ -14,6 +14,7 @@ class TrendCandidate(BaseModel):
     Represents a trending topic or keyword identified by trend detection.
 
     Step 08: Extended with revenue optimization and multi-source scoring fields.
+    Step 08.1: Added keyword_match_count for scoring differentiation.
     """
     keyword: str = Field(..., description="Main keyword or phrase trending")
     why_hot: str = Field(..., description="Explanation of why this trend is relevant now")
@@ -41,6 +42,11 @@ class TrendCandidate(BaseModel):
     historical_match: Optional[str] = Field(
         None,
         description="video_internal_id of similar past video that performed well"
+    )
+    keyword_match_count: int = Field(
+        default=0,
+        ge=0,
+        description="Step 08.1: Number of vertical keywords matched (for scoring differentiation)"
     )
 
 

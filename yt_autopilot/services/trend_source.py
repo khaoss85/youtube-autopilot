@@ -124,9 +124,10 @@ def _fetch_youtube_trending(
                 if kw.lower() in title_lower or kw.lower() in description_lower
             )
 
-            # Skip if no keyword match for vertical
-            if target_keywords and keyword_matches == 0:
-                logger.debug(f"Skipping video '{title[:50]}' - no keyword match for vertical")
+            # Step 08.1: Stricter filtering for YouTube trending/search (require 2+ keywords)
+            # Curated sources (Reddit, Channels) remain at 0 threshold
+            if target_keywords and keyword_matches < 2:
+                logger.debug(f"Skipping video '{title[:50]}' - insufficient keyword matches ({keyword_matches}/2 required)")
                 continue
 
             # Generate "why_hot" explanation
@@ -144,7 +145,8 @@ def _fetch_youtube_trending(
                 cpm_estimate=cpm_baseline,  # Use vertical baseline
                 competition_level=competition,
                 virality_score=virality,
-                historical_match=None  # No historical match yet
+                historical_match=None,  # No historical match yet
+                keyword_match_count=keyword_matches  # Step 08.1: Track for scoring
             )
 
             trends.append(trend)
@@ -228,7 +230,8 @@ def _fetch_youtube_search(
                 cpm_estimate=cpm_baseline,
                 competition_level="medium",
                 virality_score=0.6,
-                historical_match=None
+                historical_match=None,
+                keyword_match_count=1  # Step 08.1: Search query = 1 keyword match minimum
             )
             trends.append(trend)
 

@@ -205,16 +205,27 @@ def _calculate_priority_score(trend: TrendCandidate, memory: Dict) -> float:
         score += 0.15
         logger.debug(f"Language bonus: +0.15 ({detected_language} matches workspace preference)")
 
+    # Step 08.1: Keyword density bonus (more keyword matches = higher relevance)
+    # Differentiates trends with same base scores
+    keyword_bonus = 0.0
+    if hasattr(trend, 'keyword_match_count') and trend.keyword_match_count > 0:
+        # Each keyword match adds 0.03 (max 0.15 for 5+ keywords)
+        keyword_bonus = min(0.15, trend.keyword_match_count * 0.03)
+        logger.debug(f"Keyword density bonus: +{keyword_bonus:.3f} ({trend.keyword_match_count} matches)")
+
+    score += keyword_bonus
+
     # Phase A.2: Source quality weighting (Reddit 4x > Channels 3x > HN 2x > YouTube 1x)
     # Prioritizes curated communities and influencer content over generic search results
+    # Step 08.1: Adjusted weights to boost curated sources
     source_quality = {
         # Reddit: 4x weight (highest quality, community-curated)
-        "reddit_hot": 0.40,                # Hot posts = proven engagement
-        "reddit_rising": 0.45,             # Rising = early viral signals (bonus!)
-        "reddit": 0.40,                    # Generic reddit fallback
+        "reddit_hot": 0.45,                # Hot posts = proven engagement (boosted)
+        "reddit_rising": 0.50,             # Rising = early viral signals (boosted)
+        "reddit": 0.45,                    # Generic reddit fallback (boosted)
 
         # YouTube Channels: 3x weight (influencer/competitor curated content)
-        "youtube_channel": 0.30,           # Curated influencers/competitors
+        "youtube_channel": 0.35,           # Curated influencers/competitors (boosted)
 
         # Hacker News: 2x weight (tech-savvy, high-quality discussions)
         "hackernews_top": 0.20,            # Top stories
@@ -222,7 +233,7 @@ def _calculate_priority_score(trend: TrendCandidate, memory: Dict) -> float:
         "hackernews": 0.20,                # Generic HN fallback
 
         # YouTube Generic: 1x weight (baseline, noisy but high reach)
-        "youtube_trending": 0.08,          # Trending = viral but mixed quality
+        "youtube_trending": 0.05,          # Trending = viral but mixed quality (reduced)
         "youtube_search": 0.10,            # Search results = keyword match
         "youtube_scrape": 0.05,            # Scraping = fallback, least reliable
 
