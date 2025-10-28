@@ -12,6 +12,9 @@ Usage:
     python run.py workspace switch <workspace_id>
     python run.py workspace create
 
+    # Trend detection (preview only)
+    python run.py trends [--top N] [--source SOURCE]
+
     # Video generation
     python run.py generate [--use-llm-curation]
 
@@ -73,6 +76,101 @@ from yt_autopilot.io.datastore import (
     approve_script_for_generation
 )
 from yt_autopilot.pipeline.produce_render_publish import publish_after_approval
+
+
+# ============================================================================
+# TRENDS COMMAND
+# ============================================================================
+
+def cmd_trends(args):
+    """Show trending topics for active workspace without generating video"""
+    from yt_autopilot.core.logger import logger
+    from yt_autopilot.services.trend_source import fetch_trends
+    from yt_autopilot.agents.trend_hunter import generate_video_plan
+
+    try:
+        workspace = get_active_workspace()
+        workspace_id = workspace['workspace_id']
+        workspace_name = workspace['workspace_name']
+        vertical_id = workspace.get('vertical_id', 'general')
+
+        # Get vertical config
+        vertical_config = get_vertical_config(vertical_id)
+        if not vertical_config:
+            print(f"\n⚠️  Unknown vertical: {vertical_id}")
+            return
+
+        cpm = vertical_config.get('cpm_baseline', 10.0)
+        channels_count = len(vertical_config.get('youtube_channels', []))
+        subreddits_count = len(vertical_config.get('reddit_subreddits', []))
+        keywords_count = len(vertical_config.get('target_keywords', []))
+
+        print()
+        print("━" * 60)
+        print(f" TREND DETECTION: {workspace_id}")
+        print("━" * 60)
+        print(f" Workspace: {workspace_name} ({vertical_id})")
+        print(f" Channels: {channels_count} | Subreddits: {subreddits_count} | Keywords: {keywords_count}")
+        print(f" CPM Baseline: ${cpm}")
+        print("━" * 60)
+        print()
+
+        print("🔍 Fetching trends...")
+
+        # Fetch trends
+        trends = fetch_trends(
+            workspace_id=workspace_id,
+            vertical_id=vertical_id,
+            limit=args.top
+        )
+
+        if not trends:
+            print()
+            print("⚠️  No trends found")
+            print()
+            print("Possible reasons:")
+            print("  - No API keys configured (.env)")
+            print("  - All trends filtered out (banned topics, duplicates)")
+            print("  - API rate limits reached")
+            print()
+            return
+
+        # Filter by source if specified
+        if args.source:
+            trends = [t for t in trends if args.source.lower() in t.source.lower()]
+            if not trends:
+                print(f"\n⚠️  No trends found for source: {args.source}\n")
+                return
+
+        print(f"📊 Top {len(trends)} Trending Topics:\n")
+
+        # Display trends
+        for i, trend in enumerate(trends, 1):
+            # Calculate score manually (simplified version from trend_hunter)
+            score = trend.momentum_score + (trend.cpm_estimate / 50.0) * 0.3
+
+            print(f"{i}. [{score:.2f}] {trend.keyword}")
+            print(f"   Source: {trend.source}")
+            print(f"   CPM: ${trend.cpm_estimate:.1f} | Competition: {trend.competition_level} | Virality: {trend.virality_score:.2f}")
+            print(f"   Why: {trend.why_hot[:80]}...")
+            print()
+
+        print("━" * 60)
+        print("💡 Next steps:")
+        print(f"  - Generate video: python run.py generate")
+        print(f"  - See more: python run.py trends --top {args.top * 2}")
+        if not args.source:
+            print(f"  - Filter source: python run.py trends --source reddit")
+        print("━" * 60)
+        print()
+
+    except RuntimeError as e:
+        print(f"\n⚠️  Error: {e}\n")
+        print("Run 'python run.py workspace switch <id>' to select a workspace")
+        print()
+    except Exception as e:
+        logger.error(f"Trend detection failed: {e}")
+        print(f"\n⚠️  Trend detection failed: {e}\n")
 
 
 # ============================================================================
@@ -887,6 +985,24 @@ def main():
     # workspace create
     ws_create = workspace_subparsers.add_parser("create", help="Create a new workspace interactively")
     ws_create.set_defaults(func=cmd_workspace_create)
+
+    # ========================================================================
+    # TRENDS COMMAND
+    # ========================================================================
+    trends_parser = subparsers.add_parser("trends", help="Show trending topics without generating video")
+    trends_parser.add_argument(
+        "--top",
+        type=int,
+        default=10,
+        help="Number of top trends to show (default: 10)"
+    )
+    trends_parser.add_argument(
+        "--source",
+        type=str,
+        default=None,
+        help="Filter by source (e.g., reddit, youtube_channel, hackernews)"
+    )
+    trends_parser.set_defaults(func=cmd_trends)
 
     # ========================================================================
     # GENERATE COMMAND
