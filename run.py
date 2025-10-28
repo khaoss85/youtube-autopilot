@@ -117,14 +117,13 @@ def cmd_trends(args):
 
         print("🔍 Fetching trends...")
 
-        # Fetch trends
-        trends = fetch_trends(
-            workspace_id=workspace_id,
+        # Fetch trends (returns all trends from all sources)
+        all_trends = fetch_trends(
             vertical_id=vertical_id,
-            limit=args.top
+            use_real_apis=True
         )
 
-        if not trends:
+        if not all_trends:
             print()
             print("⚠️  No trends found")
             print()
@@ -137,12 +136,16 @@ def cmd_trends(args):
 
         # Filter by source if specified
         if args.source:
-            trends = [t for t in trends if args.source.lower() in t.source.lower()]
-            if not trends:
+            filtered = [t for t in all_trends if args.source.lower() in t.source.lower()]
+            if not filtered:
                 print(f"\n⚠️  No trends found for source: {args.source}\n")
                 return
+            trends = filtered[:args.top]
+        else:
+            # Limit to top N
+            trends = all_trends[:args.top]
 
-        print(f"📊 Top {len(trends)} Trending Topics:\n")
+        print(f"📊 Top {len(trends)} Trending Topics (from {len(all_trends)} total):\n")
 
         # Display trends
         for i, trend in enumerate(trends, 1):
