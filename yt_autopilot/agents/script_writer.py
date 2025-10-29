@@ -45,6 +45,33 @@ from yt_autopilot.core.memory_store import get_brand_tone
 from yt_autopilot.core.logger import logger
 
 
+def _strip_quotes(text: str) -> str:
+    """
+    Remove surrounding double quotes from parsed LLM text.
+
+    Step 09: LLMs often wrap content in quotes. This function removes
+    only the outer quotes while preserving internal quotes.
+
+    Examples:
+        '"Hello, world!"' -> 'Hello, world!'
+        '"He said "hi"' -> 'He said "hi"'
+        'No quotes here' -> 'No quotes here'
+
+    Args:
+        text: Text potentially wrapped in quotes
+
+    Returns:
+        Text with outer quotes removed
+    """
+    text = text.strip()
+
+    # Remove outer quotes if both present
+    if text.startswith('"') and text.endswith('"') and len(text) > 2:
+        return text[1:-1].strip()
+
+    return text
+
+
 def _parse_llm_suggestion(llm_text: str) -> Optional[Dict[str, any]]:
     """
     Parse LLM-generated script suggestion into components.
@@ -96,8 +123,10 @@ def _parse_llm_suggestion(llm_text: str) -> Optional[Dict[str, any]]:
                 # Extract text after marker if present on same line
                 if ":" in line_stripped:
                     hook_text = line_stripped.split(":", 1)[1].strip()
-                    if hook_text:
-                        hook = hook_text
+                    # Step 09: Only use text from same line if it's actual content (not just formatting chars)
+                    # Skip if it's only asterisks, quotes, or other formatting
+                    if hook_text and len(hook_text.replace('*', '').replace('"', '').strip()) > 0:
+                        hook = _strip_quotes(hook_text)
             elif line_clean.startswith("BULLETS") or line_upper.startswith("BULLETS:"):
                 current_section = "bullets"
             elif line_clean.startswith("CTA") or line_clean.startswith("CALL TO ACTION") or line_upper.startswith("CTA:"):
@@ -105,8 +134,9 @@ def _parse_llm_suggestion(llm_text: str) -> Optional[Dict[str, any]]:
                 # Extract text after marker if present on same line
                 if ":" in line_stripped:
                     cta_text = line_stripped.split(":", 1)[1].strip()
-                    if cta_text:
-                        outro_cta = cta_text
+                    # Step 09: Only use text from same line if it's actual content
+                    if cta_text and len(cta_text.replace('*', '').replace('"', '').strip()) > 0:
+                        outro_cta = _strip_quotes(cta_text)
             elif line_clean.startswith("VOICEOVER") or line_clean.startswith("VOICE OVER") or line_upper.startswith("VOICEOVER:"):
                 current_section = "voiceover"
                 # Extract text after marker if present on same line
@@ -118,18 +148,22 @@ def _parse_llm_suggestion(llm_text: str) -> Optional[Dict[str, any]]:
                 # Empty line - skip
                 continue
             elif current_section == "hook" and not hook:
-                hook = line_stripped
+                # Step 09: Strip surrounding quotes from LLM output
+                hook = _strip_quotes(line_stripped)
             elif current_section == "bullets":
                 # Bullet point
                 if line_stripped.startswith("-") or line_stripped.startswith("•"):
                     bullet_text = line_stripped[1:].strip()
                     if bullet_text:
-                        bullets.append(bullet_text)
+                        # Step 09: Strip surrounding quotes from LLM output
+                        bullets.append(_strip_quotes(bullet_text))
                 elif line_stripped:  # Non-bullet line in bullets section
                     # Some LLMs might not use dashes
-                    bullets.append(line_stripped)
+                    # Step 09: Strip surrounding quotes from LLM output
+                    bullets.append(_strip_quotes(line_stripped))
             elif current_section == "cta" and not outro_cta:
-                outro_cta = line_stripped
+                # Step 09: Strip surrounding quotes from LLM output
+                outro_cta = _strip_quotes(line_stripped)
             elif current_section == "voiceover":
                 voiceover_lines.append(line_stripped)
 
@@ -535,18 +569,21 @@ def _build_persona_aware_prompt(
     narrator: Dict,
     content_formula: Dict,
     series_format: Optional[SeriesFormat],
-    brand_tone: str
+    brand_tone: str,
+    target_language: str = "en"
 ) -> str:
     """
     Builds LLM prompt enhanced with narrator persona guidelines.
 
     Step 09: Narrator Persona Integration
+    Step 10: Explicit language directive for consistent output
 
     This function creates a comprehensive prompt that:
     1. Provides narrator identity and signature phrases
     2. Respects video format as primary driver
     3. Gives creative freedom to adapt guidelines appropriately
     4. Maintains brand tone consistency
+    5. Enforces language consistency (Step 10)
 
     Args:
         plan: Video plan with topic and strategic angle
@@ -554,6 +591,7 @@ def _build_persona_aware_prompt(
         content_formula: Content formula config from workspace
         series_format: Optional series format template
         brand_tone: Brand tone from workspace
+        target_language: Target language code (e.g., "it", "en") - Step 10
 
     Returns:
         Enhanced LLM prompt string
@@ -582,7 +620,24 @@ Credibility markers (mention when relevant):
 {chr(10).join([f'  - {marker}' for marker in markers])}
 """
 
-    prompt = f"""Write a script for YouTube Shorts about: {plan.working_title}
+    # Language name mapping for clear instructions
+    language_names = {
+        "it": "ITALIAN (Italiano)",
+        "en": "ENGLISH",
+        "es": "SPANISH (Español)",
+        "fr": "FRENCH (Français)",
+        "de": "GERMAN (Deutsch)",
+        "pt": "PORTUGUESE (Português)"
+    }
+    language_name = language_names.get(target_language.lower(), target_language.upper())
+
+    prompt = f"""⚠️ CRITICAL LANGUAGE REQUIREMENT ⚠️
+═══════════════════════════════════════════════════════════════
+ALL OUTPUT MUST BE IN {language_name}
+DO NOT MIX LANGUAGES. EVERY SINGLE WORD MUST BE IN {language_name}.
+═══════════════════════════════════════════════════════════════
+
+Write a script for YouTube Shorts about: {plan.working_title}
 
 Strategic angle: {plan.strategic_angle}
 
@@ -640,6 +695,8 @@ Goal: Maximum watch time + subtle brand consistency
 ─────────────────────────────────────────────
 OUTPUT FORMAT:
 ─────────────────────────────────────────────
+⚠️ REMEMBER: Write EVERYTHING in {language_name} ⚠️
+
 HOOK:
 [Engaging opening - consider narrator introduction if appropriate for format]
 
@@ -654,6 +711,8 @@ CTA:
 
 VOICEOVER:
 [Complete narration text combining all sections naturally]
+
+⚠️ FINAL CHECK: Verify ALL text above is in {language_name} ⚠️
 """
 
     return prompt

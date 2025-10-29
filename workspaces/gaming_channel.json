@@ -65,14 +65,22 @@
       {
         "context_id": "gaming_setup",
         "name": "Epic Gaming Setup",
-        "applicable_formats": ["gameplay", "review", "tips"],
+        "applicable_formats": [
+          "gameplay",
+          "review",
+          "tips"
+        ],
         "veo_prompt_prefix": "Professional gaming setup, RGB keyboard and mouse, multiple monitors with game footage, LED strip lighting, gaming chair, headset on stand, esports aesthetic",
         "use_frequency": 0.7
       },
       {
         "context_id": "competitive_arena",
         "name": "Competitive Arena",
-        "applicable_formats": ["tournament", "competitive", "challenge"],
+        "applicable_formats": [
+          "tournament",
+          "competitive",
+          "challenge"
+        ],
         "veo_prompt_prefix": "Esports arena environment, stage lighting, competitive gaming atmosphere, tournament vibes, professional broadcast quality",
         "use_frequency": 0.3
       }
@@ -86,7 +94,10 @@
       "physical_traits": "Styled medium-length hair with highlights, athletic gamer build, medium skin tone, expressive face",
       "typical_clothing": "Gaming jersey or branded esports hoodie in red/orange tones, gaming headset around neck, casual athletic wear",
       "distinctive_features": "Energetic expressions, excited gestures, competitive gamer vibe, enthusiastic presence",
-      "context_matching": ["gaming_setup", "competitive_arena"]
+      "context_matching": [
+        "gaming_setup",
+        "competitive_arena"
+      ]
     }
   },
   "video_style_mode": {

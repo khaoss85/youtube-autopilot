@@ -3,6 +3,8 @@ Video Assembly Service: Combines video clips and audio using ffmpeg.
 
 This service uses ffmpeg to concatenate video clips, mix audio tracks,
 and produce the final video file ready for upload.
+
+Step 10: Per-scene audio synchronization for perfect alignment
 """
 
 import subprocess
@@ -292,6 +294,261 @@ def assemble_final_video(
 
     except subprocess.TimeoutExpired:
         error_msg = "ffmpeg processing timed out after 5 minutes"
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
+
+    except Exception as e:
+        logger.error(f"Video assembly failed: {e}")
+        raise
+
+
+def assemble_final_video_with_scene_audio(
+    scene_paths: List[str],
+    scene_audio_paths: List[str],
+    visuals: VisualPlan,
+    asset_paths: AssetPaths,
+    workspace_config: dict = None
+) -> str:
+    """
+    Assembles final video from scene clips with per-scene audio synchronization.
+
+    Step 10: Perfect audio-video sync by matching each scene with its own audio.
+
+    This function processes each scene video with its corresponding audio file,
+    ensuring precise synchronization. Each scene is paired 1:1 with its audio
+    before concatenation, eliminating timing drift issues.
+
+    Process:
+    1. Verify scene_paths and scene_audio_paths match in length
+    2. For each scene-audio pair, create synchronized segment using ffmpeg
+    3. Concatenate all synchronized segments
+    4. Add lower thirds with narrator name if enabled (Step 09)
+    5. Export final video optimized for YouTube Shorts
+
+    Args:
+        scene_paths: List of paths to scene video files (.mp4), ordered
+        scene_audio_paths: List of paths to scene audio files (.mp3), ordered (must match scene_paths length)
+        visuals: Visual plan for metadata and timing
+        asset_paths: AssetPaths object for organized output directory
+        workspace_config: Optional workspace configuration with visual_brand_manual (Step 09)
+
+    Returns:
+        Path to final assembled video (.mp4) in asset-specific directory
+
+    Raises:
+        RuntimeError: If ffmpeg is not available or assembly fails
+        ValueError: If scene_paths and scene_audio_paths don't match in length
+        FileNotFoundError: If input files don't exist
+
+    Example:
+        >>> scene_paths = ["./output/vid1/scenes/scene_1.mp4", "./output/vid1/scenes/scene_2.mp4"]
+        >>> audio_paths = ["./output/vid1/voiceover_scene_001.mp3", "./output/vid1/voiceover_scene_002.mp3"]
+        >>> final_video = assemble_final_video_with_scene_audio(scene_paths, audio_paths, plan, paths)
+        >>> print(f"Final video: {final_video}")
+        Final video: ./output/video_123/final_video.mp4
+    """
+    logger.info("=" * 70)
+    logger.info("VIDEO ASSEMBLY: Starting ffmpeg processing (per-scene audio mode)")
+    logger.info(f"  Input scenes: {len(scene_paths)}")
+    logger.info(f"  Audio files: {len(scene_audio_paths)}")
+    logger.info(f"  Aspect ratio: {visuals.aspect_ratio}")
+    logger.info("=" * 70)
+
+    # Validate inputs
+    if len(scene_paths) != len(scene_audio_paths):
+        raise ValueError(
+            f"Scene count ({len(scene_paths)}) must match audio count ({len(scene_audio_paths)})"
+        )
+
+    if not scene_paths:
+        raise ValueError("No scene paths provided")
+
+    # Check ffmpeg availability
+    if not _check_ffmpeg_available():
+        error_msg = (
+            "ffmpeg is not installed or not in PATH. "
+            "Install ffmpeg: brew install ffmpeg (macOS) or apt-get install ffmpeg (Linux)"
+        )
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
+
+    # Verify input files exist
+    for scene_path in scene_paths:
+        if not Path(scene_path).exists():
+            raise FileNotFoundError(f"Scene file not found: {scene_path}")
+
+    for audio_path in scene_audio_paths:
+        if not Path(audio_path).exists():
+            raise FileNotFoundError(f"Audio file not found: {audio_path}")
+
+    config = get_config()
+    temp_dir = config["TEMP_DIR"]
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    # Step 1: Create synchronized scene+audio segments
+    logger.info("Step 1: Creating synchronized scene+audio segments...")
+    synced_segments = []
+
+    for idx, (scene_path, audio_path) in enumerate(zip(scene_paths, scene_audio_paths), start=1):
+        logger.info(f"  Processing scene {idx}/{len(scene_paths)}...")
+        logger.debug(f"    Video: {Path(scene_path).name}")
+        logger.debug(f"    Audio: {Path(audio_path).name}")
+
+        # Create temporary synchronized segment
+        synced_segment_path = temp_dir / f"synced_segment_{idx:03d}.mp4"
+
+        # ffmpeg command to overlay audio on video
+        # Use video duration as reference (keep video stream, replace audio)
+        ffmpeg_cmd = [
+            "ffmpeg",
+            "-y",  # Overwrite if exists
+            "-i", str(scene_path),  # Video input
+            "-i", str(audio_path),  # Audio input
+            "-c:v", "copy",  # Copy video stream (no re-encoding)
+            "-c:a", "aac",  # Encode audio as AAC
+            "-b:a", "128k",  # Audio bitrate
+            "-map", "0:v:0",  # Use video from first input
+            "-map", "1:a:0",  # Use audio from second input
+            "-shortest",  # Match shortest stream (either video or audio)
+            str(synced_segment_path)
+        ]
+
+        try:
+            result = subprocess.run(
+                ffmpeg_cmd,
+                capture_output=True,
+                text=True,
+                timeout=120  # 2 minute timeout per scene
+            )
+
+            if result.returncode != 0:
+                logger.error(f"ffmpeg failed for scene {idx}:")
+                logger.error(f"STDERR: {result.stderr}")
+                raise RuntimeError(f"ffmpeg failed for scene {idx} with return code {result.returncode}")
+
+            if not synced_segment_path.exists():
+                raise RuntimeError(f"Synced segment {idx} was not created")
+
+            synced_segments.append(str(synced_segment_path))
+            logger.info(f"    ✓ Synced segment {idx} created")
+
+        except subprocess.TimeoutExpired:
+            error_msg = f"ffmpeg timed out processing scene {idx}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+
+    logger.info(f"✓ All {len(synced_segments)} segments synchronized")
+
+    # Step 2: Concatenate all synced segments
+    logger.info("Step 2: Concatenating synchronized segments...")
+
+    # Create concat file for ffmpeg
+    concat_file = temp_dir / "synced_filelist.txt"
+    with open(concat_file, "w") as f:
+        for segment_path in synced_segments:
+            abs_path = Path(segment_path).resolve()
+            f.write(f"file '{abs_path}'\n")
+
+    logger.info(f"  Created concat file: {concat_file}")
+
+    # Output file
+    output_file = Path(asset_paths.final_video_path)
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+
+    # Step 09: Check if lower thirds should be added
+    use_lower_thirds = False
+    lower_thirds_filter = None
+
+    if workspace_config:
+        brand_manual = workspace_config.get('visual_brand_manual', {})
+        narrator_config = workspace_config.get('narrator_persona', {})
+
+        if brand_manual.get('enabled'):
+            lower_thirds_config = brand_manual.get('lower_thirds', {})
+
+            if (lower_thirds_config.get('enabled') and
+                lower_thirds_config.get('display_narrator_name') and
+                narrator_config.get('enabled') and
+                narrator_config.get('name')):
+
+                use_lower_thirds = True
+                lower_thirds_filter = _build_lower_thirds_filter(narrator_config, lower_thirds_config)
+                logger.info(f"  Adding lower thirds: '{narrator_config.get('name')}'")
+                logger.info(f"  Position: {lower_thirds_config.get('position', 'bottom_left')}")
+                logger.info(f"  Duration: {lower_thirds_config.get('duration_seconds', 3)}s")
+
+    # Build ffmpeg command for concatenation
+    ffmpeg_cmd = [
+        "ffmpeg",
+        "-y",  # Overwrite output file if exists
+        "-f", "concat",
+        "-safe", "0",
+        "-i", str(concat_file),  # Input: concatenated synced segments
+    ]
+
+    # Step 09: Add video filter if lower thirds enabled
+    if use_lower_thirds and lower_thirds_filter:
+        ffmpeg_cmd.extend(["-vf", lower_thirds_filter])
+        # Need to re-encode video to apply filter
+        ffmpeg_cmd.extend([
+            "-c:v", "libx264",  # Video codec
+            "-preset", "fast",  # Encoding speed/quality tradeoff
+            "-crf", "23",  # Quality (lower = better, 18-28 range)
+        ])
+    else:
+        # No filter, can copy video stream
+        ffmpeg_cmd.extend(["-c:v", "copy"])
+
+    # Add audio and output parameters
+    ffmpeg_cmd.extend([
+        "-c:a", "copy",  # Copy audio (already encoded in segments)
+        "-movflags", "+faststart",  # Enable streaming
+        str(output_file)
+    ])
+
+    logger.info("Executing ffmpeg concatenation...")
+    logger.debug(f"Command: {' '.join(ffmpeg_cmd)}")
+
+    try:
+        result = subprocess.run(
+            ffmpeg_cmd,
+            capture_output=True,
+            text=True,
+            timeout=300  # 5 minute timeout
+        )
+
+        if result.returncode != 0:
+            logger.error("ffmpeg concatenation failed:")
+            logger.error(f"STDOUT: {result.stdout}")
+            logger.error(f"STDERR: {result.stderr}")
+            raise RuntimeError(f"ffmpeg failed with return code {result.returncode}")
+
+        logger.info("✓ ffmpeg concatenation complete")
+
+        # Verify output file was created
+        if not output_file.exists():
+            raise RuntimeError("Output video file was not created")
+
+        file_size_mb = output_file.stat().st_size / (1024 * 1024)
+        logger.info(f"✓ Final video saved: {output_file}")
+        logger.info(f"  File size: {file_size_mb:.2f} MB")
+
+        # Clean up temporary synced segments
+        logger.info("Cleaning up temporary files...")
+        for segment_path in synced_segments:
+            try:
+                Path(segment_path).unlink()
+            except Exception as e:
+                logger.warning(f"  Failed to delete temporary file {segment_path}: {e}")
+
+        logger.info("=" * 70)
+        logger.info("VIDEO ASSEMBLY COMPLETE (per-scene audio mode)")
+        logger.info("=" * 70)
+
+        return str(output_file)
+
+    except subprocess.TimeoutExpired:
+        error_msg = "ffmpeg concatenation timed out after 5 minutes"
         logger.error(error_msg)
         raise RuntimeError(error_msg)
 

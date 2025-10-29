@@ -104,12 +104,12 @@ def register_scene_path(asset_paths: AssetPaths, scene_id: int, scene_path: str)
     Note:
         Modifies asset_paths.scene_video_paths in place.
     """
-    # Ensure the list is large enough
-    while len(asset_paths.scene_video_paths) < scene_id:
+    # Ensure the list is large enough (support 0-indexed scene_id)
+    while len(asset_paths.scene_video_paths) <= scene_id:
         asset_paths.scene_video_paths.append("")
 
-    # Set the path at the correct index (scene_id is 1-indexed)
-    asset_paths.scene_video_paths[scene_id - 1] = scene_path
+    # Set the path at the correct index (scene_id is 0-indexed)
+    asset_paths.scene_video_paths[scene_id] = scene_path
     logger.debug(f"Registered scene {scene_id} path: {scene_path}")
 
 
@@ -161,3 +161,43 @@ def cleanup_temp_files(video_id: str, temp_dir: str = "tmp") -> None:
 
     if removed_count > 0:
         logger.info(f"Cleaned up {removed_count} temporary files for video {video_id}")
+
+
+def delete_video_assets(video_id: str, base_output_dir: str = "output") -> bool:
+    """
+    Deletes all asset files for a specific video.
+
+    Removes the entire output directory for the video, including:
+    - Final video
+    - Thumbnail
+    - Voiceover
+    - Scene videos
+    - Metadata
+    - Intro/outro (if present)
+
+    Args:
+        video_id: Unique identifier for the video
+        base_output_dir: Base output directory (default: "output")
+
+    Returns:
+        True if directory was deleted, False if it didn't exist
+
+    Example:
+        >>> delete_video_assets("20250125_123456_gardening")
+        True
+    """
+    import shutil
+
+    output_dir = Path(base_output_dir) / video_id
+
+    if not output_dir.exists():
+        logger.debug(f"Asset directory does not exist: {output_dir}")
+        return False
+
+    try:
+        shutil.rmtree(output_dir)
+        logger.info(f"✓ Deleted asset directory: {output_dir}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to delete asset directory {output_dir}: {e}")
+        return False

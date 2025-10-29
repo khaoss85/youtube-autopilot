@@ -7,6 +7,7 @@ to generate voiceover audio from video scripts.
 Step 07 Integration: Real TTS with automatic fallback to silent audio
 Step 07.2 Integration: Creator-grade Italian voice with energetic, natural tone
 Step 07.3 Integration: Scene-aware generation with timing metadata for sync
+Step 10 Integration: Per-scene audio generation for perfect sync alignment
 """
 
 import os
@@ -263,3 +264,107 @@ def synthesize_voiceover(
             error_msg = f"Unexpected error generating silent voiceover: {e}"
             logger.error(f"  ✗ {error_msg}")
             raise RuntimeError(error_msg) from e
+
+
+def synthesize_voiceover_per_scene(
+    script: VideoScript,
+    asset_paths: AssetPaths,
+    voice_id: str = "alloy",
+    workspace_config: dict = None
+) -> list[str]:
+    """
+    Converts script text to per-scene speech audio files for precise synchronization.
+
+    Step 10: Per-scene audio generation for perfect video-audio sync alignment.
+
+    This function generates a separate audio file for each scene in the script,
+    allowing perfect synchronization during video assembly. Each scene's audio
+    is timed precisely to match its visual duration.
+
+    Args:
+        script: Video script with scene_voiceover_map
+        asset_paths: AssetPaths object for organized output directory
+        voice_id: TTS voice identifier (default: "alloy" for OpenAI)
+                  NOTE: Overridden by workspace_config.voice_config if provided
+        workspace_config: Optional workspace configuration dict with voice_config
+
+    Returns:
+        List of paths to generated audio files (one per scene) in order
+
+    Raises:
+        RuntimeError: If TTS API call fails or scene_voiceover_map is missing
+
+    Example:
+        >>> audio_paths = synthesize_voiceover_per_scene(script, paths, workspace_config=config)
+        >>> print(f"Generated {len(audio_paths)} scene audio files")
+        Generated 4 scene audio files
+    """
+    # Validate scene_voiceover_map exists
+    if not script.scene_voiceover_map or len(script.scene_voiceover_map) == 0:
+        raise RuntimeError("Cannot generate per-scene audio: script.scene_voiceover_map is empty")
+
+    # Step 09: Extract voice configuration from workspace if provided
+    if workspace_config:
+        voice_config = workspace_config.get('voice_config', {})
+        configured_voice = voice_config.get('voice_model', voice_id)
+        configured_speed = voice_config.get('speed', 1.05)
+
+        logger.info("Synthesizing per-scene voiceover audio (workspace-configured)...")
+        logger.info(f"  Workspace voice config:")
+        logger.info(f"    Voice model: {configured_voice}")
+        logger.info(f"    Speed: {configured_speed}")
+
+        # Use workspace voice config
+        voice_id = configured_voice
+        speed = configured_speed
+    else:
+        # Legacy mode: use default parameters
+        logger.info("Synthesizing per-scene voiceover audio (default config)...")
+        logger.info(f"  Voice ID: {voice_id}")
+        speed = 1.05  # Default speed
+
+    scene_count = len(script.scene_voiceover_map)
+    total_scene_duration = sum(s.est_duration_seconds for s in script.scene_voiceover_map)
+    logger.info(f"  Scene count: {scene_count}")
+    logger.info(f"  Total estimated duration: {total_scene_duration}s")
+
+    audio_paths = []
+
+    # Generate audio for each scene
+    for idx, scene in enumerate(script.scene_voiceover_map, start=1):
+        scene_id = scene.scene_id
+        scene_text = scene.voiceover_text
+
+        text_preview = scene_text[:60] + "..." if len(scene_text) > 60 else scene_text
+        logger.info(f"  Scene {idx}/{scene_count} (ID: {scene_id}): {scene.est_duration_seconds}s")
+        logger.debug(f"    Text: \"{text_preview}\"")
+
+        try:
+            # Call TTS provider for this scene
+            audio_bytes = _call_tts_provider(scene_text, voice_id, speed)
+
+            # Generate scene-specific filename
+            # Format: voiceover_scene_001.mp3, voiceover_scene_002.mp3, etc.
+            base_path = Path(asset_paths.voiceover_path)
+            scene_audio_filename = f"{base_path.stem}_scene_{scene_id:03d}{base_path.suffix}"
+            scene_audio_path = base_path.parent / scene_audio_filename
+
+            # Ensure directory exists and save audio
+            scene_audio_path.parent.mkdir(parents=True, exist_ok=True)
+            scene_audio_path.write_bytes(audio_bytes)
+
+            logger.info(f"    ✓ Scene audio generated: {scene_audio_filename}")
+            logger.debug(f"      File size: {len(audio_bytes):,} bytes ({len(audio_bytes) / 1024:.1f} KB)")
+
+            audio_paths.append(str(scene_audio_path))
+
+        except RuntimeError as e:
+            error_msg = f"Failed to generate audio for scene {scene_id}: {e}"
+            logger.error(f"    ✗ {error_msg}")
+            raise RuntimeError(error_msg) from e
+
+    logger.info(f"✓ Per-scene TTS voiceover generation complete")
+    logger.info(f"  Generated {len(audio_paths)} audio files")
+    logger.info(f"  Total size: {sum(Path(p).stat().st_size for p in audio_paths):,} bytes")
+
+    return audio_paths

@@ -134,7 +134,7 @@ def _call_anthropic(api_key: str, role: str, prompt: str) -> Optional[str]:
         # Call Claude with appropriate model
         # Using Claude 3.5 Sonnet for balance of speed and quality
         response = client.messages.create(
-            model="claude-3-5-sonnet-20241022",  # Latest Claude model
+            model="claude-3-5-sonnet-20241220",  # Latest Claude model (updated from deprecated 20241022)
             max_tokens=2048,
             temperature=0.7,  # Moderate creativity
             messages=[

@@ -14,13 +14,7 @@
     "uso di musica protetta da copyright"
   ],
   "recent_titles": [
-    "If you can do 20 push-ups, you’re closer to a 90° than you think 🔥 - Tutti Ne Parlano!",
-    "FIX YOUR MUSCLE UP With ONLY 5 Exercises 💪🏽 - Tutti Ne Parlano!",
-    "17 Minute Beginner Stretch Routine V6! (FOLLOW ALONG) - Tutti Ne Parlano!",
-    "SFIDO IL BAVARO SU 7 PROVE DI FORZA (COSA HA VINTO?) - Tutti Ne Parlano!",
-    "ALLENO LE BRACCIA CON UN 212 - RAW SERIES - Tutti Ne Parlano!",
-    "REAGISCO ALL'OLYMPIA CON MIA MADRE! - Tutti Ne Parlano!",
-    "SHOULDER DAY CON SAMSON DAUDA | MR. OLYMPIA 2024 - RAW SERIES - Tutti Ne Parlano!"
+    "LEG DAY CON SAMSON DAUDA | MR. OLYMPIA 2024 - RAW SERIES - Tutti Ne Parlano!"
   ],
   "narrator_persona": {
     "enabled": true,
@@ -104,11 +98,15 @@
       "physical_traits": "Short dark brown hair, athletic muscular build, medium-tan skin tone, clean-shaven",
       "typical_clothing": "Black fitted athletic tank top or t-shirt, dark training shorts, white athletic sneakers",
       "distinctive_features": "Confident smile, strong posture, energetic presence",
-      "context_matching": ["home_gym", "outdoor_training"]
+      "context_matching": [
+        "home_gym",
+        "outdoor_training"
+      ]
     }
   },
   "video_style_mode": {
     "type": "character_based",
+    "use_single_long_video": true,
     "ai_style_preferences": {
       "vertical_aesthetic": "energetic_fitness",
       "brand_vibe": "motivational, supportive, results-driven",

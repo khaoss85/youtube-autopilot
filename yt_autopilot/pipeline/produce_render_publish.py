@@ -43,8 +43,8 @@ from yt_autopilot.pipeline.build_video_package import build_video_package
 
 # Import from services (factory)
 from yt_autopilot.services.video_gen_service import generate_scenes
-from yt_autopilot.services.tts_service import synthesize_voiceover
-from yt_autopilot.services.video_assemble_service import assemble_final_video
+from yt_autopilot.services.tts_service import synthesize_voiceover, synthesize_voiceover_per_scene  # Step 10
+from yt_autopilot.services.video_assemble_service import assemble_final_video, assemble_final_video_with_scene_audio  # Step 10
 from yt_autopilot.services.thumbnail_service import generate_thumbnail
 from yt_autopilot.services.youtube_uploader import upload_and_schedule
 from yt_autopilot.services import provider_tracker
@@ -309,13 +309,13 @@ def produce_render_assets(script_internal_id: str) -> Dict[str, Any]:
     logger.info(f"  Text length: {len(ready.script.full_voiceover_text)} chars")
 
     try:
-        # Step 09: Pass workspace_config for voice consistency
-        voiceover_path = synthesize_voiceover(
+        # Step 10: Use per-scene audio generation for perfect sync
+        scene_audio_paths = synthesize_voiceover_per_scene(
             ready.script,
             asset_paths,
             workspace_config=workspace_config
         )
-        logger.info(f"✓ Voiceover generated: {voiceover_path}")
+        logger.info(f"✓ Voiceover generated: {len(scene_audio_paths)} audio files")
     except Exception as e:
         logger.error(f"✗ Voiceover generation failed: {e}")
         raise RuntimeError(f"TTS voiceover generation failed: {e}")
@@ -325,11 +325,10 @@ def produce_render_assets(script_internal_id: str) -> Dict[str, Any]:
     logger.info("STEP 4/5: Assembling final video...")
 
     try:
-        # Step 07.4: Pass asset_paths for organized output
-        # Step 09: Pass workspace_config for lower thirds with narrator name
-        final_video_path = assemble_final_video(
+        # Step 10: Use per-scene audio assembly for perfect sync
+        final_video_path = assemble_final_video_with_scene_audio(
             scene_paths=scene_paths,
-            voiceover_path=voiceover_path,
+            scene_audio_paths=scene_audio_paths,
             visuals=ready.visuals,
             asset_paths=asset_paths,
             workspace_config=workspace_config

@@ -112,6 +112,9 @@ def _attempt_script_improvement(
     """
     Attempts to improve script based on quality reviewer feedback.
 
+    Step 09: Preserves narrator persona when present instead of using
+    generic fallback templates.
+
     This is a simplified improvement strategy. In production, this could
     use LLM to intelligently revise content based on specific issues.
 
@@ -126,6 +129,11 @@ def _attempt_script_improvement(
     """
     logger.info(f"Attempting script improvement based on feedback: {reason[:100]}...")
 
+    # Step 09: Check if narrator persona is present
+    narrator_config = memory.get('narrator_persona', {})
+    has_narrator = narrator_config.get('enabled', False)
+    narrator_name = narrator_config.get('name', '') if has_narrator else None
+
     # Create improved version based on common rejection patterns
     improved_hook = script.hook
     improved_bullets = script.bullets.copy()
@@ -133,8 +141,15 @@ def _attempt_script_improvement(
 
     # If hook is weak, make it stronger
     if "hook" in reason.lower() or "attention" in reason.lower():
-        improved_hook = f"ATTENZIONE: {plan.working_title} sta esplodendo! Ecco cosa devi sapere ORA."
-        logger.debug("Strengthened hook for better attention capture")
+        # Step 09: Preserve narrator persona in hook if present
+        if has_narrator and narrator_name and narrator_name.lower() in script.hook.lower():
+            # Narrator already in hook - just ensure it's strong enough
+            # Keep the LLM-generated hook as-is (it likely passed now with relaxed check)
+            logger.debug(f"Preserving narrator persona hook with {narrator_name}")
+        else:
+            # Generic hook strengthening
+            improved_hook = f"ATTENZIONE: {plan.working_title} sta esplodendo! Ecco cosa devi sapere ORA."
+            logger.debug("Strengthened hook for better attention capture")
 
     # If too long, trim content
     if "too long" in reason.lower() or "duration" in reason.lower() or "durata" in reason.lower():
@@ -390,7 +405,11 @@ Analyze which trend has the BEST strategic fit considering:
 2. **Audience Engagement**: Will our specific audience connect with this?
 3. **Timing Advantage**: Is this the right moment to publish on this topic?
 4. **Content Uniqueness**: Can we offer a differentiated angle?
-5. **Production Viability**: Can we execute this well with our resources?
+5. **Production Viability & Reproducibility**: Can we execute this well with our resources?
+   - CRITICAL: Can we create this content SOLO without specific named collaborators?
+   - SKIP any trends requiring specific people/influencers (e.g., "Challenge with [Name]", "Interview with [Person]")
+   - SKIP any trends requiring specific events we didn't attend (e.g., "My experience at [Event]")
+   - OK: General formats we can replicate (tutorials, reviews, tips, challenges WE can do solo)
 6. **SEMANTIC DUPLICATE CHECK**: Is ANY candidate too similar (CONCEPTUALLY) to our recent videos?
 
 **CRITICAL - Semantic Similarity Rules:**
@@ -415,11 +434,12 @@ Analyze which trend has the BEST strategic fit considering:
 
 Return ONLY a JSON object:
 {{
-  "selected_index": <0 to {len(top_candidates)-1}, or -1 if all are duplicates>,
+  "selected_index": <0 to {len(top_candidates)-1}, or -1 if all are duplicates/unreproducible>,
   "title": "<exact title of selected trend>",
   "reasoning": "<2-3 sentences explaining why this is strategically best>",
   "duplicate_analysis": "<Assessment of semantic similarity with recent videos>",
-  "skipped_candidates": [<list of candidate indices (0-{len(top_candidates)-1}) skipped for being semantic duplicates>]
+  "reproducibility_analysis": "<Assessment of whether we can create this content solo>",
+  "skipped_candidates": [<list of candidate indices (0-{len(top_candidates)-1}) skipped for being semantic duplicates or unreproducible>]
 }}"""
 
             # Call LLM
@@ -463,13 +483,16 @@ Return ONLY a JSON object:
             ai_index = ai_response.get("selected_index", 0)
             ai_reasoning = ai_response.get("reasoning", "No reasoning provided")
             duplicate_analysis = ai_response.get("duplicate_analysis", "")
+            reproducibility_analysis = ai_response.get("reproducibility_analysis", "")
             skipped_candidates = ai_response.get("skipped_candidates", [])
 
-            # Log duplicate analysis
+            # Log analyses
             if duplicate_analysis:
                 logger.info(f"  AI duplicate analysis: {duplicate_analysis}")
+            if reproducibility_analysis:
+                logger.info(f"  AI reproducibility analysis: {reproducibility_analysis}")
             if skipped_candidates:
-                logger.info(f"  AI skipped candidates for semantic duplicates: {skipped_candidates}")
+                logger.info(f"  AI skipped candidates (duplicates/unreproducible): {skipped_candidates}")
 
             # Validate index and check for duplicate conflicts
             if ai_index == -1:
@@ -537,6 +560,7 @@ Return ONLY a JSON object:
     logger.info("  Step 4a: Calling LLM for creative script generation...")
 
     brand_tone = workspace.get('brand_tone', 'Direct, positive, educational')
+    target_language = workspace.get('target_language', 'en')  # Step 10: Language consistency
 
     # Step 09: Check if narrator persona is enabled
     narrator = workspace.get('narrator_persona', {})
@@ -548,13 +572,15 @@ Return ONLY a JSON object:
         logger.info("  Using narrator persona-aware prompt...")
         logger.info(f"  Narrator: {narrator.get('name', 'Unknown')}")
         logger.info(f"  Relationship: {narrator.get('relationship', 'Unknown')}")
+        logger.info(f"  Target language: {target_language}")  # Step 10
 
         llm_task = _build_persona_aware_prompt(
             plan=video_plan,
             narrator=narrator,
             content_formula=content_formula,
             series_format=series_format,
-            brand_tone=brand_tone
+            brand_tone=brand_tone,
+            target_language=target_language  # Step 10
         )
 
         # Context for narrator-aware prompt (strategic angle only, prompt has full context)

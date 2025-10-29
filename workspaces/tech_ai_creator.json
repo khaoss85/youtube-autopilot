@@ -11,19 +11,7 @@
     "promesse di cure mediche garantite",
     "uso di musica protetta da copyright"
   ],
-  "recent_titles": [
-    "Espionage #softwareengineer #webdevelopment #javascript #programmerhumor #programming #coding #espio",
-    "US-EAST-1 is humanity’s weakest link… - Tutti Ne Parlano!",
-    "Tech investor declares 'AI games are going to be amazing,' posts an AI-generated 'demo' of a god-...",
-    "Sora might have a 'pervert' problem on its hands - Tutti Ne Parlano!",
-    "Strategie di produttività con AI tools - Tutti Ne Parlano!",
-    "Programmazione Python per principianti 2025 - Tutti Ne Parlano!",
-    "Home office setup professionale - Tutti Ne Parlano!",
-    "A worker fell into a nuclear reactor pool - Tutti Ne Parlano!",
-    "I rebuilt DeepSeek's OCR model in Rust so anyone can run it locally (no Python!) - Tutti Ne Parlano!",
-    "Ludicrous $6 billion Counter Strike 2 skins market crashes, loses $3 billion overnight — game upd...",
-    "A single point of failure triggered the Amazon outage affecting millions | A DNS manager in a sin..."
-  ],
+  "recent_titles": [],
   "narrator_persona": {
     "enabled": true,
     "name": "Tech Insider",
@@ -76,14 +64,22 @@
       {
         "context_id": "coding_workspace",
         "name": "Modern Coding Workspace",
-        "applicable_formats": ["tutorial", "how_to", "code_review"],
+        "applicable_formats": [
+          "tutorial",
+          "how_to",
+          "code_review"
+        ],
         "veo_prompt_prefix": "Modern developer workspace, multiple monitors with code visible, keyboard and mouse on desk, tech gadgets, LED lighting, clean minimalist setup, tech aesthetic",
         "use_frequency": 0.6
       },
       {
         "context_id": "tech_news_studio",
         "name": "Tech News Studio",
-        "applicable_formats": ["news_flash", "breaking", "industry_update"],
+        "applicable_formats": [
+          "news_flash",
+          "breaking",
+          "industry_update"
+        ],
         "veo_prompt_prefix": "Professional tech studio setup, clean background with tech company logos visible, modern lighting, broadcast quality, sleek contemporary design",
         "use_frequency": 0.4
       }
@@ -97,7 +93,10 @@
       "physical_traits": "Neat short black hair, slim athletic build, light skin tone, clean modern look",
       "typical_clothing": "Dark navy blue hoodie or casual tech company t-shirt, black jeans, sneakers",
       "distinctive_features": "Focused expression, hand gestures when explaining, tech-savvy demeanor",
-      "context_matching": ["coding_workspace", "tech_news_studio"]
+      "context_matching": [
+        "coding_workspace",
+        "tech_news_studio"
+      ]
     }
   },
   "video_style_mode": {

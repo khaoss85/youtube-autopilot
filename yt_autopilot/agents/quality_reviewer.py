@@ -179,21 +179,35 @@ def _check_brand_tone_compliance(script: VideoScript, brand_tone: str) -> Tuple[
     return True, ""
 
 
-def _check_hook_quality(script: VideoScript) -> Tuple[bool, str]:
+def _check_hook_quality(script: VideoScript, narrator_config: Dict = None) -> Tuple[bool, str]:
     """
     Checks if hook is strong enough to capture attention.
 
+    Step 09: Relaxed validation when narrator persona is present.
+    Narrator-driven hooks may be conversational and don't need to be
+    as aggressive/clickbaity as generic hooks.
+
     Args:
         script: Video script
+        narrator_config: Narrator persona configuration (Step 09)
 
     Returns:
         (is_good, issue_description)
     """
     hook = script.hook
 
+    # Step 09: If narrator persona is present and identified in hook, be more tolerant
+    has_narrator = False
+    if narrator_config and narrator_config.get('enabled'):
+        narrator_name = narrator_config.get('name', '').lower()
+        if narrator_name and narrator_name in hook.lower():
+            has_narrator = True
+
     # Hook should not be empty or too short
-    if len(hook) < 15:
-        return False, "Hook too short (< 15 chars) - won't capture attention in first 3 seconds"
+    # Step 09: Narrator hooks can be shorter (conversational style)
+    min_length = 10 if has_narrator else 15
+    if len(hook) < min_length:
+        return False, f"Hook too short (< {min_length} chars) - won't capture attention in first 3 seconds"
 
     # Hook should not be too long
     if len(hook) > 200:
@@ -379,7 +393,7 @@ def review(
         ("Copyright", lambda: _check_copyright_violations(all_text)),
         ("Brand Tone", lambda: _check_brand_tone_compliance(script, brand_tone)),
         ("Narrator Persona", lambda: _check_narrator_persona_consistency(script, narrator_config)),  # Step 09
-        ("Hook Quality", lambda: _check_hook_quality(script)),
+        ("Hook Quality", lambda: _check_hook_quality(script, narrator_config)),  # Step 09: Pass narrator config
         ("Video Duration", lambda: _check_video_duration(visuals)),
         ("Title Quality", lambda: _check_title_quality(publishing)),
     ]

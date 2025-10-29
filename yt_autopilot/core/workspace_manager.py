@@ -317,6 +317,48 @@ def update_workspace_recent_titles(workspace_id: str, new_title: str, max_titles
     logger.debug(f"Updated recent titles for workspace '{workspace_id}' (now {len(recent_titles)} titles)")
 
 
+def clear_workspace_recent_titles(workspace_id: str):
+    """
+    Clears all recent titles from a workspace.
+
+    Args:
+        workspace_id: Workspace to clear titles from
+    """
+    config = load_workspace_config(workspace_id)
+    config["recent_titles"] = []
+    save_workspace_config(workspace_id, config)
+    logger.info(f"Cleared recent titles for workspace '{workspace_id}'")
+
+
+def reset_workspace(workspace_id: str, keep_published: bool = True) -> Dict[str, int]:
+    """
+    Resets a workspace by clearing recent titles and deleting unpublished records.
+
+    Args:
+        workspace_id: Workspace to reset
+        keep_published: If True, keeps SCHEDULED_ON_YOUTUBE records (default: True)
+
+    Returns:
+        Dict with counts: {'titles_cleared': N, 'records_deleted': N}
+    """
+    from yt_autopilot.io.datastore import delete_workspace_records
+
+    # Clear recent titles
+    config = load_workspace_config(workspace_id)
+    titles_count = len(config.get('recent_titles', []))
+    clear_workspace_recent_titles(workspace_id)
+
+    # Delete unpublished records
+    records_deleted = delete_workspace_records(workspace_id, keep_published=keep_published)
+
+    logger.info(f"Reset workspace '{workspace_id}': cleared {titles_count} titles, deleted {records_deleted} records")
+
+    return {
+        'titles_cleared': titles_count,
+        'records_deleted': records_deleted
+    }
+
+
 def get_workspace_info(workspace_id: str) -> str:
     """
     Gets formatted workspace information for display.

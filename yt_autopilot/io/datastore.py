@@ -1117,3 +1117,124 @@ def is_topic_already_produced(working_title: str, workspace_id: Optional[str] = 
 
     logger.debug("  No duplicates found")
     return False
+
+
+def list_workspace_records(workspace_id: str, include_all_states: bool = True) -> List[Dict[str, Any]]:
+    """
+    Lists all records for a specific workspace.
+
+    Args:
+        workspace_id: Workspace to list records for
+        include_all_states: If True, includes all states. If False, only unpublished.
+
+    Returns:
+        List of record dicts for the workspace
+
+    Example:
+        >>> records = list_workspace_records("finance_master")
+        >>> print(f"Found {len(records)} records")
+    """
+    logger.info(f"Listing records for workspace: {workspace_id}")
+
+    datastore_path = _get_datastore_path()
+
+    if not datastore_path.exists():
+        logger.warning("Datastore file does not exist yet")
+        return []
+
+    records = []
+    with open(datastore_path, "r", encoding="utf-8") as f:
+        for line in f:
+            if not line.strip():
+                continue
+
+            record = json.loads(line.strip())
+
+            # Filter by workspace_id
+            if record.get("workspace_id") != workspace_id:
+                continue
+
+            # Filter by state if needed
+            if not include_all_states:
+                state = record.get("production_state")
+                if state == "SCHEDULED_ON_YOUTUBE":
+                    continue
+
+            records.append(record)
+
+    logger.info(f"✓ Found {len(records)} records for workspace '{workspace_id}'")
+    return records
+
+
+def delete_workspace_records(workspace_id: str, keep_published: bool = True) -> int:
+    """
+    Deletes records for a specific workspace from the datastore.
+
+    Creates a timestamped backup before deletion.
+
+    Args:
+        workspace_id: Workspace to delete records from
+        keep_published: If True, keeps SCHEDULED_ON_YOUTUBE records (default: True)
+
+    Returns:
+        Number of records deleted
+
+    Example:
+        >>> deleted = delete_workspace_records("finance_master", keep_published=True)
+        >>> print(f"Deleted {deleted} unpublished records")
+    """
+    logger.info(f"Deleting records for workspace: {workspace_id}")
+    logger.info(f"  Keep published: {keep_published}")
+
+    datastore_path = _get_datastore_path()
+
+    if not datastore_path.exists():
+        logger.warning("Datastore file does not exist yet")
+        return 0
+
+    # Create backup with timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = datastore_path.parent / f"records.jsonl.backup_{timestamp}"
+
+    # Read all records
+    with open(datastore_path, "r", encoding="utf-8") as f:
+        all_records = [json.loads(line.strip()) for line in f if line.strip()]
+
+    # Create backup
+    with open(backup_path, "w", encoding="utf-8") as f:
+        for record in all_records:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    logger.info(f"✓ Backup created: {backup_path}")
+
+    # Filter records to keep
+    kept_records = []
+    deleted_count = 0
+
+    for record in all_records:
+        record_workspace = record.get("workspace_id")
+
+        # Keep records from other workspaces
+        if record_workspace != workspace_id:
+            kept_records.append(record)
+            continue
+
+        # Check if this is a published record
+        state = record.get("production_state")
+        if keep_published and state == "SCHEDULED_ON_YOUTUBE":
+            kept_records.append(record)
+            continue
+
+        # Delete this record
+        deleted_count += 1
+        logger.debug(f"  Deleting: {record.get('script_internal_id') or record.get('video_internal_id')} ({state})")
+
+    # Write filtered records back
+    with open(datastore_path, "w", encoding="utf-8") as f:
+        for record in kept_records:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    logger.info(f"✓ Deleted {deleted_count} records from workspace '{workspace_id}'")
+    logger.info(f"✓ Kept {len(kept_records)} records")
+
+    return deleted_count

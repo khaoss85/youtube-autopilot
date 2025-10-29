@@ -872,7 +872,9 @@ def _generate_ai_enhanced_scene_prompt(
     narrator_persona: Optional[Dict],
     target_language: str,
     recent_titles: List[str],
-    previous_scene_composition: Optional[Dict] = None
+    previous_scene_composition: Optional[Dict] = None,
+    character_description: Optional[str] = None,
+    video_style_mode: str = "faceless"
 ) -> Dict:
     """
     AI-enhanced scene prompt using LLM with FULL workspace context.
@@ -883,6 +885,7 @@ def _generate_ai_enhanced_scene_prompt(
     - Generates creative, personalized prompts
     - Falls back to deterministic if LLM fails
     - Maintains spatial continuity with previous scene composition
+    - Supports BOTH faceless and character-based modes
 
     Args:
         segment_name: Segment type (hook, content_X, outro)
@@ -892,13 +895,15 @@ def _generate_ai_enhanced_scene_prompt(
         total_scenes: Total scenes count
         series_format_name: Format name (tutorial, how_to, news_flash)
         vertical_id: Content vertical (finance, tech_ai, etc.)
-        ai_format: Visual format (animated_infographics, etc.)
+        ai_format: Visual format (animated_infographics, etc.) or "character_based"
         brand_manual: Brand identity with color palette
         brand_tone: Brand personality from workspace
         narrator_persona: Narrator identity (optional)
         target_language: Content language (en, it, etc.)
         recent_titles: Past successful video titles
         previous_scene_composition: Optional dict with shot, setting, spatial_anchor from previous scene
+        character_description: Optional character identity anchor for character-based mode
+        video_style_mode: "faceless" or "character_based"
 
     Returns:
         Dict with 'prompt' (str) and 'composition' (dict for next scene)
@@ -929,6 +934,16 @@ NARRATOR PERSONA:
 - Name: {narrator_persona.get('name', 'N/A')}
 - Identity: {narrator_persona.get('identity', 'N/A')}
 - Relationship: {narrator_persona.get('relationship', 'N/A')}
+"""
+
+    # Step 3b: Build character context for character-based mode
+    character_context = ""
+    if character_description and video_style_mode == "character_based":
+        character_context = f"""
+CHARACTER IDENTITY (Character-Based Mode):
+- {character_description}
+- CRITICAL: This character MUST be visible and consistent across ALL scenes
+- Maintain same person, clothing, and appearance throughout the video
 """
 
     recent_context = ""
@@ -974,7 +989,7 @@ BRAND VISUAL IDENTITY:
 - Secondary Color: {colors['secondary']}
 - Accent Color: {colors['accent']}
 - Background: {colors['background']}
-{narrator_context}
+{narrator_context}{character_context}
 EMOTIONAL ORCHESTRATION (Retention Optimization):
 - Energy Level: {emotional_context['energy_level']} (governs visual intensity)
 - Story Beat: {emotional_context['story_beat']} (narrative role in arc)
@@ -1017,7 +1032,7 @@ CINEMATIC REQUIREMENTS (7-Layer Structure):
    - {audio_cues}
 
 7. ESCLUSIONI:
-   - NO PEOPLE VISIBLE (faceless format)
+   - {"NO PEOPLE VISIBLE (faceless format)" if video_style_mode == "faceless" else "Character MUST be visible and consistent (character-based format)"}
    - NO text logos or branding
    - NO unrealistic physics
 
@@ -1091,7 +1106,7 @@ OUTPUT FORMAT: Direct prompt text only, no explanations."""
         brand_identity = {
             'colors': colors,
             'format': ai_format,
-            'mode': 'faceless'
+            'mode': video_style_mode
         }
 
         fallback_prompt = _build_7layer_cinematic_prompt(
@@ -1624,95 +1639,170 @@ def generate_visual_plan(
         vertical_id = workspace_config.get('vertical_id', 'education') if workspace_config else 'education'
         total_scenes = len(script.scene_voiceover_map)
 
-        # Track composition for spatial continuity across scenes
-        previous_scene_composition = None
+        # Step 10: Check if single long video mode is enabled (for character consistency)
+        use_single_long_video = False
+        if workspace_config:
+            video_style_config = workspace_config.get('video_style_mode', {})
+            use_single_long_video = video_style_config.get('use_single_long_video', False)
 
-        for scene_index, scene_vo in enumerate(script.scene_voiceover_map):
-            # Step 07.5: Use segment_type from script if available (set by ScriptWriter)
-            # Otherwise, determine based on scene position (legacy)
-            if hasattr(scene_vo, 'segment_type') and scene_vo.segment_type:
-                segment_name = scene_vo.segment_type
-            elif scene_vo.scene_id == 1:
-                segment_name = "hook"
-            elif scene_vo.scene_id == len(script.scene_voiceover_map):
-                segment_name = "cta"
-            else:
-                segment_name = f"content_{scene_vo.scene_id - 1}"
+        if use_single_long_video:
+            # Step 10: SINGLE LONG VIDEO MODE - Generate one continuous video
+            # This ensures character consistency by using a single Sora/Veo generation
+            logger.info("  🎭 SINGLE LONG VIDEO MODE activated (for character consistency)")
+            logger.info(f"  Consolidating {total_scenes} scenes into ONE continuous video")
 
-            # Generate cinematic Veo prompt for this scene
-            # NEW: Cinematic Prompt Engine integrates:
-            # - Shot type progression (wide/medium/close variety)
-            # - Camera movement choreography
-            # - Lighting design per vertical
-            # - Audio cues generation
-            # - 7-layer prompt structure
-            # - Content-specific descriptions
+            # Consolidate all scene voiceover texts
+            full_narrative = " ".join([scene.voiceover_text for scene in script.scene_voiceover_map])
+            total_duration = sum([scene.est_duration_seconds for scene in script.scene_voiceover_map])
 
-            # Special handling for hook scene (first content scene)
-            if segment_name == "hook" and video_style_mode == 'faceless':
-                # Optimize hook for maximum impact retention
-                palette = brand_manual.get('color_palette', {}) if brand_manual else {}
-                brand_colors = {
-                    'primary': palette.get('primary', '#1976D2'),
-                    'secondary': palette.get('secondary', '#4CAF50'),
-                    'accent': palette.get('accent', '#FFC107')
-                }
-                veo_prompt = _optimize_hook_scene(
-                    hook_text=scene_vo.voiceover_text,
-                    plan=plan,
-                    ai_format=ai_selected_format,
-                    brand_colors=brand_colors,
-                    vertical_id=vertical_id
-                )
-            elif video_style_mode == 'faceless':
-                # Use AI-enhanced prompt generator with FULL workspace context and spatial continuity
-                result = _generate_ai_enhanced_scene_prompt(
-                    segment_name=segment_name,
-                    segment_text=scene_vo.voiceover_text,
-                    plan=plan,
-                    scene_index=scene_index,
-                    total_scenes=total_scenes,
-                    series_format_name=series_format_name,
-                    vertical_id=vertical_id,
-                    ai_format=ai_selected_format,
-                    brand_manual=brand_manual if brand_manual else {},
-                    brand_tone=workspace_config.get('brand_tone', '') if workspace_config else '',
-                    narrator_persona=workspace_config.get('narrator_persona') if workspace_config else None,
-                    target_language=workspace_config.get('target_language', 'en') if workspace_config else 'en',
-                    recent_titles=workspace_config.get('recent_titles', []) if workspace_config else [],
-                    previous_scene_composition=previous_scene_composition  # Spatial continuity
-                )
-                # Extract prompt and update composition for next scene
-                veo_prompt = result['prompt']
-                previous_scene_composition = result['composition']
-            else:
-                # Fallback to legacy character-based generation
-                # TODO: Implement cinematic prompts for character-based mode
-                veo_prompt = _generate_veo_prompt(
-                    segment_name,
-                    scene_vo.voiceover_text,
-                    plan,
-                    visual_style,
-                    brand_manual=brand_manual,
-                    visual_context=visual_context,
-                    character_description=character_description
-                )
+            # Limit to maximum 30 seconds for Sora 2
+            if total_duration > 30:
+                logger.warning(f"  Total duration {total_duration}s exceeds 30s limit, capping at 30s")
+                total_duration = 30
 
-            # Create VisualScene with embedded voiceover text (Step 07.3)
-            # and segment_type (Step 07.5)
-            scene = VisualScene(
-                scene_id=scene_vo.scene_id,
+            logger.info(f"  Combined duration: {total_duration}s")
+            logger.info(f"  Narrative length: {len(full_narrative)} characters")
+
+            # Generate comprehensive prompt for single long video
+            result = _generate_ai_enhanced_scene_prompt(
+                segment_name="full_narrative",
+                segment_text=full_narrative,
+                plan=plan,
+                scene_index=0,
+                total_scenes=1,  # Single scene mode
+                series_format_name=series_format_name,
+                vertical_id=vertical_id,
+                ai_format="character_based" if video_style_mode == "character_based" else ai_selected_format,
+                brand_manual=brand_manual if brand_manual else {},
+                brand_tone=workspace_config.get('brand_tone', '') if workspace_config else '',
+                narrator_persona=workspace_config.get('narrator_persona') if workspace_config else None,
+                target_language=workspace_config.get('target_language', 'en') if workspace_config else 'en',
+                recent_titles=workspace_config.get('recent_titles', []) if workspace_config else [],
+                previous_scene_composition=None,  # No previous scene in single video mode
+                character_description=character_description if character_description else None,
+                video_style_mode=video_style_mode
+            )
+            veo_prompt = result['prompt']
+
+            # Append instruction for continuous shot
+            veo_prompt += "\n\nIMPORTANT: This is a single continuous shot. Maintain the SAME character, location, and visual identity throughout the entire video. NO scene cuts or transitions."
+
+            # Create single comprehensive scene
+            single_scene = VisualScene(
+                scene_id=1,
                 prompt_for_veo=veo_prompt,
-                est_duration_seconds=scene_vo.est_duration_seconds,
-                voiceover_text=scene_vo.voiceover_text,  # Sync with script!
-                segment_type=segment_name  # Step 07.5: Tag with segment type
+                est_duration_seconds=total_duration,
+                voiceover_text=full_narrative,
+                segment_type="full_narrative"
             )
+            scenes.append(single_scene)
 
-            scenes.append(scene)
-            logger.debug(
-                f"Scene {scene_vo.scene_id}: {scene_vo.est_duration_seconds}s - "
-                f"{segment_name} - '{scene_vo.voiceover_text[:40]}...'"
-            )
+            logger.info(f"  ✓ Single long video scene created: {total_duration}s")
+            logger.debug(f"    Narrative preview: {full_narrative[:100]}...")
+
+        else:
+            # MULTI-SCENE MODE (original behavior)
+            # Track composition for spatial continuity across scenes
+            previous_scene_composition = None
+
+            for scene_index, scene_vo in enumerate(script.scene_voiceover_map):
+                # Step 07.5: Use segment_type from script if available (set by ScriptWriter)
+                # Otherwise, determine based on scene position (legacy)
+                if hasattr(scene_vo, 'segment_type') and scene_vo.segment_type:
+                    segment_name = scene_vo.segment_type
+                elif scene_vo.scene_id == 1:
+                    segment_name = "hook"
+                elif scene_vo.scene_id == len(script.scene_voiceover_map):
+                    segment_name = "cta"
+                else:
+                    segment_name = f"content_{scene_vo.scene_id - 1}"
+
+                # Generate cinematic Veo prompt for this scene
+                # NEW: Cinematic Prompt Engine integrates:
+                # - Shot type progression (wide/medium/close variety)
+                # - Camera movement choreography
+                # - Lighting design per vertical
+                # - Audio cues generation
+                # - 7-layer prompt structure
+                # - Content-specific descriptions
+
+                # Special handling for hook scene (first content scene)
+                if segment_name == "hook" and video_style_mode == 'faceless':
+                    # Optimize hook for maximum impact retention
+                    palette = brand_manual.get('color_palette', {}) if brand_manual else {}
+                    brand_colors = {
+                        'primary': palette.get('primary', '#1976D2'),
+                        'secondary': palette.get('secondary', '#4CAF50'),
+                        'accent': palette.get('accent', '#FFC107')
+                    }
+                    veo_prompt = _optimize_hook_scene(
+                        hook_text=scene_vo.voiceover_text,
+                        plan=plan,
+                        ai_format=ai_selected_format,
+                        brand_colors=brand_colors,
+                        vertical_id=vertical_id
+                    )
+                elif video_style_mode == 'faceless':
+                    # Use AI-enhanced prompt generator with FULL workspace context and spatial continuity
+                    result = _generate_ai_enhanced_scene_prompt(
+                        segment_name=segment_name,
+                        segment_text=scene_vo.voiceover_text,
+                        plan=plan,
+                        scene_index=scene_index,
+                        total_scenes=total_scenes,
+                        series_format_name=series_format_name,
+                        vertical_id=vertical_id,
+                        ai_format=ai_selected_format,
+                        brand_manual=brand_manual if brand_manual else {},
+                        brand_tone=workspace_config.get('brand_tone', '') if workspace_config else '',
+                        narrator_persona=workspace_config.get('narrator_persona') if workspace_config else None,
+                        target_language=workspace_config.get('target_language', 'en') if workspace_config else 'en',
+                        recent_titles=workspace_config.get('recent_titles', []) if workspace_config else [],
+                        previous_scene_composition=previous_scene_composition  # Spatial continuity
+                    )
+                    # Extract prompt and update composition for next scene
+                    veo_prompt = result['prompt']
+                    previous_scene_composition = result['composition']
+                else:
+                    # Use AI-enhanced prompt generator for CHARACTER-BASED mode
+                    # Now includes Energy Orchestration + Spatial Continuity!
+                    result = _generate_ai_enhanced_scene_prompt(
+                        segment_name=segment_name,
+                        segment_text=scene_vo.voiceover_text,
+                        plan=plan,
+                        scene_index=scene_index,
+                        total_scenes=total_scenes,
+                        series_format_name=series_format_name,
+                        vertical_id=vertical_id,
+                        ai_format="character_based",  # Mark as character mode
+                        brand_manual=brand_manual if brand_manual else {},
+                        brand_tone=workspace_config.get('brand_tone', '') if workspace_config else '',
+                        narrator_persona=workspace_config.get('narrator_persona') if workspace_config else None,
+                        target_language=workspace_config.get('target_language', 'en') if workspace_config else 'en',
+                        recent_titles=workspace_config.get('recent_titles', []) if workspace_config else [],
+                        previous_scene_composition=previous_scene_composition,  # Spatial continuity
+                        character_description=character_description,  # Character identity anchor
+                        video_style_mode="character_based"  # Mode flag
+                    )
+                    # Extract prompt and update composition for next scene
+                    veo_prompt = result['prompt']
+                    previous_scene_composition = result['composition']
+
+                # Create VisualScene with embedded voiceover text (Step 07.3)
+                # and segment_type (Step 07.5)
+                scene = VisualScene(
+                    scene_id=scene_vo.scene_id,
+                    prompt_for_veo=veo_prompt,
+                    est_duration_seconds=scene_vo.est_duration_seconds,
+                    voiceover_text=scene_vo.voiceover_text,  # Sync with script!
+                    segment_type=segment_name  # Step 07.5: Tag with segment type
+                )
+
+                scenes.append(scene)
+                logger.debug(
+                    f"Scene {scene_vo.scene_id}: {scene_vo.est_duration_seconds}s - "
+                    f"{segment_name} - '{scene_vo.voiceover_text[:40]}...'"
+                )
 
     else:
         # LEGACY: Fall back to old segmentation (for backward compatibility)

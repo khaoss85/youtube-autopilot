@@ -13,19 +13,33 @@ description: "Educational content teaching a specific skill or concept"
 intro_duration_seconds: 2
 intro_veo_prompt: |
   Modern educational intro animation, vertical 9:16 format.
-  Bold animated text "TUTORIAL" appears with energetic transition.
+  CRITICAL TEXT POSITIONING: Bold animated text appears in UPPER THIRD of frame.
+  Text is horizontally centered, positioned 20% from top edge (title-safe area).
+  Text must be FULLY VISIBLE within frame boundaries, NOT cut off at edges.
+  Text size is proportional to frame, never exceeding 70% of frame width.
   Clean professional background with dynamic gradient.
   Fast-paced, high-quality production.
   Optimized for YouTube Shorts vertical mobile viewing.
+
+  SAFE AREA ENFORCEMENT: All text elements remain within title-safe zones.
+  Vertical margins: Minimum 10% from top/bottom edges.
+  Horizontal margins: Minimum 5% from left/right edges.
 
 # Outro video configuration (Sora 2 generated, cached per serie)
 outro_duration_seconds: 3
 outro_veo_prompt: |
   Educational tutorial outro with call-to-action overlay, vertical 9:16 format.
-  Animated text "SUBSCRIBE FOR MORE" with subscribe button animation.
+  CRITICAL TEXT POSITIONING: Animated text appears in CENTER of frame.
+  Text is horizontally and vertically centered within title-safe area.
+  Text must be FULLY VISIBLE within frame boundaries, NOT cut off at edges.
+  Text size is proportional to frame, never exceeding 70% of frame width.
   Professional closing sequence with inviting aesthetic.
   Warm colors, bold readable text.
   High-quality production optimized for mobile viewing.
+
+  SAFE AREA ENFORCEMENT: All text and UI elements remain within title-safe zones.
+  Vertical margins: Minimum 10% from top/bottom edges.
+  Horizontal margins: Minimum 5% from left/right edges.
 
 # Segment structure (ordered list defining video flow)
 segments:
