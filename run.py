@@ -50,6 +50,7 @@ import argparse
 from pathlib import Path
 import warnings
 import json
+from datetime import datetime, timedelta
 
 # Suppress urllib3 OpenSSL warning
 warnings.filterwarnings('ignore', message='urllib3 v2 only supports OpenSSL')
@@ -73,9 +74,10 @@ from yt_autopilot.io.datastore import (
     get_draft_package,
     list_pending_script_review,
     get_script_draft,
-    approve_script_for_generation
+    approve_script_for_generation,
+    save_script_draft
 )
-from yt_autopilot.pipeline.produce_render_publish import publish_after_approval
+from yt_autopilot.pipeline.produce_render_publish import publish_after_approval, produce_render_assets
 
 
 # ============================================================================
@@ -87,7 +89,6 @@ def cmd_trends(args):
     from yt_autopilot.core.logger import logger
     from yt_autopilot.services.trend_source import fetch_trends
     from yt_autopilot.agents.trend_hunter import _calculate_priority_score
-    from yt_autopilot.core.memory_store import load_channel_memory
 
     try:
         workspace = get_active_workspace()
@@ -148,8 +149,8 @@ def cmd_trends(args):
 
         print(f"📊 Top {len(trends)} Trending Topics (from {len(all_trends)} total):\n")
 
-        # Load channel memory for proper scoring
-        memory = load_channel_memory(workspace_id)
+        # Use workspace config as memory for proper scoring
+        memory = workspace
 
         # Display trends with real scores from trend_hunter
         for i, trend in enumerate(trends, 1):
@@ -317,6 +318,186 @@ def cmd_workspace_create(args):
         sys.exit(1)
 
 
+def cmd_workspace_reset(args):
+    """Reset workspace by clearing recent titles and deleting unpublished records"""
+    from yt_autopilot.core.workspace_manager import reset_workspace, load_workspace_config
+    from yt_autopilot.io.datastore import list_workspace_records
+    from yt_autopilot.core.asset_manager import delete_video_assets
+
+    # Determine which workspaces to reset
+    if args.workspace_id:
+        workspace_ids = [args.workspace_id]
+        # Validate workspace exists
+        try:
+            load_workspace_config(args.workspace_id)
+        except FileNotFoundError:
+            print(f"\n❌ Error: Workspace '{args.workspace_id}' not found\n")
+            cmd_workspace_list(args)
+            sys.exit(1)
+    elif args.all:
+        workspaces = list_workspaces()
+        workspace_ids = [ws['workspace_id'] for ws in workspaces]
+        if not workspace_ids:
+            print("\n⚠️  No workspaces found\n")
+            return
+    else:
+        # Default: active workspace only
+        try:
+            workspace = get_active_workspace()
+            workspace_ids = [workspace['workspace_id']]
+        except RuntimeError:
+            print("\n⚠️  No active workspace found\n")
+            print("Use --workspace-id <id> to specify a workspace")
+            print("Or use --all to reset all workspaces\n")
+            sys.exit(1)
+
+    # Analysis phase
+    print()
+    print("=" * 70)
+    print("WORKSPACE RESET ANALYSIS")
+    print("=" * 70)
+    print()
+
+    workspace_data = []
+    total_titles = 0
+    total_records = 0
+    total_published = 0
+
+    for ws_id in workspace_ids:
+        try:
+            config = load_workspace_config(ws_id)
+            records = list_workspace_records(ws_id, include_all_states=True)
+
+            titles_count = len(config.get('recent_titles', []))
+            published_count = sum(1 for r in records if r.get('production_state') == 'SCHEDULED_ON_YOUTUBE')
+            unpublished_count = len(records) - published_count
+
+            workspace_data.append({
+                'id': ws_id,
+                'name': config['workspace_name'],
+                'titles': titles_count,
+                'unpublished': unpublished_count,
+                'published': published_count,
+                'records': records
+            })
+
+            total_titles += titles_count
+            total_records += unpublished_count
+            total_published += published_count
+
+        except Exception as e:
+            print(f"⚠️  Warning: Could not analyze workspace '{ws_id}': {e}")
+            continue
+
+    if not workspace_data:
+        print("No workspaces to reset\n")
+        return
+
+    # Display analysis
+    print(f"Workspaces to reset: {len(workspace_data)}")
+    print()
+
+    for ws in workspace_data:
+        print(f"• {ws['name']} ({ws['id']})")
+        print(f"  - {ws['titles']} recent titles")
+        print(f"  - {ws['unpublished']} unpublished records")
+        print(f"  - {ws['published']} published records (will be kept)")
+        print()
+
+    print("=" * 70)
+    print("SUMMARY")
+    print("=" * 70)
+    print()
+    print(f"Will DELETE:")
+    print(f"  • {total_titles} recent title entries")
+    print(f"  • {total_records} unpublished records")
+    if args.delete_assets:
+        print(f"  • Asset files for deleted records")
+    print()
+    print(f"Will KEEP:")
+    print(f"  • {total_published} published video records")
+    print(f"  • Workspace configurations")
+    print(f"  • Backup will be created")
+    print()
+
+    # Dry run mode
+    if args.dry_run:
+        print("=" * 70)
+        print("DRY RUN MODE - No changes made")
+        print("=" * 70)
+        print()
+        print("Remove --dry-run to execute the reset")
+        print()
+        return
+
+    # Confirmation
+    if not args.yes:
+        print("=" * 70)
+        response = input("Continue with workspace reset? [y/N]: ").strip().lower()
+        print()
+        if response != 'y':
+            print("Reset cancelled\n")
+            return
+
+    # Execution phase
+    print("=" * 70)
+    print("EXECUTING WORKSPACE RESET")
+    print("=" * 70)
+    print()
+
+    total_deleted_records = 0
+    total_deleted_assets = 0
+
+    for ws in workspace_data:
+        ws_id = ws['id']
+        print(f"Processing: {ws['name']} ({ws_id})...")
+
+        try:
+            # Reset workspace (clears titles and deletes records)
+            result = reset_workspace(ws_id, keep_published=True)
+
+            deleted_records = result['records_deleted']
+            total_deleted_records += deleted_records
+
+            print(f"  ✓ Cleared {result['titles_cleared']} recent titles")
+            print(f"  ✓ Deleted {deleted_records} unpublished records")
+
+            # Delete asset files if requested
+            if args.delete_assets and deleted_records > 0:
+                # Get video_internal_ids from unpublished records
+                for record in ws['records']:
+                    state = record.get('production_state')
+                    if state != 'SCHEDULED_ON_YOUTUBE':
+                        video_id = record.get('video_internal_id')
+                        if video_id and delete_video_assets(video_id):
+                            total_deleted_assets += 1
+
+                print(f"  ✓ Deleted {total_deleted_assets} asset directories")
+
+        except Exception as e:
+            print(f"  ✗ Error: {e}")
+            continue
+
+        print()
+
+    # Final report
+    print("=" * 70)
+    print("WORKSPACE RESET COMPLETE")
+    print("=" * 70)
+    print()
+    print(f"✓ Reset {len(workspace_data)} workspace(s)")
+    print(f"✓ Deleted {total_deleted_records} unpublished records")
+    if args.delete_assets:
+        print(f"✓ Deleted {total_deleted_assets} asset directories")
+    print(f"✓ Kept {total_published} published records")
+    print()
+    print(f"Backup: data/records.jsonl.backup_*")
+    print()
+    print("Next steps:")
+    print("  python run.py generate")
+    print()
+
+
 # ============================================================================
 # GENERATE COMMANDS
 # ============================================================================
@@ -331,7 +512,11 @@ def cmd_generate(args):
         print(f"GENERATING VIDEO - Workspace: {workspace['workspace_name']}")
         print("=" * 70)
         print(f"Vertical: {workspace['vertical_id']}")
-        print(f"Brand tone: {workspace.get('brand_tone', 'Not set')[:60]}...")
+        brand_tone = workspace.get('brand_tone', 'Not set')
+        if len(brand_tone) > 100:
+            print(f"Brand tone: {brand_tone[:100]}... [{len(brand_tone)} chars total]")
+        else:
+            print(f"Brand tone: {brand_tone}")
         print("=" * 70)
         print()
 
@@ -346,7 +531,7 @@ def cmd_generate(args):
         print("=" * 70)
         print("VIDEO GENERATION COMPLETE")
         print("=" * 70)
-        print(f"Status: {package.status}")
+        print(f"Internal Quality Check: {package.status}")
         print(f"Title: {package.video_plan.working_title}")
         print()
 
@@ -368,26 +553,36 @@ def cmd_generate(args):
         print(f"Scenes: {num_scenes} scenes | Duration: ~{total_duration} seconds")
         print()
 
-        # Show script ID if available
-        script_id = getattr(package, 'script_internal_id', None)
-        if script_id:
+        # Save script draft if APPROVED
+        script_id = None
+        if package.status == "APPROVED":
+            # Propose publication date 2 days from now
+            proposed_datetime = (datetime.utcnow() + timedelta(days=2)).isoformat() + "Z"
+
+            # Save script draft for Gate 1 (human review)
+            script_id = save_script_draft(
+                ready=package,
+                publish_datetime_iso=proposed_datetime,
+                workspace_id=workspace['workspace_id']
+            )
+
+            print(f"✓ Script saved for human review: SCRIPT_PENDING_REVIEW")
             print(f"Script ID: {script_id}")
             print()
 
-        # Show rejection reason if rejected
-        if package.status == "REJECTED":
-            rejection_reason = getattr(package, 'rejection_reason', 'No reason provided')
-            print(f"⚠️  Rejection reason: {rejection_reason}")
-            print()
-
-        # Next steps
-        if package.status == "APPROVED" and script_id:
+            # Next steps
             print("💡 Next steps:")
             print(f"  - Review full script: python run.py review show-script {script_id}")
             print(f"  - Approve for asset generation: python run.py review approve-script {script_id} --approved-by \"you@company\"")
-        elif package.status == "APPROVED":
-            print("💡 Next steps:")
-            print("  - Review pending scripts: python run.py review scripts")
+            print()
+            print("⚠️  Note: Approval will trigger expensive API calls (~$5-10 USD)")
+        else:
+            # Show rejection reason if rejected
+            rejection_reason = getattr(package, 'rejection_reason', 'No reason provided')
+            print(f"⚠️  Rejection reason: {rejection_reason}")
+            print()
+            print("(Script NOT saved in datastore - internal quality check failed)")
+            print()
 
         print("=" * 70)
         print()
@@ -560,12 +755,9 @@ def cmd_review_show_script(args):
             print(f"  Voiceover:")
             print(f"    \"{voiceover}\"")
             print()
-            print(f"  Visual Prompt (Veo):")
-            # Truncate long prompts
-            if len(veo_prompt) > 200:
-                print(f"    {veo_prompt[:200]}...")
-            else:
-                print(f"    {veo_prompt}")
+            print(f"  Visual Prompt (Veo): [{len(veo_prompt)} chars]")
+            # Show full prompt (critical for verifying scene differentiation)
+            print(f"    {veo_prompt}")
             print()
 
     # ========================================================================
@@ -582,8 +774,9 @@ def cmd_review_show_script(args):
 
     print(f"PROPOSED DESCRIPTION:")
     description = publishing.get('description', '')
-    if len(description) > 300:
-        print(f"  {description[:300]}...")
+    if len(description) > 500:
+        print(f"  {description[:500]}...")
+        print(f"  [{len(description)} chars total]")
     else:
         print(f"  {description}")
     print()
@@ -673,6 +866,88 @@ def cmd_review_approve_script(args):
         print("✗ ERROR: Script approval failed")
         print("=" * 70)
         print(f"Error: {e}")
+        print("=" * 70)
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
+def cmd_review_generate_assets(args):
+    """Generate video assets from approved script (Gate 1 → Gate 2)."""
+    script_id = args.script_id
+
+    print("=" * 70)
+    print("GENERATING VIDEO ASSETS FROM APPROVED SCRIPT")
+    print("=" * 70)
+    print()
+    print(f"Script ID: {script_id}")
+    print()
+
+    # Verify script exists and is in READY_FOR_GENERATION state
+    draft = get_script_draft(script_id)
+    if draft is None:
+        print("=" * 70)
+        print("✗ ERROR: Script draft not found")
+        print("=" * 70)
+        print(f"Script ID {script_id} does not exist in datastore.")
+        print()
+        print("To list available scripts:")
+        print("  python run.py review scripts")
+        print("=" * 70)
+        sys.exit(1)
+
+    current_state = draft.get('production_state')
+    if current_state != 'READY_FOR_GENERATION':
+        print("=" * 70)
+        print("✗ ERROR: Script is not ready for generation")
+        print("=" * 70)
+        print(f"Current state: {current_state}")
+        print(f"Required state: READY_FOR_GENERATION")
+        print()
+        print("Scripts must be approved before asset generation:")
+        print(f"  python run.py review approve-script {script_id} --approved-by \"your@email\"")
+        print("=" * 70)
+        sys.exit(1)
+
+    print("⚠️  WARNING: This will trigger expensive API calls:")
+    print("  - Video generation (Sora 2 or Veo)")
+    print("  - Audio generation (OpenAI TTS)")
+    print("  - Thumbnail generation (DALL-E 3)")
+    print("  Estimated cost: ~$5-10 USD")
+    print()
+    print("Starting asset generation...")
+    print()
+
+    try:
+        result = produce_render_assets(script_internal_id=script_id)
+
+        print()
+        print("=" * 70)
+        print("✓ SUCCESS: Assets generated")
+        print("=" * 70)
+        print(f"Video ID: {result.get('video_internal_id')}")
+        print(f"Final video: {result.get('final_video_path')}")
+        print(f"Thumbnail: {result.get('thumbnail_path')}")
+        print()
+        print("NEXT STEPS:")
+        print("  1. Review the video:")
+        print(f"       python run.py review show {result.get('video_internal_id')}")
+        print()
+        print("  2. If satisfied, publish to YouTube:")
+        print(f"       python run.py review publish {result.get('video_internal_id')} --approved-by \"your@email\"")
+        print("=" * 70)
+
+    except Exception as e:
+        print()
+        print("=" * 70)
+        print("✗ ERROR: Asset generation failed")
+        print("=" * 70)
+        print(f"Error: {e}")
+        print()
+        print("Common issues:")
+        print("  - API keys not configured (check .env file)")
+        print("  - API quota exceeded")
+        print("  - Network connectivity problems")
         print("=" * 70)
         import traceback
         traceback.print_exc()
@@ -853,9 +1128,10 @@ def cmd_review_show(args):
 
     print("PROPOSED DESCRIPTION:")
     description = publishing.get("description", "")
-    # Print first 300 chars of description
-    if len(description) > 300:
-        print(f"  {description[:300]}...")
+    # Print first 500 chars of description
+    if len(description) > 500:
+        print(f"  {description[:500]}...")
+        print(f"  [{len(description)} chars total]")
     else:
         print(f"  {description}")
     print()
@@ -1039,6 +1315,15 @@ def main():
     ws_create = workspace_subparsers.add_parser("create", help="Create a new workspace interactively")
     ws_create.set_defaults(func=cmd_workspace_create)
 
+    # workspace reset
+    ws_reset = workspace_subparsers.add_parser("reset", help="Reset workspace by clearing recent titles and deleting unpublished records")
+    ws_reset.add_argument("--workspace-id", help="Workspace ID to reset (default: active workspace)")
+    ws_reset.add_argument("--all", action="store_true", help="Reset all workspaces")
+    ws_reset.add_argument("--delete-assets", action="store_true", help="Also delete asset files (videos, thumbnails, etc.)")
+    ws_reset.add_argument("--dry-run", action="store_true", help="Preview changes without executing")
+    ws_reset.add_argument("--yes", action="store_true", help="Skip confirmation prompt")
+    ws_reset.set_defaults(func=cmd_workspace_reset)
+
     # ========================================================================
     # TRENDS COMMAND
     # ========================================================================
@@ -1087,6 +1372,10 @@ def main():
     r_approve_script.add_argument("script_id", help="Script internal ID")
     r_approve_script.add_argument("--approved-by", required=True, help="Approver identifier (e.g., dan@company)")
     r_approve_script.set_defaults(func=cmd_review_approve_script)
+
+    r_generate_assets = review_subparsers.add_parser("generate-assets", help="[Gate 1→2] Generate video assets from approved script")
+    r_generate_assets.add_argument("script_id", help="Script internal ID")
+    r_generate_assets.set_defaults(func=cmd_review_generate_assets)
 
     # Gate 2: Video review
     r_stats = review_subparsers.add_parser("stats", help="Show datastore statistics and state distribution")
