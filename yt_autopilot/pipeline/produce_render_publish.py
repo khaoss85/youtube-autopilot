@@ -309,13 +309,53 @@ def produce_render_assets(script_internal_id: str) -> Dict[str, Any]:
     logger.info(f"  Text length: {len(ready.script.full_voiceover_text)} chars")
 
     try:
-        # Step 10: Use per-scene audio generation for perfect sync
-        scene_audio_paths = synthesize_voiceover_per_scene(
-            ready.script,
-            asset_paths,
-            workspace_config=workspace_config
-        )
-        logger.info(f"✓ Voiceover generated: {len(scene_audio_paths)} audio files")
+        # Step 10 FIX: Generate audio aligned with visuals.scenes (handles single_long_video + intro/outro)
+        from yt_autopilot.services.tts_service import _call_tts_provider
+        from pathlib import Path
+        import subprocess
+
+        # Extract voice config from workspace
+        voice_id = "alloy"
+        speed = 1.05
+        if workspace_config:
+            voice_config = workspace_config.get('voice_config', {})
+            voice_id = voice_config.get('voice_model', voice_id)
+            speed = voice_config.get('speed', speed)
+
+        logger.info(f"  Total scenes in visuals: {len(ready.visuals.scenes)}")
+
+        scene_audio_paths = []
+        for scene in ready.visuals.scenes:
+            base_path = Path(asset_paths.voiceover_path)
+            scene_audio_filename = f"{base_path.stem}_scene_{scene.scene_id:03d}{base_path.suffix}"
+            scene_audio_path = base_path.parent / scene_audio_filename
+            scene_audio_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Check if scene has voiceover (content scene) or not (intro/outro)
+            if scene.voiceover_text and len(scene.voiceover_text.strip()) > 0:
+                # Content scene: generate real TTS audio
+                logger.info(f"  Scene {scene.scene_id} (content): {scene.est_duration_seconds}s - generating TTS")
+                audio_bytes = _call_tts_provider(scene.voiceover_text, voice_id, speed)
+                scene_audio_path.write_bytes(audio_bytes)
+            else:
+                # Intro/outro scene: generate silent audio placeholder
+                logger.info(f"  Scene {scene.scene_id} (intro/outro): {scene.est_duration_seconds}s - generating silent audio")
+                # Generate silent audio with ffmpeg
+                ffmpeg_cmd = [
+                    "ffmpeg", "-y",
+                    "-f", "lavfi",
+                    "-i", "anullsrc=r=44100:cl=mono",
+                    "-t", str(scene.est_duration_seconds),
+                    "-acodec", "aac",
+                    "-b:a", "128k",
+                    str(scene_audio_path)
+                ]
+                subprocess.run(ffmpeg_cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+            scene_audio_paths.append(str(scene_audio_path))
+            logger.info(f"    ✓ {scene_audio_filename}")
+
+        logger.info(f"✓ Voiceover generated: {len(scene_audio_paths)} audio files (aligned with {len(scene_paths)} video files)")
     except Exception as e:
         logger.error(f"✗ Voiceover generation failed: {e}")
         raise RuntimeError(f"TTS voiceover generation failed: {e}")

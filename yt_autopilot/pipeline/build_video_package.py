@@ -598,7 +598,24 @@ Format: YouTube Shorts (vertical 9:16, max 60 seconds)
 Brand Tone: {brand_tone}
     """.strip()
 
-        llm_task = """
+        # Step 10: Build language-aware legacy prompt
+        language_names = {
+            "it": "ITALIANO",
+            "en": "INGLESE",
+            "es": "SPAGNOLO",
+            "fr": "FRANCESE",
+            "de": "TEDESCO",
+            "pt": "PORTOGHESE"
+        }
+        target_lang = workspace.get('target_language', video_plan.language).lower()
+        language_name = language_names.get(target_lang, target_lang.upper())
+
+        llm_task = f"""⚠️ REQUISITO CRITICO LINGUA ⚠️
+═══════════════════════════════════════════════════════════════
+TUTTO L'OUTPUT DEVE ESSERE IN {language_name}
+NON MISCHIARE LE LINGUE. OGNI SINGOLA PAROLA DEVE ESSERE IN {language_name}.
+═══════════════════════════════════════════════════════════════
+
 Scrivi uno script completo per un YouTube Short in formato strutturato.
 
 REQUISITI:
@@ -630,11 +647,13 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
 - Il VOICEOVER deve essere il testo finale parlato, NON una lista di punti
 - Tono ENERGICO e COINVOLGENTE (non monotono o da documentario)
 - Frasi BREVI e INCISIVE (max 10-12 parole per frase)
-- Usa espressioni colloquiali italiane: "Ascolta", "Ti faccio vedere", "Guarda qui", "Ecco cosa devi sapere"
-- Parla in SECONDA PERSONA SINGOLARE ("tu"), stile diretto e personale
+- Usa espressioni colloquiali naturali nella lingua target
+- Parla in SECONDA PERSONA SINGOLARE ("tu" / "you"), stile diretto e personale
 - HOOK POTENTE nei primi 2 secondi che cattura l'attenzione
 - Flow naturale come se stessi parlando a un amico
 - Energetico ma non urlato, coinvolgente ma non artificiale
+
+⚠️ VERIFICA FINALE: Assicurati che TUTTO il testo sopra sia in {language_name} ⚠️
     """.strip()
 
     # Generate LLM suggestion (same for both narrator-aware and legacy paths)
