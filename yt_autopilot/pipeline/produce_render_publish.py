@@ -314,13 +314,23 @@ def produce_render_assets(script_internal_id: str) -> Dict[str, Any]:
         from pathlib import Path
         import subprocess
 
-        # Extract voice config from workspace
+        # Step 10: Import language detection
+        try:
+            from langdetect import detect, LangDetectException
+            langdetect_available = True
+        except ImportError:
+            logger.warning("  ⚠ langdetect not installed - skipping language verification")
+            langdetect_available = False
+
+        # Extract voice config and target language from workspace
         voice_id = "alloy"
         speed = 1.05
+        target_language = "en"  # Default
         if workspace_config:
             voice_config = workspace_config.get('voice_config', {})
             voice_id = voice_config.get('voice_model', voice_id)
             speed = voice_config.get('speed', speed)
+            target_language = workspace_config.get('target_language', 'en')
 
         logger.info(f"  Total scenes in visuals: {len(ready.visuals.scenes)}")
 
@@ -335,18 +345,35 @@ def produce_render_assets(script_internal_id: str) -> Dict[str, Any]:
             if scene.voiceover_text and len(scene.voiceover_text.strip()) > 0:
                 # Content scene: generate real TTS audio
                 logger.info(f"  Scene {scene.scene_id} (content): {scene.est_duration_seconds}s - generating TTS")
+
+                # Step 10: Verify language before TTS generation
+                if langdetect_available:
+                    try:
+                        # Sample first 100 chars for detection (more reliable)
+                        sample_text = scene.voiceover_text[:100] if len(scene.voiceover_text) > 100 else scene.voiceover_text
+                        detected_lang = detect(sample_text)
+
+                        # Normalize language codes (langdetect uses 'it' for Italian, 'en' for English)
+                        if detected_lang != target_language:
+                            logger.warning(f"  ⚠ Language mismatch: expected '{target_language}', detected '{detected_lang}'")
+                            logger.warning(f"  Text sample: {sample_text[:50]}...")
+                        else:
+                            logger.info(f"  ✓ Language verified: {detected_lang}")
+                    except LangDetectException as e:
+                        logger.warning(f"  ⚠ Language detection failed: {e}")
+
                 audio_bytes = _call_tts_provider(scene.voiceover_text, voice_id, speed)
                 scene_audio_path.write_bytes(audio_bytes)
             else:
                 # Intro/outro scene: generate silent audio placeholder
                 logger.info(f"  Scene {scene.scene_id} (intro/outro): {scene.est_duration_seconds}s - generating silent audio")
-                # Generate silent audio with ffmpeg
+                # Generate silent audio with ffmpeg (using libmp3lame for .mp3 files)
                 ffmpeg_cmd = [
                     "ffmpeg", "-y",
                     "-f", "lavfi",
                     "-i", "anullsrc=r=44100:cl=mono",
                     "-t", str(scene.est_duration_seconds),
-                    "-acodec", "aac",
+                    "-acodec", "libmp3lame",
                     "-b:a", "128k",
                     str(scene_audio_path)
                 ]
@@ -396,11 +423,15 @@ def produce_render_assets(script_internal_id: str) -> Dict[str, Any]:
     # Step 07.2: Collect provider tracking information
     providers = provider_tracker.get_all_providers()
 
+    # Step 10: For per-scene audio, use main content audio as voiceover reference
+    # Scene 1 is the main content (after intro), which has the actual TTS voiceover
+    main_voiceover_path = scene_audio_paths[1] if len(scene_audio_paths) > 1 else scene_audio_paths[0]
+
     # Step 07.4: Use paths from asset_paths (already populated by services)
     video_internal_id = save_draft_package(
         ready=ready,
         scene_paths=asset_paths.scene_video_paths,  # Step 07.4: From asset tracking
-        voiceover_path=str(asset_paths.voiceover_path),
+        voiceover_path=main_voiceover_path,
         final_video_path=str(asset_paths.final_video_path),
         thumbnail_path=str(asset_paths.thumbnail_path),
         publish_datetime_iso=publish_datetime_iso,
@@ -434,6 +465,9 @@ def produce_render_assets(script_internal_id: str) -> Dict[str, Any]:
     logger.info(f"  2. Publish video: review_console.py publish {video_internal_id} --approved-by \"your@email\"")
     logger.info("=" * 70)
 
+    # Step 10: Use main voiceover path (from content scene) for return value
+    voiceover_path = main_voiceover_path
+
     return {
         "status": "VIDEO_READY_FOR_REVIEW",
         "video_internal_id": video_internal_id,
@@ -441,7 +475,7 @@ def produce_render_assets(script_internal_id: str) -> Dict[str, Any]:
         "output_dir": asset_paths.output_dir,  # Step 07.4: Asset directory location
         "final_video_path": final_video_path,
         "thumbnail_path": thumbnail_path,
-        "voiceover_path": voiceover_path,  # Step 07.4: Voiceover location
+        "voiceover_path": voiceover_path,  # Step 10: Main content voiceover location
         "scene_paths": scene_paths,  # Step 07.4: Individual scene locations
         "proposed_title": ready.publishing.final_title,
         "proposed_description": ready.publishing.description,

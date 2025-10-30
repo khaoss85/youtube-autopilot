@@ -366,6 +366,27 @@ def _call_openai_video(
         file_size = output_path.stat().st_size
         logger.info(f"  ✓ Download complete: {file_size:,} bytes ({file_size / (1024*1024):.1f} MB)")
 
+        # Step 10: Strip Sora 2 embedded audio (will be replaced with TTS)
+        logger.info("  Stripping Sora 2 audio (will be replaced with TTS)...")
+        temp_output = output_path.with_suffix('.temp.mp4')
+        try:
+            strip_cmd = [
+                "ffmpeg", "-y",
+                "-i", str(output_path),
+                "-c:v", "copy",  # Copy video without re-encoding
+                "-an",  # Remove all audio streams
+                str(temp_output)
+            ]
+            subprocess.run(strip_cmd, check=True, capture_output=True)
+            temp_output.replace(output_path)  # Replace original with stripped version
+            logger.info("  ✓ Audio stripped successfully")
+        except subprocess.CalledProcessError as e:
+            logger.warning(f"  ⚠ Audio stripping failed: {e.stderr.decode() if e.stderr else str(e)}")
+            logger.warning("  Continuing with original video (audio may conflict with TTS)")
+            # Clean up temp file if it exists
+            if temp_output.exists():
+                temp_output.unlink()
+
         # Step 07.4: Register scene path in asset tracking
         asset_manager.register_scene_path(asset_paths, scene_id, str(output_path))
 

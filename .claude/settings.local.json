@@ -10,7 +10,12 @@
       "Bash(cat:*)",
       "Bash(xargs ls:*)",
       "Bash(git push)",
-      "mcp__sequential-thinking__sequentialthinking"
+      "mcp__sequential-thinking__sequentialthinking",
+      "Bash(ffmpeg:*)",
+      "Bash(ffprobe:*)",
+      "Bash(sqlite3:*)",
+      "Bash(ffplay:*)",
+      "Bash(pip3 install:*)"
     ],
     "deny": [],
     "ask": []

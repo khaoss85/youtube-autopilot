@@ -1684,8 +1684,18 @@ def generate_visual_plan(
             )
             veo_prompt = result['prompt']
 
-            # Append instruction for continuous shot
+            # Step 10: Append instructions for continuous shot with dynamic camera and NO audio
             veo_prompt += "\n\nIMPORTANT: This is a single continuous shot. Maintain the SAME character, location, and visual identity throughout the entire video. NO scene cuts or transitions."
+
+            # Step 10: CRITICAL - Prevent Sora from generating audio/narration
+            veo_prompt += "\n\nCRITICAL: SILENT VIDEO - NO AUDIO, NO NARRATION, NO SPEECH. Audio will be added separately in post-production."
+
+            # Step 10: Add dynamic camera movement instructions for visual variety
+            veo_prompt += f"\n\nCINEMATIC PROGRESSION ({int(total_duration)}s continuous shot):"
+            veo_prompt += "\n• 0-10s: Wide establishing shot with slow push-in to reveal subject"
+            veo_prompt += "\n• 10-20s: Medium shot with subtle camera orbit for depth and dimension"
+            veo_prompt += "\n• 20-30s: Close-up with dynamic framing shift to emphasize key moment"
+            veo_prompt += "\nMAINTAIN consistent character appearance, location, and lighting throughout all camera movements."
 
             # Create single comprehensive scene
             single_scene = VisualScene(

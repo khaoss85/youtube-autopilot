@@ -499,9 +499,12 @@ def assemble_final_video_with_scene_audio(
         # No filter, can copy video stream
         ffmpeg_cmd.extend(["-c:v", "copy"])
 
-    # Add audio and output parameters
+    # Step 10: Re-encode audio instead of copy to ensure clean stream
+    # This fixes audio issues when Sora audio was stripped
     ffmpeg_cmd.extend([
-        "-c:a", "copy",  # Copy audio (already encoded in segments)
+        "-c:a", "aac",  # Re-encode audio as AAC
+        "-b:a", "128k",  # Audio bitrate
+        "-ar", "44100",  # Sample rate
         "-movflags", "+faststart",  # Enable streaming
         str(output_file)
     ])
@@ -532,6 +535,24 @@ def assemble_final_video_with_scene_audio(
         file_size_mb = output_file.stat().st_size / (1024 * 1024)
         logger.info(f"✓ Final video saved: {output_file}")
         logger.info(f"  File size: {file_size_mb:.2f} MB")
+
+        # Step 10: Verify audio stream is present and correct
+        logger.info("Verifying audio stream...")
+        try:
+            verify_cmd = [
+                "ffprobe", "-v", "error",
+                "-select_streams", "a:0",
+                "-show_entries", "stream=codec_name,sample_rate,bit_rate",
+                "-of", "default=noprint_wrappers=1",
+                str(output_file)
+            ]
+            verify_result = subprocess.run(verify_cmd, capture_output=True, text=True, timeout=10)
+            if verify_result.returncode == 0 and verify_result.stdout:
+                logger.info(f"  ✓ Audio stream verified: {verify_result.stdout.strip()}")
+            else:
+                logger.warning("  ⚠ Audio stream verification failed or no audio present")
+        except Exception as e:
+            logger.warning(f"  ⚠ Audio verification error: {e}")
 
         # Clean up temporary synced segments
         logger.info("Cleaning up temporary files...")

@@ -36,6 +36,9 @@ anthropic>=0.5.0           # For Anthropic Claude models
 # elevenlabs>=0.2.0          # ElevenLabs TTS
 # google-cloud-texttospeech  # Google Cloud TTS
 
+# Language detection (Step 10: Verify TTS language)
+langdetect>=1.0.9
+
 # Trend data sources (Step 08 Phase 2)
 praw>=7.7.0                # Reddit API wrapper (official-unofficial)
 scrapetube>=2.5.0          # YouTube scraping fallback (no API quota)
