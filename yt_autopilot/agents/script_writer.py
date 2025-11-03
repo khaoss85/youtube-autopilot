@@ -40,9 +40,9 @@ NEW: Segment-aware script generation
 """
 
 from typing import Dict, List, Optional
-from yt_autopilot.core.schemas import VideoPlan, VideoScript, SceneVoiceover, SeriesFormat
+from yt_autopilot.core.schemas import VideoPlan, VideoScript, SceneVoiceover, SeriesFormat, EditorialDecision
 from yt_autopilot.core.memory_store import get_brand_tone
-from yt_autopilot.core.logger import logger
+from yt_autopilot.core.logger import logger, log_fallback
 
 
 def _strip_quotes(text: str) -> str:
@@ -235,28 +235,38 @@ def _generate_hook(plan: VideoPlan, brand_tone: str) -> str:
     return hook
 
 
-def _generate_content_bullets(plan: VideoPlan) -> List[str]:
+def _generate_content_bullets(plan: VideoPlan, bullets_count: Optional[int] = None) -> List[str]:
     """
     Generates main content points for the video.
 
+    Sprint 2: Accepts bullets_count from Content Depth Strategist
+
     Args:
         plan: Video plan with strategic angle and target audience
+        bullets_count: Optional recommended bullets count (default: 5)
 
     Returns:
-        List of content bullets (3-5 key points)
+        List of content bullets (AI-optimized count)
     """
     # In a real implementation, this would use LLM to generate contextual bullets
     # For now, create template-based content structure
 
-    bullets = [
+    if bullets_count is None:
+        bullets_count = 5  # Default fallback
+
+    bullets_pool = [
         f"Cosa rende {plan.working_title} così rilevante adesso",
         f"I dati chiave che devi conoscere su {plan.working_title}",
         f"Come questo impatta {plan.target_audience}",
+        f"Perché questo è importante per te",
         f"Cosa fare per sfruttare al meglio questa informazione",
-        "Il punto più importante da ricordare"
+        "Il punto più importante da ricordare",
+        f"Gli errori comuni da evitare con {plan.working_title}",
+        "Il consiglio finale degli esperti"
     ]
 
-    return bullets
+    # Return exactly the requested number of bullets
+    return bullets_pool[:bullets_count]
 
 
 def _generate_outro_cta(plan: VideoPlan) -> str:
@@ -288,7 +298,8 @@ def _generate_narrator_aware_fallback(
     narrator_config: Dict,
     content_formula: Dict,
     series_format: Optional[SeriesFormat],
-    brand_tone: str
+    brand_tone: str,
+    recommended_bullets: Optional[int] = None
 ) -> Dict[str, any]:
     """
     Generates script components with narrator persona integrated (Step 09).
@@ -296,12 +307,15 @@ def _generate_narrator_aware_fallback(
     This is used as intelligent fallback when LLM output parsing fails.
     Unlike pure deterministic generation, this maintains narrator identity.
 
+    Sprint 2: Accepts recommended_bullets from Content Depth Strategist
+
     Args:
         plan: Video plan
         narrator_config: Narrator persona configuration
         content_formula: Content formula configuration
         series_format: Series format template
         brand_tone: Brand tone string
+        recommended_bullets: Optional bullets count from Content Depth Strategist (Sprint 2)
 
     Returns:
         Dict with keys 'hook', 'bullets', 'outro_cta' including narrator elements
@@ -327,21 +341,34 @@ def _generate_narrator_aware_fallback(
     if len(signature_phrases) > 0 and format_type in ['tutorial', 'challenge', 'motivation']:
         hook = f"{signature_phrases[0]} {hook}"
 
-    # Generate bullets (deterministic but tone-aware)
+    # Sprint 2: Use recommended bullets count, fallback to 4
+    if recommended_bullets is None:
+        recommended_bullets = 4
+
+    # Generate bullets (deterministic but tone-aware) - extend pool to support variable count
     if tone_of_address == 'tu_informale':
-        bullets = [
+        bullets_pool = [
             f"Ti mostro cosa rende {plan.working_title} così importante",
             f"Devi sapere questi dettagli chiave",
             f"Ecco come ti impatta direttamente",
-            f"Ti spiego cosa fare con questa informazione"
+            f"Ti spiego cosa fare con questa informazione",
+            f"Ti svelo i trucchi che gli esperti usano",
+            "Ti mostro gli errori più comuni da evitare",
+            "Ti do il consiglio finale degli esperti"
         ]
     else:  # voi_formale
-        bullets = [
+        bullets_pool = [
             f"Vi mostro cosa rende {plan.working_title} così importante",
             f"Dovete sapere questi dettagli chiave",
             f"Ecco come vi impatta direttamente",
-            f"Vi spiego cosa fare con questa informazione"
+            f"Vi spiego cosa fare con questa informazione",
+            f"Vi svelo i trucchi che gli esperti usano",
+            "Vi mostro gli errori più comuni da evitare",
+            "Vi do il consiglio finale degli esperti"
         ]
+
+    # Return exactly the requested number of bullets
+    bullets = bullets_pool[:recommended_bullets]
 
     # Generate CTA with signature phrase if available
     if len(signature_phrases) >= 3:
@@ -570,13 +597,15 @@ def _build_persona_aware_prompt(
     content_formula: Dict,
     series_format: Optional[SeriesFormat],
     brand_tone: str,
-    target_language: str = "en"
+    target_language: str = "en",
+    recommended_bullets: Optional[int] = None
 ) -> str:
     """
     Builds LLM prompt enhanced with narrator persona guidelines.
 
     Step 09: Narrator Persona Integration
     Step 10: Explicit language directive for consistent output
+    Sprint 2: Content Depth integration - uses AI-driven bullets count
 
     This function creates a comprehensive prompt that:
     1. Provides narrator identity and signature phrases
@@ -584,6 +613,7 @@ def _build_persona_aware_prompt(
     3. Gives creative freedom to adapt guidelines appropriately
     4. Maintains brand tone consistency
     5. Enforces language consistency (Step 10)
+    6. Uses Content Depth Strategist's recommended bullets count (Sprint 2)
 
     Args:
         plan: Video plan with topic and strategic angle
@@ -592,6 +622,7 @@ def _build_persona_aware_prompt(
         series_format: Optional series format template
         brand_tone: Brand tone from workspace
         target_language: Target language code (e.g., "it", "en") - Step 10
+        recommended_bullets: Optional bullets count from Content Depth Strategist (Sprint 2)
 
     Returns:
         Enhanced LLM prompt string
@@ -599,6 +630,18 @@ def _build_persona_aware_prompt(
     format_name = series_format.serie_id if series_format else 'generic'
     format_style = series_format.description if series_format else 'engaging, concise'
     target_duration = content_formula.get('target_duration_seconds', 60)
+
+    # Sprint 2: Use Content Depth Strategist's recommendation, or fallback to duration-based heuristic
+    if recommended_bullets is None:
+        # Fallback: duration-based heuristic (legacy behavior)
+        if target_duration <= 60:
+            recommended_bullets = 3
+        elif target_duration <= 180:
+            recommended_bullets = 4
+        elif target_duration <= 480:
+            recommended_bullets = 5
+        else:
+            recommended_bullets = 6
 
     # Build signature phrases section
     signature_phrases_text = ""
@@ -701,10 +744,9 @@ HOOK:
 [Engaging opening - consider narrator introduction if appropriate for format]
 
 BULLETS:
-- [Main point 1]
-- [Main point 2]
-- [Main point 3]
-[Add more if needed for {target_duration}s target]
+{chr(10).join([f'- [Main point {i+1}]' for i in range(recommended_bullets)])}
+
+⚠️ CRITICAL: Provide EXACTLY {recommended_bullets} bullets (AI-optimized count for {target_duration}s duration)
 
 CTA:
 [Call to action - consider signature closing if appropriate]
@@ -718,11 +760,52 @@ VOICEOVER:
     return prompt
 
 
+def _normalize_segment_type(act_name: str) -> str:
+    """
+    Normalizes act names from Narrative Architect to standard segment types for Visual Planner.
+
+    Task 1.3.a: Fixes segment type naming mismatch between Narrative and Visual agents.
+
+    Mappings:
+    - "Hook" → "hook"
+    - "Content_N" / "Content" / "Agitation" / "Solution" → "content"
+    - "Payoff_CTA" / "CTA" / "Outro" → "cta"
+    - "Intro" → "intro"
+
+    Args:
+        act_name: Act name from Narrative Architect (e.g., "Payoff_CTA", "Content_1")
+
+    Returns:
+        Normalized segment type (e.g., "cta", "content")
+    """
+    act_lower = act_name.lower()
+
+    # Hook segment
+    if act_lower == 'hook':
+        return 'hook'
+
+    # CTA variants (most critical fix for Task 1.3.a)
+    if any(keyword in act_lower for keyword in ['payoff_cta', 'cta', 'outro', 'call_to_action']):
+        return 'cta'
+
+    # Intro segment
+    if act_lower == 'intro':
+        return 'intro'
+
+    # Content segments (default for everything else)
+    # Handles: "Content_1", "Content_2", "Agitation", "Solution", etc.
+    return 'content'
+
+
 def write_script(
     plan: VideoPlan,
     memory: Dict,
     llm_suggestion: Optional[str] = None,
-    series_format: Optional[SeriesFormat] = None
+    series_format: Optional[SeriesFormat] = None,
+    editorial_decision: Optional[EditorialDecision] = None,
+    narrative_arc: Optional[Dict] = None,
+    content_depth_strategy: Optional[Dict] = None,
+    forced_cta: Optional[str] = None
 ) -> VideoScript:
     """
     Generates a complete video script from a video plan.
@@ -741,6 +824,19 @@ def write_script(
     NEW (Step 07.5): Accepts optional series format for segment-aware generation.
     If provided, structures script according to template and tags scenes with segment_type.
 
+    NEW (Step 11): Accepts optional editorial_decision from Editorial Strategist.
+    If provided, uses AI-driven strategy for format, angle, duration, and specific CTA.
+
+    NEW (Monetization Refactor): Accepts optional narrative_arc from Narrative Architect.
+    If provided, uses AI-driven emotional storytelling instead of template-based generation.
+    Priority: narrative_arc > llm_suggestion > fallback
+
+    NEW (Sprint 2): Accepts optional content_depth_strategy from Content Depth Strategist.
+    If provided, uses AI-driven bullets count optimization for content adequacy.
+
+    NEW (FASE 3): Accepts optional forced_cta for quality retry mechanism.
+    If provided, overrides all other CTA sources to ensure exact match with CTA Strategist.
+
     Args:
         plan: Video plan with topic, angle, and audience
         memory: Channel memory dict containing brand_tone
@@ -748,6 +844,13 @@ def write_script(
                         (Step 06-fullrun: enables real LLM integration)
         series_format: Optional series format template for structured generation
                        (Step 07.5: enables format engine)
+        editorial_decision: Optional AI-driven editorial strategy
+                           (Step 11: enables strategic script generation)
+        narrative_arc: Optional AI-driven narrative structure from Narrative Architect
+                      (Monetization: emotional storytelling for retention)
+        content_depth_strategy: Optional AI-driven bullets count from Content Depth Strategist
+                               (Sprint 2: content adequacy optimization)
+        forced_cta: Optional specific CTA text to force (FASE 3: quality retry for CTA validation)
 
     Returns:
         VideoScript with all components
@@ -763,6 +866,22 @@ def write_script(
     if series_format:
         logger.info(f"  Using series format: {series_format.name} ({series_format.serie_id})")
 
+    if editorial_decision:
+        logger.info(f"  Using editorial strategy: {editorial_decision.serie_concept}")
+        logger.info(f"    Format: {editorial_decision.format} | Angle: {editorial_decision.angle}")
+        logger.info(f"    Duration target: {editorial_decision.duration_target}s")
+        logger.info(f"    CTA: {editorial_decision.cta_specific[:50]}...")
+
+    # Sprint 2: Extract Content Depth Strategy
+    recommended_bullets = None
+    if content_depth_strategy:
+        recommended_bullets = content_depth_strategy.get('recommended_bullets')
+        adequacy_score = content_depth_strategy.get('adequacy_score', 0.0)
+        logger.info(f"  ✓ Content Depth Strategy applied:")
+        logger.info(f"    Recommended bullets: {recommended_bullets}")
+        logger.info(f"    Adequacy score: {adequacy_score:.2f}")
+        logger.info(f"    Pacing: {content_depth_strategy.get('pacing_guidance', 'N/A')[:60]}...")
+
     # Load brand tone
     brand_tone = get_brand_tone(memory)
 
@@ -776,54 +895,152 @@ def write_script(
         logger.info(f"  Relationship: {narrator.get('relationship', 'Unknown')}")
         logger.info(f"  Tone of address: {narrator.get('tone_of_address', 'Unknown')}")
 
-    # Try to use LLM suggestion if provided
+    # Track source for control flow
+    used_narrative_arc = False
     llm_parsed = None
-    if llm_suggestion:
+
+    # PRIORITY 1: Use Narrative Arc if available (Monetization Refactor)
+    if narrative_arc and narrative_arc.get('narrative_structure'):
+        used_narrative_arc = True  # WEEK 2 Task 2.2: Critical flag to preserve Narrative's scene map
+        logger.info("  ✓ Using Narrative Architect's emotional storytelling")
+        logger.info(f"  Voice personality: {narrative_arc.get('voice_personality', 'Unknown')}")
+        logger.info(f"  Acts: {len(narrative_arc['narrative_structure'])}")
+
+        # Extract script components from narrative arc
+        acts = narrative_arc['narrative_structure']
+        full_voiceover_text = narrative_arc.get('full_voiceover', '')
+
+        # Extract hook from first act
+        hook_act = acts[0] if acts else {}
+        hook = hook_act.get('voiceover', '')
+
+        # Extract bullets from middle acts (skip Hook and CTA acts)
+        bullets = []
+        for act in acts[1:-1]:  # Skip first (hook) and last (CTA)
+            act_name = act.get('act_name', '')
+            if act_name.lower() not in ['hook', 'payoff_cta', 'cta', 'outro']:
+                bullets.append(act.get('voiceover', ''))
+
+        # CRITICAL FIX: Validate bullets count matches Content Depth Strategy recommendation
+        if content_depth_strategy:
+            recommended_bullets = content_depth_strategy.get('recommended_bullets')
+            if recommended_bullets and len(bullets) != recommended_bullets:
+                logger.error(
+                    f"❌ CONTENT DEPTH MISMATCH: Narrative Arc has {len(bullets)} content bullets "
+                    f"but Content Depth Strategist recommends {recommended_bullets}. "
+                    f"This will cause inadequate content."
+                )
+
+                # 🚨 STANDARDIZED FALLBACK LOGGING (DEVELOPMENT_CONVENTIONS.md)
+                log_fallback(
+                    component="SCRIPT_WRITER",
+                    fallback_type="DETERMINISTIC_GENERATION",
+                    reason=f"Narrative Arc bullet mismatch: {len(bullets)} vs {recommended_bullets}",
+                    impact="HIGH"
+                )
+
+                # Reset to trigger fallback to deterministic generation that respects recommended_bullets
+                used_narrative_arc = False
+                bullets = []
+                hook = ""
+                outro_cta = ""
+                full_voiceover_text = ""
+                scene_voiceover_map = []
+
+        # Extract CTA from last act (only if narrative arc is still being used)
+        if used_narrative_arc:
+            cta_act = acts[-1] if acts else {}
+            outro_cta = cta_act.get('voiceover', '')
+
+            # CRITICAL FIX: Override CTA with Editorial Decision if provided
+            if editorial_decision and editorial_decision.cta_specific:
+                logger.info(f"  ✓ Overriding Narrative CTA with Editorial CTA for monetization strategy")
+                outro_cta = editorial_decision.cta_specific
+
+            # Create scene_voiceover_map from narrative acts
+            from yt_autopilot.core.schemas import SceneVoiceover
+            scene_voiceover_map = []
+            for i, act in enumerate(acts, start=1):  # Start from 1, not 0
+                act_name = act.get('act_name', 'content')
+                scene_voiceover_map.append(SceneVoiceover(
+                    scene_id=i,
+                    voiceover_text=act.get('voiceover', ''),
+                    est_duration_seconds=act.get('duration_seconds', 3),
+                    segment_type=_normalize_segment_type(act_name),  # Task 1.3.a: Use normalization
+                    emotional_beat=act.get('emotional_beat')  # Task 1.3.b: Pass emotion from Narrative
+                ))
+
+            logger.info(f"  ✓ Narrative arc converted: hook + {len(bullets)} bullets + CTA")
+            logger.info(f"  ✓ Scene map: {len(scene_voiceover_map)} scenes")
+            # used_narrative_arc is already True, no need to set again
+
+    # PRIORITY 2: Try to use LLM suggestion if provided
+    elif llm_suggestion:
         logger.info("  LLM suggestion received - attempting to parse...")
         llm_parsed = _parse_llm_suggestion(llm_suggestion)
 
         if llm_parsed:
             logger.info("  ✓ LLM suggestion parsed successfully")
         else:
+            log_fallback(
+                component="SCRIPT_WRITER",
+                fallback_type="NARRATOR_AWARE_GENERATION",
+                reason="LLM suggestion parsing failed",
+                impact="MEDIUM"
+            )
             logger.warning("  ✗ LLM suggestion parsing failed - using deterministic generation")
 
-    # Generate script components
-    if llm_parsed:
-        # Use LLM-generated components
-        hook = llm_parsed["hook"]
-        bullets = llm_parsed["bullets"]
-        outro_cta = llm_parsed["outro_cta"]
+    # Generate script components (skip if narrative_arc already provided them)
+    if not used_narrative_arc:
+        if llm_parsed:
+            # Use LLM-generated components
+            hook = llm_parsed["hook"]
+            bullets = llm_parsed["bullets"]
+            outro_cta = llm_parsed["outro_cta"]
 
-        # Use LLM voiceover if present, otherwise compose from components
-        if "full_voiceover_text" in llm_parsed:
-            full_voiceover_text = llm_parsed["full_voiceover_text"]
-            logger.info("  Using LLM-generated hook, bullets, CTA, and voiceover")
+            # Use LLM voiceover if present, otherwise compose from components
+            if "full_voiceover_text" in llm_parsed:
+                full_voiceover_text = llm_parsed["full_voiceover_text"]
+                logger.info("  Using LLM-generated hook, bullets, CTA, and voiceover")
+            else:
+                full_voiceover_text = _compose_full_voiceover(hook, bullets, outro_cta)
+                logger.info("  Using LLM-generated hook, bullets, CTA (voiceover composed)")
         else:
-            full_voiceover_text = _compose_full_voiceover(hook, bullets, outro_cta)
-            logger.info("  Using LLM-generated hook, bullets, CTA (voiceover composed)")
-    else:
-        # Fallback generation
-        # Step 09: Use narrator-aware fallback if narrator enabled, otherwise use generic deterministic
-        if narrator_enabled:
-            logger.info("  Using narrator-aware fallback generation")
-            fallback_components = _generate_narrator_aware_fallback(
-                plan=plan,
-                narrator_config=narrator,
-                content_formula=content_formula,
-                series_format=series_format,
-                brand_tone=brand_tone
-            )
-            hook = fallback_components["hook"]
-            bullets = fallback_components["bullets"]
-            outro_cta = fallback_components["outro_cta"]
-            full_voiceover_text = _compose_full_voiceover(hook, bullets, outro_cta)
-        else:
-            # Generic deterministic generation (backward compatibility)
-            logger.info("  Using deterministic script generation")
-            hook = _generate_hook(plan, brand_tone)
-            bullets = _generate_content_bullets(plan)
-            outro_cta = _generate_outro_cta(plan)
-            full_voiceover_text = _compose_full_voiceover(hook, bullets, outro_cta)
+            # Fallback generation
+            # Step 09: Use narrator-aware fallback if narrator enabled, otherwise use generic deterministic
+            if narrator_enabled:
+                log_fallback(
+                    component="SCRIPT_WRITER",
+                    fallback_type="NARRATOR_AWARE_GENERATION",
+                    reason="No LLM suggestion provided",
+                    impact="LOW"
+                )
+                logger.info("  Using narrator-aware fallback generation")
+                fallback_components = _generate_narrator_aware_fallback(
+                    plan=plan,
+                    narrator_config=narrator,
+                    content_formula=content_formula,
+                    series_format=series_format,
+                    brand_tone=brand_tone,
+                    recommended_bullets=recommended_bullets  # Sprint 2: AI-driven bullets count
+                )
+                hook = fallback_components["hook"]
+                bullets = fallback_components["bullets"]
+                outro_cta = fallback_components["outro_cta"]
+                full_voiceover_text = _compose_full_voiceover(hook, bullets, outro_cta)
+            else:
+                # Generic deterministic generation (backward compatibility)
+                log_fallback(
+                    component="SCRIPT_WRITER",
+                    fallback_type="DETERMINISTIC_GENERATION",
+                    reason="No narrator persona configured",
+                    impact="MEDIUM"
+                )
+                logger.info("  Using deterministic script generation")
+                hook = _generate_hook(plan, brand_tone)
+                bullets = _generate_content_bullets(plan, bullets_count=recommended_bullets)  # Sprint 2
+                outro_cta = _generate_outro_cta(plan)
+                full_voiceover_text = _compose_full_voiceover(hook, bullets, outro_cta)
 
     # Apply safety rules (regardless of source)
     # TODO: Add explicit safety checks here in future:
@@ -834,10 +1051,18 @@ def write_script(
     # For now, we trust QualityReviewer to catch issues
 
     # Step 07.3/07.5: Create scene-by-scene voiceover map for audio/visual sync
-    # Step 07.5: Pass series_format for segment-aware tagging
-    scene_voiceover_map = _create_scene_voiceover_map(hook, bullets, outro_cta, series_format)
+    # Skip if narrative_arc already created the scene map
+    if not used_narrative_arc:
+        # Step 07.5: Pass series_format for segment-aware tagging
+        scene_voiceover_map = _create_scene_voiceover_map(hook, bullets, outro_cta, series_format)
+
     total_scene_duration = sum(s.est_duration_seconds for s in scene_voiceover_map)
     logger.info(f"  Scene voiceover map: {len(scene_voiceover_map)} scenes, ~{total_scene_duration}s total")
+
+    # FASE 3: Override CTA with forced_cta if provided (quality retry mechanism)
+    if forced_cta:
+        logger.info(f"  ⚠️ Using forced CTA (quality retry): '{forced_cta[:60]}...'")
+        outro_cta = forced_cta
 
     # Create VideoScript
     script = VideoScript(

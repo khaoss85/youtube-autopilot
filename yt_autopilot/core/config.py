@@ -4,6 +4,7 @@ Loads environment variables and provides centralized config access.
 """
 
 import os
+import yaml
 from pathlib import Path
 from typing import Dict, Any, Optional
 from dotenv import load_dotenv
@@ -21,7 +22,6 @@ def get_config() -> Dict[str, Any]:
     Returns:
         Dict containing:
             - LLM_API_KEY: API key for LLM service (e.g., OpenAI, Anthropic)
-            - VEO_API_KEY: API key for Google Veo video generation
             - YOUTUBE_CLIENT_ID: YouTube OAuth client ID
             - YOUTUBE_CLIENT_SECRET: YouTube OAuth client secret
             - YOUTUBE_REFRESH_TOKEN: YouTube OAuth refresh token
@@ -32,7 +32,6 @@ def get_config() -> Dict[str, Any]:
     config = {
         # API Keys
         "LLM_API_KEY": os.getenv("LLM_API_KEY", ""),
-        "VEO_API_KEY": os.getenv("VEO_API_KEY", ""),
 
         # YouTube OAuth
         "YOUTUBE_CLIENT_ID": os.getenv("YOUTUBE_CLIENT_ID", ""),
@@ -66,7 +65,6 @@ def validate_config() -> bool:
     config = get_config()
     required_keys = [
         "LLM_API_KEY",
-        "VEO_API_KEY",
         "YOUTUBE_CLIENT_ID",
         "YOUTUBE_CLIENT_SECRET",
         "YOUTUBE_REFRESH_TOKEN",
@@ -149,58 +147,6 @@ def get_llm_openai_key() -> Optional[str]:
     return key
 
 
-def get_veo_api_key() -> Optional[str]:
-    """
-    Returns the Veo/Vertex AI API key if configured.
-
-    Returns:
-        API key string if VEO_API_KEY is set in .env, None otherwise
-
-    Usage:
-        Used by services/video_gen_service.py for Google Veo/Vertex AI video generation
-
-    Note:
-        This can be either:
-        - A direct API key (e.g., from Google AI Studio)
-        - A service account key for Vertex AI
-        - Path to a service account JSON file
-    """
-    key = os.getenv("VEO_API_KEY", "")
-    if not key:
-        return None
-    return key
-
-
-def get_openai_video_key() -> Optional[str]:
-    """
-    Returns the OpenAI Video API key if configured.
-
-    Step 07.2: Added for Sora-style video generation support
-
-    Returns:
-        API key string if OPENAI_VIDEO_API_KEY is set in .env, None otherwise
-
-    Usage:
-        Used by services/video_gen_service.py for OpenAI Sora-style video generation
-        Falls back to Veo if not configured
-
-    Note:
-        This is for OpenAI's video generation API (Sora or similar).
-        May use the same key as LLM_OPENAI_API_KEY in some configurations.
-    """
-    # Try dedicated video key first, fallback to general OpenAI key
-    video_key = os.getenv("OPENAI_VIDEO_API_KEY", "")
-    if video_key:
-        return video_key
-
-    # Fallback: try using general OpenAI API key
-    openai_key = os.getenv("LLM_OPENAI_API_KEY", "")
-    if openai_key:
-        return openai_key
-
-    return None
-
-
 def get_youtube_data_api_key() -> Optional[str]:
     """
     Returns the YouTube Data API v3 key if configured.
@@ -269,6 +215,36 @@ def get_env(key: str, default: str = "") -> str:
 
 
 # ============================================================================
+# Log Truncation Configuration
+# ============================================================================
+# Centralized constants for consistent log message truncation across the codebase.
+# Use these with logger.truncate_for_log() to maintain readable terminal output
+# without flooding logs with extremely long text.
+#
+# Usage:
+#     from yt_autopilot.core.config import LOG_TRUNCATE_REASONING
+#     from yt_autopilot.core.logger import truncate_for_log
+#     logger.info(f"Reasoning: {truncate_for_log(reasoning, LOG_TRUNCATE_REASONING)}")
+# ============================================================================
+
+# Task descriptions for LLM Router (e.g., "Generate script for topic...")
+# Increased from 50 to 200 chars to capture complete instructions
+LOG_TRUNCATE_TASK = 200
+
+# AI reasoning and decision rationale (e.g., editorial decisions, format choices)
+# Increased from 100-150 to 300 chars to provide meaningful context
+LOG_TRUNCATE_REASONING = 300
+
+# Content previews and context snippets (e.g., script snippets, generated text)
+# Standard 300 chars for general content logging
+LOG_TRUNCATE_CONTENT = 300
+
+# Short identifiers, titles, or labels
+# Keep concise at 100 chars for compact display
+LOG_TRUNCATE_SHORT = 100
+
+
+# ============================================================================
 # Step 08: Vertical Category Configurations
 # ============================================================================
 
@@ -289,13 +265,50 @@ def get_vertical_configs() -> Dict[str, Dict[str, Any]]:
             "vertical_id": "tech_ai",
             "cpm_baseline": 15.0,
             "target_keywords": [
-                "AI", "ChatGPT", "Python", "automation", "productivity",
-                "machine learning", "coding", "programming", "tutorial",
-                "OpenAI", "Claude", "GPT", "tech news"
+                # AI Core (business-focused)
+                "AI", "ChatGPT", "OpenAI", "Claude", "GPT",
+                "automation", "productivity", "tech news",
+                # SaaS & B2B
+                "SaaS", "B2B", "startup", "founder", "entrepreneur",
+                "API", "developer tools", "no-code", "low-code",
+                "AI tools", "productivity tools", "workflow",
+                "bootstrapped", "indie hacker", "business automation",
+                # AI Agents & Multi-Agent Systems
+                "AI agents", "multi-agent systems", "SaaS metrics", "B2B SaaS",
+                "land and expand", "value-based pricing", "grandfathering",
+                # RevOps & Sales
+                "RevOps", "lead scoring", "attribution models",
+                "sales automation", "conversion optimization",
+                # Marketing & Growth
+                "product-led growth", "PLG", "BOFU",
+                "content marketing", "copywriting",
+                # Data & MarTech
+                "CDP", "customer data platform", "reverse ETL"
             ],
             "reddit_subreddits": [
-                "MachineLearning", "OpenAI", "Python", "programming",
-                "LocalLLaMA", "artificial", "technology", "coding"
+                # SaaS/Startup Focus (5)
+                "SaaS", "startups", "Entrepreneur", "indiehackers",
+                # AI Business Focus (1)
+                "OpenAI",
+                # Marketing/Growth Focus (3) - NEW
+                "marketing", "martech", "bigseo"
+            ],
+            "banned_topics": [
+                # Hardware consumer (filter out from YouTube Category 28)
+                "smartwatch", "smartband", "smart watch", "wearable",
+                "smartphone", "phone review", "earbuds", "headphones",
+                "gaming laptop", "gaming pc", "RTX", "GPU review",
+                "unboxing", "battery test", "speed test",
+                # Gadget lifestyle
+                "fitness tracker", "smart home", "alexa", "google home",
+                "ring doorbell", "security camera",
+                # Sports/entertainment (category 28 is mixed!)
+                "soccer", "football", "tennis", "sports",
+                "gaming highlights", "esports clips",
+                # Consumer tech reviews (NEW - blog-based optimization)
+                "iPhone review", "Android review", "tablet review", "smartwatch review",
+                # Coding/Programming tutorials (NEW - blog-based optimization)
+                "Python tutorial", "coding tutorial", "learn to code", "programming tutorial"
             ],
             "youtube_category_id": "28",  # Science & Technology
             "youtube_channels": [
@@ -432,3 +445,104 @@ def get_vertical_config(vertical_id: str) -> Optional[Dict[str, Any]]:
     """
     configs = get_vertical_configs()
     return configs.get(vertical_id)
+
+
+# ============================================================================
+# FASE 2: Quality Validation Thresholds
+# ============================================================================
+
+def load_validation_thresholds(
+    workspace_id: Optional[str] = None,
+    format_type: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Load quality validation thresholds with workspace and format overrides.
+
+    FASE 2.2: Configurable thresholds for AI-driven quality validation.
+
+    Args:
+        workspace_id: Workspace identifier for workspace-specific overrides
+        format_type: Format type ('short', 'mid', 'long') for format-specific overrides
+
+    Returns:
+        Dict containing merged thresholds:
+        {
+            'narrative_bullet_count': {
+                'max_deviation': int,
+                'strict_mode': bool
+            },
+            'cta_similarity': {
+                'pass_threshold': float,
+                'warning_threshold': float,
+                'error_threshold': float,
+                'blocking_threshold': float,
+                'use_semantic': bool
+            },
+            'voiceover_sync': {
+                'warning_threshold': float,
+                'error_threshold': float,
+                'blocking_threshold': float
+            }
+        }
+
+    Merge Priority:
+        1. Global defaults (config/validation_thresholds.yaml)
+        2. Format overrides (if format_type provided)
+        3. Workspace overrides (if workspace_id provided) - HIGHEST PRIORITY
+
+    Example:
+        >>> thresholds = load_validation_thresholds(
+        ...     workspace_id='finance_master',
+        ...     format_type='long'
+        ... )
+        >>> max_dev = thresholds['narrative_bullet_count']['max_deviation']
+        >>> cta_threshold = thresholds['cta_similarity']['pass_threshold']
+
+    Raises:
+        FileNotFoundError: If config/validation_thresholds.yaml is missing
+        yaml.YAMLError: If YAML file is malformed
+    """
+    from yt_autopilot.core.logger import logger
+
+    # Load YAML configuration
+    config_path = _project_root / "config" / "validation_thresholds.yaml"
+
+    if not config_path.exists():
+        logger.error(f"Validation thresholds config not found: {config_path}")
+        raise FileNotFoundError(f"Missing config file: {config_path}")
+
+    try:
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        logger.error(f"Failed to parse validation_thresholds.yaml: {e}")
+        raise
+
+    # Start with global defaults
+    thresholds = config.get('global', {}).copy()
+
+    # Apply format overrides (if provided)
+    if format_type:
+        format_overrides = config.get('format_overrides', {}).get(format_type, {})
+        for validator_name, validator_thresholds in format_overrides.items():
+            if validator_name not in thresholds:
+                thresholds[validator_name] = {}
+            thresholds[validator_name].update(validator_thresholds)
+
+        if format_overrides:
+            logger.debug(f"Applied format_overrides for format_type='{format_type}'")
+
+    # Apply workspace overrides (if provided) - HIGHEST PRIORITY
+    if workspace_id:
+        workspace_overrides = config.get('workspace_overrides', {}).get(workspace_id, {})
+        for validator_name, validator_thresholds in workspace_overrides.items():
+            if validator_name not in thresholds:
+                thresholds[validator_name] = {}
+            thresholds[validator_name].update(validator_thresholds)
+
+        if workspace_overrides:
+            logger.debug(f"Applied workspace_overrides for workspace_id='{workspace_id}'")
+
+    logger.debug(f"Loaded validation thresholds (workspace={workspace_id}, format={format_type})")
+
+    return thresholds

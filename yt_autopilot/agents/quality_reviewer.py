@@ -220,25 +220,23 @@ def _check_hook_quality(script: VideoScript, narrator_config: Dict = None) -> Tu
     return True, ""
 
 
-def _check_video_duration(visuals: VisualPlan, max_duration: int = 90) -> Tuple[bool, str]:
+def _check_video_duration(visuals: VisualPlan) -> Tuple[bool, str]:
     """
-    Checks if total video duration is appropriate for Shorts.
+    Checks if total video duration meets minimum quality standards.
+
+    NOTE (Monetization Refactor): Maximum duration check removed.
+    Duration Strategist now handles optimal duration (short/mid/long-form).
+    This check only validates minimum duration for quality.
 
     Args:
         visuals: Visual plan with scenes
-        max_duration: Maximum acceptable duration in seconds (default: 90)
 
     Returns:
         (is_acceptable, issue_description)
     """
     total_duration = sum(scene.est_duration_seconds for scene in visuals.scenes)
 
-    if total_duration > max_duration:
-        return False, (
-            f"Video too long: {total_duration}s exceeds {max_duration}s limit for Shorts. "
-            "Script needs to be condensed."
-        )
-
+    # Only check minimum duration - Duration Strategist handles optimal length
     if total_duration < 10:
         return False, (
             f"Video too short: {total_duration}s is less than 10s. "

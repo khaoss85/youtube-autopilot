@@ -1,0 +1,67 @@
+{
+  "workspace_id": "finance_master",
+  "workspace_name": "Finance Master",
+  "vertical_id": "finance",
+  "target_language": "en",
+  "brand_tone": "Professionale, educativo, trasparente. Focus su educazione finanziaria senza promesse di ricchezza facile.",
+  "visual_style": "Pulito, professionale, grafici e dati visibili, colori blu/verde per fiducia",
+  "banned_topics": [
+    "schemi ponzi o piramidali",
+    "pump and dump di crypto",
+    "promesse di guadagni garantiti",
+    "consigli finanziari senza disclaimer",
+    "get-rich-quick schemes",
+    "uso di musica protetta da copyright"
+  ],
+  "recent_titles": [],
+  "narrator_persona": {
+    "enabled": false
+  },
+  "voice_config": {
+    "tts_provider": "openai",
+    "voice_model": "echo",
+    "speed": 1.0
+  },
+  "content_formula": {
+    "hook_pattern": "stat_shock",
+    "cta_style": "soft_ask",
+    "target_duration_seconds": 60,
+    "pacing": "medium"
+  },
+  "visual_brand_manual": {
+    "enabled": true,
+    "color_palette": {
+      "primary": "#1976D2",
+      "secondary": "#4CAF50",
+      "accent": "#FFC107",
+      "background": "#263238",
+      "text": "#FFFFFF"
+    },
+    "lower_thirds": {
+      "enabled": false,
+      "display_narrator_name": false,
+      "position": "bottom_left",
+      "font_size": 24,
+      "duration_seconds": 3,
+      "fade_duration": 0.5
+    }
+  },
+  "visual_contexts": {
+    "enabled": false
+  },
+  "character_profiles": {
+    "enabled": false
+  },
+  "video_style_mode": {
+    "type": "faceless",
+    "ai_style_preferences": {
+      "vertical_aesthetic": "professional_financial",
+      "brand_vibe": "trustworthy, data-driven, sophisticated",
+      "preferred_styles": [
+        "kinetic_typography",
+        "animated_infographics",
+        "cinematic_broll"
+      ]
+    }
+  }
+}

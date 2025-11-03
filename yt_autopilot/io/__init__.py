@@ -12,34 +12,33 @@ Production States:
 """
 
 from yt_autopilot.io.datastore import (
-    save_video_package,
     list_published_videos,
     save_metrics,
     get_metrics_history,
     save_draft_package,
     get_draft_package,
-    mark_as_scheduled,
     list_scheduled_videos,
     list_pending_review
 )
 from yt_autopilot.io.exports import (
     export_report_csv,
-    export_metrics_timeseries_csv
+    export_metrics_timeseries_csv,
+    export_content_package_to_markdown
 )
 
 __all__ = [
-    # Datastore - legacy/general
-    "save_video_package",
+    # Datastore - content strategy focus
     "list_published_videos",
     "save_metrics",
     "get_metrics_history",
-    # Datastore - production workflow with human gate
+    # Datastore - script review workflow (Phase 1 refactor)
     "save_draft_package",
     "get_draft_package",
-    "mark_as_scheduled",
     "list_scheduled_videos",
     "list_pending_review",
-    # Exports
+    # Exports - Analytics
     "export_report_csv",
     "export_metrics_timeseries_csv",
+    # Exports - Content packages (Phase 1 refactor)
+    "export_content_package_to_markdown",
 ]

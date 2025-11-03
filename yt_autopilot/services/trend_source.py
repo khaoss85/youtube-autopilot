@@ -333,17 +333,19 @@ def _fetch_youtube_scrape(
 # Step 08 Phase A: Intelligent Curation - Spam Filtering & Quality Thresholds
 # ============================================================================
 
-def _is_spam_keyword(trend: TrendCandidate) -> bool:
+def _is_spam_keyword(trend: TrendCandidate, vertical_id: str = None) -> bool:
     """
     Detects spam patterns in trend keywords that indicate low-quality content.
 
     Phase A.1: Pre-filtering layer to remove viral spam before LLM curation
+    Extended: Also filters vertical-specific banned topics (e.g., hardware for tech_ai)
 
     Args:
         trend: TrendCandidate to evaluate
+        vertical_id: Optional vertical ID to load vertical-specific banned topics
 
     Returns:
-        True if keyword contains spam patterns, False otherwise
+        True if keyword contains spam patterns or banned topics, False otherwise
 
     Spam Patterns (YouTube-specific):
         - Product reviews/comparisons: "vs", "review", "unboxing", "compared"
@@ -386,36 +388,54 @@ def _is_spam_keyword(trend: TrendCandidate) -> bool:
             logger.debug(f"Spam detected in '{trend.keyword[:50]}': pattern '{pattern}'")
             return True
 
+    # NEW: Check vertical-specific banned topics
+    if vertical_id:
+        from yt_autopilot.core.config import get_vertical_config
+        vertical_config = get_vertical_config(vertical_id)
+        banned_topics = vertical_config.get("banned_topics", [])
+
+        for banned in banned_topics:
+            if banned.lower() in keyword_lower:
+                logger.debug(f"Vertical banned topic '{banned}' detected in '{trend.keyword[:50]}'")
+                return True
+
     return False
 
 
-def _meets_quality_threshold(trend: TrendCandidate) -> bool:
+def _meets_quality_threshold(trend: TrendCandidate, vertical_id: str = None) -> bool:
     """
-    Enforces minimum quality thresholds based on trend source.
+    Enforces minimum quality thresholds based on trend source and vertical.
 
     Phase A.1: Quality gate to filter out low-engagement content
 
     Args:
         trend: TrendCandidate to evaluate
+        vertical_id: Vertical identifier for vertical-specific thresholds
 
     Returns:
         True if trend meets quality threshold, False otherwise
 
-    Thresholds by Source:
+    Thresholds by Source (default):
         - Reddit: min 500 upvotes (momentum_score proxy)
         - Hacker News: min 100 points
         - YouTube: min 50K views (filtered by spam patterns instead)
 
     Note:
-        Reddit rising posts get lower threshold (300) for early signals
+        - Reddit rising posts get lower threshold (300) for early signals
+        - Business-focused verticals (tech_ai) get 5x lower thresholds for smaller subreddits
     """
     source = trend.source.lower()
+
+    # Business-focused verticals have smaller subreddits = lower engagement
+    # Apply 5x lower thresholds for tech_ai (SaaS/startup subreddits)
+    is_business_vertical = vertical_id in ["tech_ai"]
+    threshold_multiplier = 0.2 if is_business_vertical else 1.0
 
     # Reddit quality thresholds
     if "reddit" in source:
         # Rising posts = early signals, lower threshold
         if "rising" in source:
-            min_momentum = 0.3  # ~300-500 upvotes
+            min_momentum = 0.3 * threshold_multiplier  # Default: ~300-500 upvotes, tech_ai: ~60-100 upvotes
             if trend.momentum_score < min_momentum:
                 logger.debug(
                     f"Reddit rising trend '{trend.keyword[:50]}' below threshold "
@@ -424,7 +444,7 @@ def _meets_quality_threshold(trend: TrendCandidate) -> bool:
                 return False
         else:
             # Hot posts = proven engagement, higher threshold
-            min_momentum = 0.5  # ~500+ upvotes
+            min_momentum = 0.5 * threshold_multiplier  # Default: ~500+ upvotes, tech_ai: ~100+ upvotes
             if trend.momentum_score < min_momentum:
                 logger.debug(
                     f"Reddit hot trend '{trend.keyword[:50]}' below threshold "
@@ -434,7 +454,7 @@ def _meets_quality_threshold(trend: TrendCandidate) -> bool:
 
     # Hacker News quality threshold
     elif "hackernews" in source:
-        min_momentum = 0.3  # ~100+ points (HN scoring is different)
+        min_momentum = 0.3 * threshold_multiplier  # Default: ~100+ points, tech_ai: ~20+ points
         if trend.momentum_score < min_momentum:
             logger.debug(
                 f"HN trend '{trend.keyword[:50]}' below threshold "
@@ -448,7 +468,60 @@ def _meets_quality_threshold(trend: TrendCandidate) -> bool:
     return True
 
 
-def _apply_quality_filters(trends: List[TrendCandidate]) -> List[TrendCandidate]:
+def _meets_vertical_alignment(trend: TrendCandidate, vertical_id: str) -> bool:
+    """
+    Enforces minimum keyword relevance for vertical alignment.
+
+    Filters out trends with 0 keyword matches (completely unrelated to vertical).
+    Different thresholds for curated vs generic sources.
+
+    Args:
+        trend: TrendCandidate to evaluate
+        vertical_id: Content vertical (e.g., 'fitness', 'finance')
+
+    Returns:
+        True if trend has sufficient keyword matches for its source type
+
+    Thresholds by Source:
+        - Curated sources (Reddit, YouTube channels): min 1 keyword required
+        - Generic sources (YouTube trending): min 2 keywords required
+          (higher threshold to filter sports/off-topic content)
+
+    Example:
+        >>> trend = TrendCandidate(keyword="Inter Milan wins", keyword_match_count=0, source="youtube_trending")
+        >>> _meets_vertical_alignment(trend, "fitness")
+        False  # 0 keywords < 2 required for youtube_trending
+    """
+    from yt_autopilot.core.config import get_vertical_config
+
+    # Get keyword match count
+    keyword_matches = getattr(trend, 'keyword_match_count', 0)
+
+    # Determine minimum keywords required based on source
+    source = trend.source.lower()
+
+    # Curated sources (Reddit from vertical subreddits, YouTube from fitness channels): min 1 keyword
+    if source.startswith("reddit_") or source.startswith("youtube_channel_"):
+        min_keywords = 1
+    # Generic sources (YouTube trending): min 1 keyword (lowered from 2 for SaaS/B2B content)
+    elif source == "youtube_trending" or source == "youtube_search":
+        min_keywords = 1
+    # Other sources: min 1 keyword
+    else:
+        min_keywords = 1
+
+    # Check alignment
+    if keyword_matches < min_keywords:
+        logger.debug(
+            f"Trend '{trend.keyword[:50]}' filtered: {keyword_matches} keywords < {min_keywords} required "
+            f"(source: {trend.source}, vertical: {vertical_id})"
+        )
+        return False
+
+    return True
+
+
+def _apply_quality_filters(trends: List[TrendCandidate], vertical_id: str = None) -> List[TrendCandidate]:
     """
     Applies spam filtering and quality thresholds to trend list.
 
@@ -471,9 +544,9 @@ def _apply_quality_filters(trends: List[TrendCandidate]) -> List[TrendCandidate]
     """
     logger.info(f"Applying quality filters to {len(trends)} trends...")
 
-    # Step 1: Spam filtering
+    # Step 1: Spam filtering (includes vertical-specific banned topics)
     pre_spam = len(trends)
-    trends = [t for t in trends if not _is_spam_keyword(t)]
+    trends = [t for t in trends if not _is_spam_keyword(t, vertical_id=vertical_id)]
     spam_removed = pre_spam - len(trends)
 
     if spam_removed > 0:
@@ -481,7 +554,7 @@ def _apply_quality_filters(trends: List[TrendCandidate]) -> List[TrendCandidate]
 
     # Step 2: Quality thresholds
     pre_quality = len(trends)
-    trends = [t for t in trends if _meets_quality_threshold(t)]
+    trends = [t for t in trends if _meets_quality_threshold(t, vertical_id=vertical_id)]
     quality_removed = pre_quality - len(trends)
 
     if quality_removed > 0:
@@ -500,6 +573,15 @@ def _apply_quality_filters(trends: List[TrendCandidate]) -> List[TrendCandidate]
     dup_removed = len(trends) - len(deduplicated)
     if dup_removed > 0:
         logger.info(f"✓ Removed {dup_removed} duplicate trends")
+
+    # Step 4: Vertical alignment check (keyword relevance)
+    if vertical_id:
+        pre_alignment = len(deduplicated)
+        deduplicated = [t for t in deduplicated if _meets_vertical_alignment(t, vertical_id)]
+        alignment_removed = pre_alignment - len(deduplicated)
+
+        if alignment_removed > 0:
+            logger.info(f"✓ Removed {alignment_removed} non-aligned trends ({alignment_removed/pre_alignment*100:.1f}%)")
 
     logger.info(f"✓ Quality filtering complete: {len(trends)} → {len(deduplicated)} trends ({len(deduplicated)/len(trends)*100:.1f}% retained)")
 
@@ -538,33 +620,42 @@ def fetch_trends(vertical_id: str = "tech_ai", use_real_apis: bool = True) -> Li
         # ========================================================================
         # Source 1: YouTube Data API v3 (Primary)
         # ========================================================================
-        logger.info("Source 1: YouTube Data API v3...")
-        youtube_trends = _fetch_youtube_trending(
-            vertical_id=vertical_id,
-            region_code="IT",
-            max_results=20
-        )
+        # SKIP YouTube trending for specific verticals:
+        # - fitness: category "Sports" is too generic (includes soccer, tennis, etc.)
+        # - tech_ai: category "Science & Technology" is too generic (includes smartphone reviews, gadgets, gaming)
+        if vertical_id not in ["fitness", "tech_ai"]:
+            logger.info("Source 1: YouTube Data API v3...")
+            youtube_trends = _fetch_youtube_trending(
+                vertical_id=vertical_id,
+                region_code="IT",
+                max_results=20
+            )
 
-        # If YouTube API returns nothing (quota exceeded), try scrapetube
-        if not youtube_trends and SCRAPETUBE_AVAILABLE:
-            logger.warning("YouTube API returned no results - trying scraping fallback")
-            youtube_trends = _fetch_youtube_scrape(vertical_id=vertical_id, max_results=15)
+            # If YouTube API returns nothing (quota exceeded), try scrapetube
+            if not youtube_trends and SCRAPETUBE_AVAILABLE:
+                logger.warning("YouTube API returned no results - trying scraping fallback")
+                youtube_trends = _fetch_youtube_scrape(vertical_id=vertical_id, max_results=15)
 
-        all_trends.extend(youtube_trends)
+            all_trends.extend(youtube_trends)
+        else:
+            logger.info(f"Source 1: YouTube Trending SKIPPED for {vertical_id} vertical (using curated sources: YouTube Channels + Reddit + HN only)")
+            youtube_trends = []
 
         # Source 1b: YouTube Search for vertical-specific queries
-        vertical_config = get_vertical_config(vertical_id)
-        if vertical_config:
-            target_keywords = vertical_config.get("target_keywords", [])
-            # Search for top 2 keywords to avoid quota waste
-            for keyword in target_keywords[:2]:
-                search_trends = _fetch_youtube_search(
-                    query=keyword,
-                    vertical_id=vertical_id,
-                    region_code="IT",
-                    max_results=5
-                )
-                all_trends.extend(search_trends)
+        # SKIP for tech_ai: generic keyword searches return junk content (AI story videos, ChatGPT food videos)
+        if vertical_id not in ["tech_ai"]:
+            vertical_config = get_vertical_config(vertical_id)
+            if vertical_config:
+                target_keywords = vertical_config.get("target_keywords", [])
+                # Search for top 2 keywords to avoid quota waste
+                for keyword in target_keywords[:2]:
+                    search_trends = _fetch_youtube_search(
+                        query=keyword,
+                        vertical_id=vertical_id,
+                        region_code="IT",
+                        max_results=5
+                    )
+                    all_trends.extend(search_trends)
 
         # ========================================================================
         # Source 2: Reddit API (PRAW) - Step 08 Phase 2
@@ -637,9 +728,9 @@ def fetch_trends(vertical_id: str = "tech_ai", use_real_apis: bool = True) -> Li
         logger.info(f"  - {source}: {count} trends")
 
     # ========================================================================
-    # Phase A.1: Apply quality filters (spam detection + thresholds + dedup)
+    # Phase A.1: Apply quality filters (spam detection + thresholds + dedup + vertical alignment)
     # ========================================================================
-    all_trends = _apply_quality_filters(all_trends)
+    all_trends = _apply_quality_filters(all_trends, vertical_id=vertical_id)
 
     # Log top 5 trends (after filtering)
     logger.debug("Top 5 quality-filtered trends:")

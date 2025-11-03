@@ -1,0 +1,369 @@
+"""
+Narrative Arc Architect Agent: AI-driven emotional storytelling for retention.
+
+This agent creates story structures with personality, emotional beats, and
+retention hooks instead of generic template-based scripts.
+
+Key Features:
+- Emotional story arc (hook → agitation → solution → payoff)
+- Voice personality injection (confident educator, empathetic friend, etc.)
+- Pattern interrupts for retention
+- Cliffhangers and open loops
+- Proper punctuation and pacing
+
+Replaces: Generic LLM script generation with strategic narrative design.
+"""
+
+from typing import Dict, Any, List, Optional
+from yt_autopilot.services.llm_router import generate_text
+from yt_autopilot.core.logger import logger, log_fallback
+
+
+def design_narrative_arc(
+    topic: str,
+    target_duration_seconds: int,
+    workspace_config: Dict[str, Any],
+    duration_strategy: Dict[str, Any],
+    editorial_decision: Dict[str, Any],
+    bullet_count_constraint: Optional[int] = None,  # FASE 1: Quality retry constraint
+    llm_generate_fn: callable = None  # WEEK 2 Task 2.1: Language-validated LLM wrapper
+) -> Dict[str, Any]:
+    """
+    AI-driven narrative arc design for emotional retention optimization.
+
+    Creates a story structure with:
+    - Hook: Pattern interrupt, open loop, emotional trigger (0-3s)
+    - Agitation: Pain points, problem exploration (build tension)
+    - Solution: Insights, revelations, payoff (release tension)
+    - CTA: Specific engagement action (not generic "follow us")
+
+    Also includes:
+    - Voice personality (matches brand tone)
+    - Pattern interrupts every 8-12 seconds
+    - Cliffhangers between sections
+    - Proper punctuation and pacing marks
+
+    Args:
+        topic: Video topic/title
+        target_duration_seconds: Target video duration
+        workspace_config: Brand tone, style, personality
+        duration_strategy: Output from Duration Strategist
+        editorial_decision: Editorial strategy context
+        bullet_count_constraint: FASE 1 - If provided, force exactly this many content acts (quality retry)
+        llm_generate_fn: WEEK 2 Task 2.1 - Language-validated LLM wrapper (uses generate_text if None)
+
+    Returns:
+        Dict with:
+        - narrative_structure: List[Dict] (acts with emotional beats)
+        - voice_personality: str (narrator personality description)
+        - retention_hooks: List[str] (pattern interrupts, cliffhangers)
+        - full_voiceover: str (complete script with punctuation)
+        - emotional_beats: List[Dict] (timestamp → emotion mapping)
+        - pacing_notes: str (delivery guidance)
+
+    Example:
+        >>> arc = design_narrative_arc(
+        ...     topic="$6.5M margin call disaster",
+        ...     target_duration_seconds=420,
+        ...     workspace_config=workspace,
+        ...     duration_strategy=duration_strategy,
+        ...     editorial_decision=editorial,
+        ...     bullet_count_constraint=6  # FASE 1: Force 6 content acts
+        ... )
+        >>> print(arc['voice_personality'])  # "Confident financial educator"
+        >>> print(arc['full_voiceover'][:100])  # Hook with personality
+    """
+    logger.info("Narrative Architect designing story structure...")
+    logger.info(f"  Topic: {topic}")
+    logger.info(f"  Target Duration: {target_duration_seconds}s ({target_duration_seconds // 60}min {target_duration_seconds % 60}s)")
+
+    # Extract context
+    brand_tone = workspace_config.get('brand_tone', 'Professional, educational')
+    format_type = duration_strategy.get('format_type', 'mid')
+    content_depth_score = duration_strategy.get('content_depth_score', 0.5)
+    target_language = workspace_config.get('target_language', 'en')  # WEEK 2 Task 2.1: Extract language
+
+    angle = editorial_decision.get('angle', 'education')
+    serie_concept = editorial_decision.get('serie_concept', 'Tutorial')
+
+    # WEEK 2 Task 2.1: Use language-validated LLM if provided, fallback to direct
+    generate_fn = llm_generate_fn if llm_generate_fn else generate_text
+
+    # Construct AI prompt for narrative design
+    # WEEK 2 Task 2.1: Add language mapping for explicit instruction
+    language_names = {
+        "en": "ENGLISH",
+        "it": "ITALIAN",
+        "es": "SPANISH",
+        "fr": "FRENCH",
+        "de": "GERMAN",
+        "pt": "PORTUGUESE"
+    }
+    language_instruction = language_names.get(target_language.lower(), target_language.upper())
+
+    prompt = f"""You are a master storytelling architect for YouTube video retention.
+
+⚠️ CRITICAL LANGUAGE REQUIREMENT ⚠️
+ALL OUTPUT MUST BE IN {language_instruction}. Every single word of voiceover must be in {language_instruction}.
+DO NOT mix languages. If you see examples in other languages below, IGNORE their language and write in {language_instruction}.
+
+TOPIC: "{topic}"
+TARGET DURATION: {target_duration_seconds}s ({target_duration_seconds // 60}min {target_duration_seconds % 60}s)
+FORMAT: {format_type} (short/mid/long)
+CONTENT DEPTH: {content_depth_score:.2f} (0=thin, 1=deep)
+
+BRAND TONE: {brand_tone[:200]}
+ANGLE: {angle}
+SERIE: {serie_concept}
+{f'''
+🔒 CRITICAL CONSTRAINT (Quality Retry):
+YOU MUST create EXACTLY {bullet_count_constraint} content acts (excluding Hook and CTA).
+This is a HARD REQUIREMENT from Content Depth Strategist.
+
+Structure: Hook + {bullet_count_constraint} content acts + CTA = {bullet_count_constraint + 2} total acts
+''' if bullet_count_constraint else ''}
+YOUR TASK:
+Design an EMOTIONAL STORY ARC that maximizes viewer retention through:
+
+1. **HOOK (0-3 seconds)**: Pattern interrupt
+   - NOT generic "Ever heard of..."
+   - Open loop: tease the payoff
+   - Emotional trigger: shock, curiosity, relatability
+   - Example: "This trader lost $6.5M in ONE NIGHT. The mistake? Completely avoidable."
+
+2. **AGITATION (build tension)**: Pain points
+   - Explore the problem
+   - Build emotional investment
+   - "Here's what went wrong..."
+   - Pattern interrupt mid-section: "But wait, there's a twist..."
+
+3. **SOLUTION (release tension)**: Insights
+   - Reveal the lesson
+   - Provide value
+   - "The truth is..."
+
+4. **PAYOFF + CTA**: Engagement
+   - Deliver on hook promise
+   - Specific CTA (NOT "follow us")
+   - Example: "Comment YOUR worst trade loss below!"
+
+VOICE PERSONALITY:
+Based on brand tone "{brand_tone[:100]}", choose narrator personality:
+- Confident Educator (authoritative, clear)
+- Empathetic Friend (relatable, supportive)
+- Investigative Journalist (curious, revealing)
+- Enthusiastic Guide (energetic, motivating)
+
+RETENTION TACTICS:
+- Pattern interrupts every 8-12 seconds
+- Cliffhangers between acts: "But here's what REALLY happened..."
+- Open loops: "In 30 seconds, I'll reveal..."
+- Direct address: "You might be thinking..."
+- Specific examples (not abstractions)
+
+RESPOND IN THIS EXACT JSON FORMAT:
+{{
+  "voice_personality": "<chosen personality with brief description>",
+  "narrative_structure": [{f'''
+    // ⚠️ CRITICAL: You MUST include EXACTLY {bullet_count_constraint} content acts (excluding Hook and CTA)
+    // Structure: 1 Hook + {bullet_count_constraint} content acts + 1 Payoff_CTA
+    // Total acts in this array: {bullet_count_constraint + 2}
+    ''' if bullet_count_constraint else ''}
+    {{
+      "act_name": "Hook",
+      "duration_seconds": <int>,
+      "emotional_beat": "<shock|curiosity|relatability>",
+      "voiceover": "<script with proper punctuation>",
+      "retention_tactic": "<pattern interrupt|open loop|etc>"
+    }},{f'''
+    // Now add EXACTLY {bullet_count_constraint} content acts (name them Content_1, Content_2, ... Content_{bullet_count_constraint}):
+    {{
+      "act_name": "Content_1",
+      "duration_seconds": <int>,
+      "emotional_beat": "<tension|curiosity|insight|etc>",
+      "voiceover": "<script>",
+      "retention_tactic": "<specific tactic>"
+    }},
+    // ... repeat for Content_2, Content_3, ... Content_{bullet_count_constraint}
+    {{
+      "act_name": "Content_{bullet_count_constraint}",
+      "duration_seconds": <int>,
+      "emotional_beat": "<emotion>",
+      "voiceover": "<script>",
+      "retention_tactic": "<tactic>"
+    }},''' if bullet_count_constraint else '''
+    {{
+      "act_name": "Agitation",
+      "duration_seconds": <int>,
+      "emotional_beat": "<tension|empathy|concern>",
+      "voiceover": "<script>",
+      "retention_tactic": "<cliffhanger|question|etc>"
+    }},
+    {{
+      "act_name": "Solution",
+      "duration_seconds": <int>,
+      "emotional_beat": "<relief|insight|hope>",
+      "voiceover": "<script>",
+      "retention_tactic": "<revelation|contrast|etc>"
+    }},'''}
+    {{
+      "act_name": "Payoff_CTA",
+      "duration_seconds": <int>,
+      "emotional_beat": "<empowerment|community>",
+      "voiceover": "<script with specific CTA>",
+      "retention_tactic": "<call to action|social proof>"
+    }}
+  ],
+  "retention_hooks": [
+    "<list of specific pattern interrupts/cliffhangers used>"
+  ],
+  "pacing_notes": "<delivery guidance: fast/slow sections, emphasis, pauses>",
+  "emotional_journey": "<brief arc summary: start emotion → end emotion>"
+}}
+
+CRITICAL:
+- Write for SPOKEN delivery (contractions, rhythm, pauses)
+- Use proper punctuation (commas, periods, em-dashes, ellipses)
+- NO filler words ("um", "like", "you know")
+- Specific examples > abstract concepts
+- Duration must sum to approximately {target_duration_seconds}s (±10%)
+{f'''
+⚠️ SELF-VERIFICATION (REQUIRED BEFORE RESPONDING):
+1. Count your content acts (acts that are NOT Hook or Payoff_CTA)
+2. Required count: EXACTLY {bullet_count_constraint} content acts
+3. Your structure should be: Hook (1) + Content acts ({bullet_count_constraint}) + Payoff_CTA (1) = {bullet_count_constraint + 2} total acts
+4. If count does not match, REVISE your structure now before responding
+5. Double-check: narrative_structure array must have {bullet_count_constraint + 2} objects
+''' if bullet_count_constraint else ''}
+⚠️ CRITICAL: YOU MUST RESPOND ONLY WITH VALID JSON ⚠️
+
+DO NOT include any text before or after the JSON.
+DO NOT use markdown code blocks.
+RESPOND WITH RAW JSON ONLY.
+"""
+
+    # Call LLM for AI-driven narrative design
+    # WEEK 2 Task 2.1: Use language-validated LLM wrapper (or fallback to direct)
+    try:
+        response = generate_fn(
+            role="narrative_architect",
+            task=prompt,
+            context="",
+            style_hints={
+                "response_format": "json",
+                "max_tokens": 2000,
+                "language": target_language  # WEEK 2 Task 2.1: Add language hint
+            }
+        )
+
+        # Parse JSON response with robust handling
+        import json
+        import re
+
+        # Try direct JSON parse first
+        try:
+            narrative = json.loads(response)
+        except json.JSONDecodeError:
+            # Fallback: Extract JSON from markdown code blocks or text
+            logger.warning("Direct JSON parse failed, attempting extraction...")
+
+            # Try to extract JSON from markdown code blocks
+            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response, re.DOTALL)
+            if json_match:
+                narrative = json.loads(json_match.group(1))
+                logger.info("Extracted JSON from markdown code block")
+            else:
+                # Try to find JSON object in text
+                json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response, re.DOTALL)
+                if json_match:
+                    narrative = json.loads(json_match.group(0))
+                    logger.info("Extracted JSON from text")
+                else:
+                    raise ValueError("Could not extract valid JSON from response")
+
+        # Validate structure
+        narrative.setdefault('voice_personality', 'Confident Educator')
+        narrative.setdefault('narrative_structure', [])
+        narrative.setdefault('retention_hooks', [])
+        narrative.setdefault('pacing_notes', 'Moderate pace, clear enunciation')
+        narrative.setdefault('emotional_journey', 'Curiosity → Tension → Relief → Empowerment')
+
+        # Build full voiceover from acts
+        full_voiceover = " ".join([
+            act['voiceover'] for act in narrative['narrative_structure']
+        ])
+        narrative['full_voiceover'] = full_voiceover
+
+        # Build emotional beats timeline
+        emotional_beats = []
+        cumulative_time = 0
+        for act in narrative['narrative_structure']:
+            emotional_beats.append({
+                'timestamp': cumulative_time,
+                'act': act['act_name'],
+                'emotion': act['emotional_beat']
+            })
+            cumulative_time += act.get('duration_seconds', 0)
+        narrative['emotional_beats'] = emotional_beats
+
+        logger.info(f"✓ Narrative Arc designed:")
+        logger.info(f"  Voice Personality: {narrative['voice_personality']}")
+        logger.info(f"  Acts: {len(narrative['narrative_structure'])}")
+        logger.info(f"  Total Duration: ~{cumulative_time}s")
+        logger.info(f"  Retention Hooks: {len(narrative['retention_hooks'])}")
+        logger.info(f"  Emotional Journey: {narrative['emotional_journey']}")
+        logger.info(f"  Hook Preview: {narrative['narrative_structure'][0]['voiceover'][:80]}...")
+
+        return narrative
+
+    except Exception as e:
+        logger.error(f"Narrative Architect AI failed: {e}")
+        logger.warning("Falling back to basic narrative structure")
+
+        log_fallback(
+            component="NARRATIVE_ARCHITECT",
+            fallback_type="BASIC_STRUCTURE",
+            reason=f"LLM call failed: {e}",
+            impact="HIGH"
+        )
+
+        # Fallback: Basic structure with minimal personality
+        basic_hook = f"Let's talk about {topic}."
+        basic_content = f"This is an important topic that affects many people. Understanding it can help you make better decisions."
+        basic_cta = "Leave a comment with your thoughts below!"
+
+        return {
+            'voice_personality': 'Neutral Educator (AI fallback)',
+            'narrative_structure': [
+                {
+                    'act_name': 'Hook',
+                    'duration_seconds': 3,
+                    'emotional_beat': 'curiosity',
+                    'voiceover': basic_hook,
+                    'retention_tactic': 'direct address'
+                },
+                {
+                    'act_name': 'Content',
+                    'duration_seconds': target_duration_seconds - 6,
+                    'emotional_beat': 'information',
+                    'voiceover': basic_content,
+                    'retention_tactic': 'value delivery'
+                },
+                {
+                    'act_name': 'CTA',
+                    'duration_seconds': 3,
+                    'emotional_beat': 'community',
+                    'voiceover': basic_cta,
+                    'retention_tactic': 'call to action'
+                }
+            ],
+            'retention_hooks': ['Direct address', 'Call to action'],
+            'pacing_notes': 'Moderate pace',
+            'emotional_journey': 'Neutral → Informative → Engaging',
+            'full_voiceover': f"{basic_hook} {basic_content} {basic_cta}",
+            'emotional_beats': [
+                {'timestamp': 0, 'act': 'Hook', 'emotion': 'curiosity'},
+                {'timestamp': 3, 'act': 'Content', 'emotion': 'information'},
+                {'timestamp': target_duration_seconds - 3, 'act': 'CTA', 'emotion': 'community'}
+            ]
+        }

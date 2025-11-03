@@ -915,6 +915,8 @@ def _generate_ai_enhanced_scene_prompt(
     audio_cues = _generate_audio_cues(segment_name, ai_format, vertical_id)
 
     # Step 1b: Get emotional context for retention optimization
+    # Task 1.3.b: Use emotional_beat from Narrative Architect if available
+    # This preserves the carefully designed emotional pacing from narrative design
     emotional_context = _get_emotional_context(segment_name, scene_index, total_scenes)
 
     # Step 2: Extract brand colors
@@ -1511,7 +1513,8 @@ def generate_visual_plan(
     script: VideoScript,
     memory: Dict,
     series_format: Optional[SeriesFormat] = None,
-    workspace_config: Optional[Dict] = None
+    workspace_config: Optional[Dict] = None,
+    duration_strategy: Optional[Dict] = None
 ) -> VisualPlan:
     """
     Generates a complete visual plan with scene-by-scene prompts for Veo.
@@ -1521,6 +1524,7 @@ def generate_visual_plan(
     - Creates Veo-compatible generation prompts for each scene
     - Embeds voiceover text into each scene for precise sync
     - Applies channel's visual style consistently
+    - Adapts format based on duration strategy (short/mid/long)
 
     Step 07.3: Now uses script.scene_voiceover_map for precise audio/visual sync.
     Falls back to legacy scene segmentation if scene_voiceover_map is empty.
@@ -1532,7 +1536,10 @@ def generate_visual_plan(
     If workspace_config contains visual_brand_manual with color palette,
     enforces those colors in Veo prompts.
 
-    Optimized for YouTube Shorts (vertical 9:16 format, ~60 seconds total).
+    MONETIZATION REFACTOR: Now adapts to duration strategy:
+    - Short-form (<60s): 9:16 vertical
+    - Mid-form (60s-8min): 16:9 horizontal or mixed
+    - Long-form (8+min): 16:9 horizontal with more scenes
 
     Args:
         plan: Video plan with topic and context
@@ -1540,6 +1547,7 @@ def generate_visual_plan(
         memory: Channel memory dict containing visual_style
         series_format: Optional series format template for intro/outro (Step 07.5)
         workspace_config: Optional workspace configuration with visual_brand_manual (Step 09)
+        duration_strategy: Optional duration strategy from Duration Strategist (NEW)
 
     Returns:
         VisualPlan with scene list and style notes (includes intro/outro if series_format)
@@ -1586,6 +1594,28 @@ def generate_visual_plan(
                 logger.info(f"  Character consistency enabled: {character_profile_id}")
                 logger.debug(f"    Identity anchor: {character_description}")
 
+    # MONETIZATION REFACTOR: Determine aspect ratio and scaling from duration strategy
+    format_type = "short"  # Default fallback
+    target_duration_seconds = 60  # Default fallback
+    aspect_ratio = "9:16"  # Default Shorts format
+
+    if duration_strategy:
+        format_type = duration_strategy.get('format_type', 'short')
+        target_duration_seconds = duration_strategy.get('target_duration_seconds', 60)
+
+        # Aspect ratio based on format type
+        if format_type == 'long':
+            aspect_ratio = "16:9"  # Horizontal for long-form
+            logger.info(f"  Long-form detected ({target_duration_seconds}s) → Using 16:9 horizontal")
+        elif format_type == 'mid' and target_duration_seconds > 180:
+            aspect_ratio = "16:9"  # Mid-form >3min also horizontal
+            logger.info(f"  Mid-form >3min ({target_duration_seconds}s) → Using 16:9 horizontal")
+        else:
+            aspect_ratio = "9:16"  # Short/quick mid-form stays vertical
+            logger.info(f"  Short/mid-form ({target_duration_seconds}s) → Using 9:16 vertical")
+    else:
+        logger.warning("  Duration strategy not provided, defaulting to Shorts (9:16, 60s)")
+
     # Step 09.6/09.7: Determine video style mode (faceless vs character_based)
     video_style_mode = "character_based"  # Default
     ai_selected_format = None
@@ -1619,7 +1649,7 @@ def generate_visual_plan(
     if series_format:
         intro_scene = VisualScene(
             scene_id=0,  # Intro is scene 0
-            prompt_for_veo=series_format.intro_veo_prompt,
+            prompt_for_ai_tool=series_format.intro_veo_prompt,
             est_duration_seconds=series_format.intro_duration_seconds,
             voiceover_text="",  # No voiceover for intro
             segment_type="intro"
@@ -1655,10 +1685,23 @@ def generate_visual_plan(
             full_narrative = " ".join([scene.voiceover_text for scene in script.scene_voiceover_map])
             total_duration = sum([scene.est_duration_seconds for scene in script.scene_voiceover_map])
 
-            # Limit to maximum 30 seconds for Sora 2
-            if total_duration > 30:
-                logger.warning(f"  Total duration {total_duration}s exceeds 30s limit, capping at 30s")
-                total_duration = 30
+            # Apply duration limits based on format type (Fase 1-BIS-2: Monetization-aware capping)
+            format_type = duration_strategy.get('format_type', 'short') if duration_strategy else 'short'
+
+            if format_type == 'short':
+                max_duration = 60  # YouTube Shorts limit
+            elif format_type == 'mid':
+                max_duration = 480  # 8 minutes for mid-roll ads
+            elif format_type == 'long':
+                max_duration = 1200  # 20 minutes max
+            else:
+                max_duration = 60  # Fallback to shorts
+
+            if total_duration > max_duration:
+                logger.warning(f"  Total duration {total_duration}s exceeds {format_type} format limit ({max_duration}s), capping")
+                total_duration = max_duration
+            else:
+                logger.info(f"  Total duration {total_duration}s within {format_type} format limit ({max_duration}s)")
 
             logger.info(f"  Combined duration: {total_duration}s")
             logger.info(f"  Narrative length: {len(full_narrative)} characters")
@@ -1700,7 +1743,7 @@ def generate_visual_plan(
             # Create single comprehensive scene
             single_scene = VisualScene(
                 scene_id=1,
-                prompt_for_veo=veo_prompt,
+                prompt_for_ai_tool=veo_prompt,
                 est_duration_seconds=total_duration,
                 voiceover_text=full_narrative,
                 segment_type="full_narrative"
@@ -1802,7 +1845,7 @@ def generate_visual_plan(
                 # and segment_type (Step 07.5)
                 scene = VisualScene(
                     scene_id=scene_vo.scene_id,
-                    prompt_for_veo=veo_prompt,
+                    prompt_for_ai_tool=veo_prompt,
                     est_duration_seconds=scene_vo.est_duration_seconds,
                     voiceover_text=scene_vo.voiceover_text,  # Sync with script!
                     segment_type=segment_name  # Step 07.5: Tag with segment type
@@ -1839,7 +1882,7 @@ def generate_visual_plan(
             # Create scene (legacy mode with segment_type for Step 07.5 compatibility)
             scene = VisualScene(
                 scene_id=scene_id,
-                prompt_for_veo=veo_prompt,
+                prompt_for_ai_tool=veo_prompt,
                 est_duration_seconds=duration,
                 voiceover_text=segment_text,  # Use segment text as fallback
                 segment_type=segment_name  # Step 07.5: Tag with segment type
@@ -1855,7 +1898,7 @@ def generate_visual_plan(
 
         outro_scene = VisualScene(
             scene_id=outro_scene_id,
-            prompt_for_veo=series_format.outro_veo_prompt,
+            prompt_for_ai_tool=series_format.outro_veo_prompt,
             est_duration_seconds=series_format.outro_duration_seconds,
             voiceover_text="",  # No voiceover for outro
             segment_type="outro"
@@ -1868,10 +1911,26 @@ def generate_visual_plan(
 
     # Create VisualPlan
     # Step 09: Include visual context tracking for analytics
+    # MONETIZATION REFACTOR: Scale scene durations to match target if needed
+    actual_duration = sum(scene.est_duration_seconds for scene in scenes)
+    if duration_strategy and abs(actual_duration - target_duration_seconds) > target_duration_seconds * 0.2:
+        # Duration mismatch > 20%, scale proportionally
+        scale_factor = target_duration_seconds / actual_duration
+        logger.info(f"  Scaling scene durations: {actual_duration}s → {target_duration_seconds}s (factor: {scale_factor:.2f})")
+
+        for scene in scenes:
+            original_duration = scene.est_duration_seconds
+            scaled_duration = max(3, int(scene.est_duration_seconds * scale_factor))  # Min 3s per scene
+            scene.est_duration_seconds = scaled_duration
+            logger.debug(f"    Scene {scene.scene_id}: {original_duration}s → {scaled_duration}s")
+
+        actual_duration_after = sum(scene.est_duration_seconds for scene in scenes)
+        logger.info(f"  ✓ Scenes scaled to {actual_duration_after}s (target: {target_duration_seconds}s)")
+
     # Step 09.6: Include video_style_mode tracking
     # Step 09.7: Include AI-selected format tracking for faceless videos
     visual_plan = VisualPlan(
-        aspect_ratio="9:16",  # YouTube Shorts vertical format
+        aspect_ratio=aspect_ratio,  # MONETIZATION REFACTOR: Dynamic based on format
         style_notes=visual_style,
         scenes=scenes,
         visual_context_id=visual_context.get('context_id') if visual_context else None,

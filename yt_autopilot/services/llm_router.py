@@ -27,8 +27,13 @@ Usage:
 """
 
 from typing import Dict, Any, Optional
-from yt_autopilot.core.logger import logger
-from yt_autopilot.core.config import get_llm_anthropic_key, get_llm_openai_key
+from yt_autopilot.core.logger import logger, truncate_for_log
+from yt_autopilot.core.config import (
+    get_llm_anthropic_key,
+    get_llm_openai_key,
+    LOG_TRUNCATE_TASK,
+    LOG_TRUNCATE_CONTENT
+)
 
 
 def generate_text(
@@ -73,7 +78,7 @@ def generate_text(
         - Caching frequently used prompts
         - Streaming support for long-form generation
     """
-    logger.info(f"LLM Router: Generating text for role={role}, task={task[:50]}...")
+    logger.info(f"LLM Router: Generating text for role={role}, task={truncate_for_log(task, LOG_TRUNCATE_TASK)}")
 
     # Build style context if provided
     style_context = ""
@@ -85,21 +90,10 @@ def generate_text(
     # Build full prompt
     full_prompt = f"Task: {task}\n\nContext:\n{context}{style_context}"
 
-    # Try Anthropic Claude first
-    anthropic_key = get_llm_anthropic_key()
-    if anthropic_key:
-        logger.info("  Attempting Anthropic Claude...")
-        result = _call_anthropic(anthropic_key, role, full_prompt)
-        if result:
-            logger.info(f"  ✓ Anthropic Claude succeeded ({len(result)} chars)")
-            return result
-        else:
-            logger.warning("  ✗ Anthropic Claude failed, trying fallback...")
-
-    # Try OpenAI GPT as fallback
+    # Use OpenAI GPT as primary provider (Fase 1-BIS-2: Anthropic removed, will be re-added in future for per-agent selection)
     openai_key = get_llm_openai_key()
     if openai_key:
-        logger.info("  Attempting OpenAI GPT...")
+        logger.info("  Calling OpenAI GPT...")
         result = _call_openai(openai_key, role, full_prompt)
         if result:
             logger.info(f"  ✓ OpenAI GPT succeeded ({len(result)} chars)")
@@ -107,10 +101,10 @@ def generate_text(
         else:
             logger.warning("  ✗ OpenAI GPT failed, using deterministic fallback...")
 
-    # No keys or all providers failed - graceful fallback
-    logger.warning("  No LLM providers available or all failed - returning fallback")
+    # No key or provider failed - graceful fallback
+    logger.warning("  No LLM provider available - returning fallback")
     fallback = _generate_fallback(role, task, context)
-    logger.info(f"  Fallback generated: {fallback[:100]}...")
+    logger.info(f"  Fallback generated: {truncate_for_log(fallback, LOG_TRUNCATE_CONTENT)}")
     return fallback
 
 
@@ -227,9 +221,9 @@ def _generate_fallback(role: str, task: str, context: str) -> str:
         Fallback text with [LLM_FALLBACK] prefix
     """
     # Extract key information from context for minimal fallback
-    context_preview = context[:200].replace("\n", " ")
+    context_preview = truncate_for_log(context.replace("\n", " "), LOG_TRUNCATE_CONTENT)
 
-    fallback = f"[LLM_FALLBACK] {task}\n\nBased on: {context_preview}..."
+    fallback = f"[LLM_FALLBACK] {task}\n\nBased on: {context_preview}"
 
     return fallback
 

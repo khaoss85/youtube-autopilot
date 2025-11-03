@@ -4,82 +4,130 @@ SeoManager Agent: Optimizes video metadata for YouTube discovery and CTR.
 This agent generates SEO-optimized titles, descriptions, tags, and
 thumbnail concepts to maximize video visibility and click-through rate.
 
-==============================================================================
-LLM Integration Strategy (Step 06-pre)
-==============================================================================
-
-CURRENT: Rule-based SEO optimization (keyword extraction, template-based)
-FUTURE: LLM-powered title/description via services/llm_router
-
-INTEGRATION APPROACH:
-- Pipeline calls llm_router for creative SEO optimization
-- LLM generates click-worthy titles, engaging descriptions, relevant tags
-- Agent validates output (length limits, keyword presence, compliance)
-- No direct import from services/ (maintains architecture)
-
-Example:
-    seo_title = generate_text(
-        role="seo_manager",
-        task="Create viral YouTube Shorts title (under 60 chars)",
-        context=f"Video about: {plan.topic}, Hook: {script.hook_line}",
-        style_hints={"target_ctr": "high", "keywords": plan.keywords}
-    )
-
-==============================================================================
+MONETIZATION REFACTOR:
+- Language detection from voiceover (no hardcoded Italian templates)
+- LLM-powered title generation in correct language
+- A/B title variants for CTR optimization
 """
 
 from typing import List
 from yt_autopilot.core.schemas import VideoPlan, VideoScript, PublishingPackage
 from yt_autopilot.core.logger import logger
+from yt_autopilot.services.llm_router import generate_text
 
 
-def _optimize_title_for_ctr(plan: VideoPlan) -> str:
+def _detect_language_from_voiceover(voiceover_text: str) -> str:
     """
-    Generates a CTR-optimized YouTube title.
+    Detects dominant language from voiceover text using keyword heuristics.
 
-    Balances curiosity, clarity, and keyword optimization while staying
-    within YouTube's 100-character limit.
+    Args:
+        voiceover_text: Full voiceover text
+
+    Returns:
+        Language code: 'it' (Italian), 'en' (English), or 'unknown'
+    """
+    text_lower = voiceover_text.lower()
+
+    # Italian indicators
+    italian_keywords = [
+        'è', 'perché', 'più', 'può', 'così', 'già', 'però', 'cioè',
+        'questo', 'quello', 'sono', 'essere', 'avere', 'fare', 'anche',
+        'tutti', 'tutto', 'cosa', 'come', 'quando', 'dove', 'molto'
+    ]
+
+    # English indicators
+    english_keywords = [
+        'the', 'is', 'are', 'was', 'were', 'have', 'has', 'had', 'will',
+        'this', 'that', 'these', 'those', 'what', 'how', 'when', 'where',
+        'which', 'who', 'why', 'very', 'can', 'could', 'would', 'should'
+    ]
+
+    italian_count = sum(1 for kw in italian_keywords if f' {kw} ' in f' {text_lower} ')
+    english_count = sum(1 for kw in english_keywords if f' {kw} ' in f' {text_lower} ')
+
+    if italian_count > english_count * 1.5:
+        return 'it'
+    elif english_count > italian_count * 1.5:
+        return 'en'
+    else:
+        return 'unknown'
+
+
+def _optimize_title_for_ctr(plan: VideoPlan, script: VideoScript) -> str:
+    """
+    Generates a CTR-optimized YouTube title using LLM.
+
+    MONETIZATION REFACTOR:
+    - Detects language from voiceover
+    - Uses LLM for language-appropriate title generation
+    - No hardcoded templates
 
     Args:
         plan: Video plan with working title and strategic angle
+        script: Video script (for language detection)
 
     Returns:
         Optimized final title (max 100 chars)
     """
-    working_title = plan.working_title
+    # Detect language from voiceover
+    detected_language = _detect_language_from_voiceover(script.full_voiceover_text)
+    language_name = 'Italian' if detected_language == 'it' else 'English' if detected_language == 'en' else 'the video language'
 
-    # CTR optimization patterns
-    # Pattern 1: Question format (creates curiosity)
-    if "?" not in working_title:
-        title_option_1 = f"{working_title}: Cosa Devi Sapere?"
+    logger.info(f"  Detected video language: {detected_language} ({language_name})")
 
-    # Pattern 2: Urgency/FOMO format
-    title_option_2 = f"{working_title} - Tutti Ne Parlano!"
+    # Build LLM prompt for title generation
+    prompt = f"""Generate a viral YouTube title in {language_name}.
 
-    # Pattern 3: Value proposition format
-    title_option_3 = f"{working_title}: La Verità Che Nessuno Ti Dice"
+TOPIC: {plan.working_title}
+HOOK: {script.hook}
+ANGLE: {plan.strategic_angle}
 
-    # Pattern 4: Direct benefit format
-    title_option_4 = f"Come Capire {working_title} in 60 Secondi"
+REQUIREMENTS:
+- Maximum 100 characters (strict limit)
+- Same language as video content ({language_name})
+- High CTR patterns: curiosity, urgency, value proposition, or number
+- NO clickbait, NO misleading
+- SEO-optimized with relevant keywords
 
-    # Select based on title length and type
-    candidates = [
-        title_option_2,  # Default: FOMO works well for trends
-        title_option_4,  # Good for educational content
-        title_option_3,  # Good for controversial topics
-    ]
+EXAMPLES OF HIGH-CTR PATTERNS:
+- Question format: "Why Is [Topic] Going Viral?"
+- Number format: "5 Things You Didn't Know About [Topic]"
+- Urgency format: "Everyone's Talking About [Topic] - Here's Why"
+- Value format: "The Truth About [Topic] Nobody Tells You"
 
-    # Pick first candidate under 100 chars
-    for candidate in candidates:
-        if len(candidate) <= 100:
-            final_title = candidate
-            break
-    else:
-        # Fallback: truncate working title
-        final_title = working_title[:97] + "..." if len(working_title) > 100 else working_title
+Respond with ONLY the title, no explanations."""
 
-    logger.debug(f"Optimized title: '{final_title}' ({len(final_title)} chars)")
-    return final_title
+    try:
+        # Call LLM for title generation
+        generated_title = generate_text(
+            role="seo_title_generator",
+            task=prompt,
+            context="",
+            style_hints={"max_length": 100, "language": detected_language}
+        ).strip()
+
+        # Remove quotes if LLM added them
+        generated_title = generated_title.strip('"').strip("'")
+
+        # Validate length
+        if len(generated_title) > 100:
+            logger.warning(f"  LLM title too long ({len(generated_title)} chars), truncating...")
+            generated_title = generated_title[:97] + "..."
+
+        logger.info(f"  ✓ LLM-generated title: '{generated_title}' ({len(generated_title)} chars)")
+        return generated_title
+
+    except Exception as e:
+        logger.error(f"  LLM title generation failed: {e}")
+        logger.warning("  Falling back to working title")
+
+        # Fallback: Use working title
+        fallback_title = plan.working_title
+        if len(fallback_title) > 100:
+            fallback_title = fallback_title[:97] + "..."
+
+        logger.info(f"  Fallback title: '{fallback_title}' ({len(fallback_title)} chars)")
+        return fallback_title
 
 
 def _generate_description(plan: VideoPlan, script: VideoScript) -> str:
@@ -267,8 +315,8 @@ def generate_publishing_package(
 
     logger.info(f"SeoManager optimizing metadata for: '{plan.working_title}'")
 
-    # Generate components
-    final_title = _optimize_title_for_ctr(plan)
+    # Generate components (MONETIZATION REFACTOR: Pass script for language detection)
+    final_title = _optimize_title_for_ctr(plan, script)
     description = _generate_description(plan, script)
     tags = _extract_tags(plan, script)
     thumbnail_concept = _generate_thumbnail_concept(plan, final_title)

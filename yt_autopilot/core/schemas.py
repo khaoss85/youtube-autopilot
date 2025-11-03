@@ -116,6 +116,7 @@ class SceneVoiceover(BaseModel):
 
     Step 07.3: Enables precise sync between script audio and visual scenes.
     Step 07.5: Added segment_type for format engine integration.
+    Task 1.3.b: Added emotional_beat from Narrative Architect for visual energy mapping.
     """
     scene_id: int = Field(..., ge=1, description="Scene number this voiceover belongs to")
     voiceover_text: str = Field(..., description="Text to be spoken during this scene")
@@ -123,6 +124,10 @@ class SceneVoiceover(BaseModel):
     segment_type: Optional[str] = Field(
         None,
         description="Step 07.5: Segment type from series template (e.g., 'hook', 'problem', 'solution', 'cta')"
+    )
+    emotional_beat: Optional[str] = Field(
+        None,
+        description="Task 1.3.b: Emotional beat from Narrative Architect (e.g., 'shock', 'tension', 'relief', 'curiosity')"
     )
 
 
@@ -144,14 +149,25 @@ class VideoScript(BaseModel):
 
 class VisualScene(BaseModel):
     """
-    Single visual scene for video generation.
+    Single visual scene for video generation with external AI tools.
+
+    Phase 1 Refactor: Updated for external AI tool workflow (not integrated generation).
+    Output: Scene prompt ready for copy-paste to RunwayML, Luma, Pika, etc.
 
     Step 07.3: Added voiceover_text for scene-level audio/visual synchronization.
     Step 07.5: Added segment_type for format engine integration.
                 scene_id=0 allowed for intro scenes.
+    Phase 1: Renamed prompt_for_veo → prompt_for_ai_tool, added tool_suggestion.
     """
     scene_id: int = Field(..., ge=0, description="Scene number in sequence (0=intro, 1+=content)")
-    prompt_for_veo: str = Field(..., description="Text prompt for Veo 3.x video generation API")
+    prompt_for_ai_tool: str = Field(
+        ...,
+        description="Phase 1: Universal video generation prompt for external AI tools (RunwayML, Luma, Pika)"
+    )
+    tool_suggestion: Optional[str] = Field(
+        None,
+        description="Phase 1: Recommended AI tool for this scene (e.g., 'RunwayML Gen-3 Alpha', 'Luma Dream Machine', 'Pika Labs')"
+    )
     est_duration_seconds: int = Field(..., ge=1, description="Estimated duration of this scene")
     voiceover_text: str = Field(
         default="",
@@ -160,6 +176,10 @@ class VisualScene(BaseModel):
     segment_type: Optional[str] = Field(
         None,
         description="Step 07.5: Segment type from series template (e.g., 'intro', 'hook', 'problem', 'solution', 'cta', 'outro')"
+    )
+    reference_image_path: Optional[str] = Field(
+        None,
+        description="Phase 1: Path to reference image for this scene (generated on-demand with export-visual-deck command)"
     )
 
 
@@ -202,12 +222,21 @@ class PublishingPackage(BaseModel):
     thumbnail_concept: str = Field(..., description="Concept for thumbnail image generation")
 
 
-class ReadyForFactory(BaseModel):
+class ContentPackage(BaseModel):
     """
-    Complete editorial package approved for production.
-    Output of the editorial brain (agents layer).
+    Complete content package from AI-driven editorial strategy.
+
+    Phase 1 Refactor: Renamed from ReadyForFactory to better reflect content-first approach.
+    Output: Markdown-formatted package with scene prompts for external AI tools.
+
+    Contains:
+    - Strategic editorial decision (AI reasoning)
+    - Structured script and visual plan
+    - SEO-optimized metadata
+    - Scene-by-scene prompts for video generation tools
 
     Step 07: Added audit trail fields for LLM script tracking.
+    Step 11: Added editorial_decision for AI strategy tracking and analytics.
     """
     status: str = Field(..., description="'APPROVED' or 'REJECTED'")
     video_plan: VideoPlan
@@ -226,18 +255,26 @@ class ReadyForFactory(BaseModel):
         None,
         description="Step 07: Final validated voiceover text for audit trail"
     )
-
-
-class UploadResult(BaseModel):
-    """
-    Result of successful YouTube upload.
-    """
-    youtube_video_id: str = Field(..., description="YouTube video ID (e.g., 'dQw4w9WgXcQ')")
-    published_at: str = Field(..., description="ISO 8601 timestamp of when video goes live")
-    title: str = Field(..., description="Final title used for upload")
-    upload_timestamp: str = Field(
-        default_factory=lambda: datetime.utcnow().isoformat(),
-        description="ISO 8601 timestamp when upload occurred"
+    editorial_decision: Optional['EditorialDecision'] = Field(
+        None,
+        description="Step 11: AI-driven editorial strategy used for this video (for performance analytics and learning loop)"
+    )
+    # AI Decision Rationale - For content_package.md transparency
+    duration_strategy_reasoning: Optional[str] = Field(
+        None,
+        description="Duration Strategist reasoning: Why this duration maximizes revenue + engagement"
+    )
+    format_reconciliation_reasoning: Optional[str] = Field(
+        None,
+        description="Format Reconciler reasoning: Why final duration was chosen (arbitration between Editorial and Duration)"
+    )
+    narrative_design_reasoning: Optional[str] = Field(
+        None,
+        description="Narrative Architect reasoning: Why this voice personality and arc structure"
+    )
+    cta_strategy_reasoning: Optional[str] = Field(
+        None,
+        description="CTA Strategist reasoning: Why CTAs placed at these specific timestamps"
     )
 
 
@@ -257,34 +294,6 @@ class VideoMetrics(BaseModel):
     collected_at_iso: str = Field(
         default_factory=lambda: datetime.utcnow().isoformat(),
         description="ISO 8601 timestamp when metrics were collected"
-    )
-
-
-class AssetPaths(BaseModel):
-    """
-    Tracks file paths for all generated assets of a video.
-
-    Step 07.4: Enables organized asset management without overwriting.
-    Each video gets its own unique output directory.
-    Step 07.5: Added intro/outro paths for series format integration.
-    """
-    video_id: str = Field(..., description="Unique video identifier (script_internal_id)")
-    output_dir: str = Field(..., description="Base output directory for this video")
-    final_video_path: Optional[str] = Field(None, description="Path to final assembled video")
-    thumbnail_path: Optional[str] = Field(None, description="Path to thumbnail image")
-    voiceover_path: Optional[str] = Field(None, description="Path to voiceover audio file")
-    scene_video_paths: List[str] = Field(
-        default_factory=list,
-        description="Paths to individual scene videos in order"
-    )
-    metadata_path: Optional[str] = Field(None, description="Path to metadata JSON file")
-    intro_path: Optional[str] = Field(
-        None,
-        description="Step 07.5: Path to intro video (may be from series cache)"
-    )
-    outro_path: Optional[str] = Field(
-        None,
-        description="Step 07.5: Path to outro video (may be from series cache)"
     )
 
 
@@ -357,4 +366,67 @@ class ChannelMemory(BaseModel):
     vertical_config: Optional[dict] = Field(
         None,
         description="Vertical-specific configuration (VerticalConfig as dict)"
+    )
+
+
+class EditorialDecision(BaseModel):
+    """
+    AI-generated editorial strategy decision for a video.
+
+    This schema captures the strategic reasoning from the Editorial Strategist agent,
+    which uses LLM reasoning to determine how to transform a trend into a video that:
+    - Strengthens brand positioning (not just reactive news)
+    - Monetizes effectively (has clear next step)
+    - Educates the audience (goes beyond entertainment)
+    - Stands out from competitors (unique angle)
+
+    The decision is AI-driven and context-aware, not based on rigid templates.
+    It considers workspace config, performance history, and competitor landscape.
+    """
+    # Serie & Format Strategy
+    serie_concept: str = Field(
+        ...,
+        description="Serie name that this video belongs to. Can be existing or LLM-suggested new serie. Examples: 'Market Watch', 'Bubble Alert', 'Investor Lessons'"
+    )
+    format: str = Field(
+        ...,
+        description="Content format type. Options: 'tutorial' (step-by-step actionable), 'analysis' (context + insight + implication), 'alert' (risk + defense), 'comparison' (options + recommendation)"
+    )
+    angle: str = Field(
+        ...,
+        description="Content angle for this video. Options: 'risk' (threat identification), 'opportunity' (actionable upside), 'education' (learning layer), 'history' (past context)"
+    )
+
+    # Duration Strategy
+    duration_target: int = Field(
+        ...,
+        ge=15,
+        le=1200,  # MONETIZATION REFACTOR: Support up to 20min for long-form monetization
+        description="Target video duration in seconds. LLM decides based on CPM baseline, content depth, and format. Short (<60s), Mid (60s-8min), Long (8-20min)."
+    )
+    duration_breakdown: dict = Field(
+        ...,
+        description="Time allocation breakdown. Keys: 'hook' (attention grab), 'context' (setup), 'insight' (educational layer), 'cta' (call-to-action). Values in seconds."
+    )
+
+    # Monetization Strategy
+    monetization_path: str = Field(
+        ...,
+        description="Monetization next step. Options: 'lead_magnet' (downloadable resource), 'playlist' (serie continuation), 'comment_trigger' (engagement keyword), 'external' (tool/partner link)"
+    )
+    cta_specific: str = Field(
+        ...,
+        description="Exact CTA text to use in video. Not a template - specific to this video's monetization path. Example: 'Scrivi BURRY e ti mando i 3 indicatori'"
+    )
+
+    # Reasoning & Context
+    reasoning_summary: str = Field(
+        ...,
+        description="2-3 sentence summary of WHY these strategic choices were made. Captures LLM reasoning for analytics and debugging."
+    )
+
+    # Optional Performance Context
+    performance_context: Optional[str] = Field(
+        None,
+        description="Performance insights that influenced this decision (e.g., 'Analysis format has 25% higher retention than tutorial for this vertical')"
     )

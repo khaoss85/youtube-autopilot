@@ -1,0 +1,58 @@
+# Serie: Market Watch
+# Finance-specific series for daily market monitoring and macro analysis
+#
+# Target: Finance CPM $25-35, audience seeking daily market insights
+# Structure: market hook → context → educational insight → playlist/community CTA
+# Duration: 25-35s (balanced for daily consumption + retention)
+
+serie_id: market_watch
+name: "Market Watch"
+description: "Daily market monitoring with macro analysis and educational insights for finance audience seeking consistent updates"
+
+# Intro video configuration (Sora 2 generated, cached per serie)
+intro_duration_seconds: 1
+intro_veo_prompt: |
+  Market watch intro animation with professional stock ticker aesthetic, vertical 9:16.
+  Clean "MARKET WATCH" branding with modern finance broadcast style.
+  Subtle animated stock charts and market data visualization background.
+  Professional but approachable tone, daily news anchor aesthetic.
+  Optimized for YouTube Shorts vertical viewing, high production value.
+
+# Outro video configuration (Sora 2 generated, cached per serie)
+outro_duration_seconds: 2
+outro_veo_prompt: |
+  Market watch series outro with continuity invitation, vertical 9:16 format.
+  Text "DAILY MARKET INSIGHTS - Segui per aggiornamenti quotidiani"
+  Professional closing that builds habit (daily viewing routine).
+  Subtle notification bell animation, invitation to join community.
+  Consistent brand closing for series recognition.
+
+# Segment structure (ordered list defining video flow)
+segments:
+  - type: hook
+    name: "Market Hook"
+    target_duration_min: 3
+    target_duration_max: 5
+    description: "Cosa sta succedendo oggi nei mercati: headline data, surprise moves, key levels. Es: 'S&P 500 rompe 4800, ma c'è un dato che tutti ignorano'"
+
+  - type: context
+    name: "Market Context"
+    target_duration_min: 8
+    target_duration_max: 12
+    description: "Perché sta succedendo: macro drivers (Fed, earnings, geopolitica), correlazioni settoriali, sentiment shift. Il 'perché' dietro i numeri."
+
+  - type: insight
+    name: "Educational Insight"
+    target_duration_min: 10
+    target_duration_max: 14
+    description: "Cosa significa per gli investitori + metriche da monitorare. Educational layer: 'Quando vedi questo pattern, storicamente significa X'. Actionable knowledge."
+
+  - type: cta
+    name: "Series/Community CTA"
+    target_duration_min: 4
+    target_duration_max: 6
+    description: "CTA per playlist Market Watch (abitudine quotidiana) o community trigger. Es: 'Seguimi per l'analisi di domani' o 'Scrivi MERCATO per watchlist'"
+
+# Overall target metrics
+total_target_duration_min: 25
+total_target_duration_max: 35

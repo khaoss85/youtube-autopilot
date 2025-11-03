@@ -290,7 +290,7 @@ Examples:
                 saved_at = record.get("saved_at", "N/A")
 
                 print(f"  [{i}] {record_id[:20]}...")
-                print(f"      Title: {title[:60]}{'...' if len(title) > 60 else ''}")
+                print(f"      Title: {title[:100]}{'...' if len(title) > 100 else ''}")
                 print(f"      Saved: {saved_at}")
 
         print()
@@ -351,7 +351,7 @@ Examples:
 
             print(f"  [{i}] {state}")
             print(f"      ID: {record_id}")
-            print(f"      Title: {title[:60]}{'...' if len(title) > 60 else ''}")
+            print(f"      Title: {title[:100]}{'...' if len(title) > 100 else ''}")
             print(f"      Saved: {saved_at}")
             print()
 

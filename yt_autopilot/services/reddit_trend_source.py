@@ -142,6 +142,7 @@ def fetch_reddit_trending(
         subreddit_names = subreddit_names[:MAX_SUBREDDITS]
 
     cpm_baseline = vertical_config.get("cpm_baseline", 10.0)
+    target_keywords = vertical_config.get("target_keywords", [])
 
     logger.info(f"Fetching Reddit trending from {len(subreddit_names)} subreddits ({vertical_id})...")
 
@@ -187,10 +188,20 @@ def fetch_reddit_trending(
                 else:
                     competition = "low"  # Less discussion = opportunity
 
+                # Check keyword relevance
+                title_lower = post.title.lower()
+                selftext_lower = post.selftext.lower() if post.selftext else ""
+                keyword_matches = sum(
+                    1 for kw in target_keywords
+                    if kw.lower() in title_lower or kw.lower() in selftext_lower
+                )
+
                 # Generate why_hot explanation
                 why_hot = f"Trending on r/{subreddit_name} ({score} upvotes, {upvote_ratio:.0%} upvote ratio)"
                 if num_comments > 100:
                     why_hot += f", {num_comments} comments (active discussion)"
+                if keyword_matches > 0:
+                    why_hot += f". Relevant to {vertical_id} ({keyword_matches} keyword matches)"
 
                 trend = TrendCandidate(
                     keyword=post.title,
@@ -202,7 +213,8 @@ def fetch_reddit_trending(
                     cpm_estimate=cpm_baseline,  # Use vertical baseline
                     competition_level=competition,
                     virality_score=virality_score,
-                    historical_match=None
+                    historical_match=None,
+                    keyword_match_count=keyword_matches  # Track for vertical alignment filtering
                 )
 
                 all_trends.append(trend)
@@ -253,6 +265,7 @@ def fetch_reddit_rising(
         subreddit_names = subreddit_names[:MAX_SUBREDDITS]
 
     cpm_baseline = vertical_config.get("cpm_baseline", 10.0)
+    target_keywords = vertical_config.get("target_keywords", [])
 
     logger.info(f"Fetching Reddit rising posts from {len(subreddit_names)} subreddits...")
 
@@ -278,9 +291,22 @@ def fetch_reddit_rising(
 
                 competition = "low" if post.num_comments < 50 else "medium"
 
+                # Check keyword relevance
+                title_lower = post.title.lower()
+                selftext_lower = post.selftext.lower() if post.selftext else ""
+                keyword_matches = sum(
+                    1 for kw in target_keywords
+                    if kw.lower() in title_lower or kw.lower() in selftext_lower
+                )
+
+                # Generate why_hot with keyword relevance
+                why_hot = f"Rising fast on r/{subreddit_name} ({post.score} upvotes, early trend)"
+                if keyword_matches > 0:
+                    why_hot += f". Relevant to {vertical_id} ({keyword_matches} keyword matches)"
+
                 trend = TrendCandidate(
                     keyword=post.title,
-                    why_hot=f"Rising fast on r/{subreddit_name} ({post.score} upvotes, early trend)",
+                    why_hot=why_hot,
                     region="GLOBAL",
                     language="en",
                     momentum_score=momentum_score,
@@ -288,7 +314,8 @@ def fetch_reddit_rising(
                     cpm_estimate=cpm_baseline,
                     competition_level=competition,
                     virality_score=virality_score,
-                    historical_match=None
+                    historical_match=None,
+                    keyword_match_count=keyword_matches  # Track for vertical alignment filtering
                 )
 
                 all_trends.append(trend)

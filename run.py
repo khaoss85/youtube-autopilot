@@ -7,42 +7,54 @@ with different verticals (tech, fitness, finance, gaming).
 
 Usage:
     # Workspace management
-    python run.py workspace list
-    python run.py workspace info
-    python run.py workspace switch <workspace_id>
-    python run.py workspace create
+    python3 run.py workspace list
+    python3 run.py workspace info
+    python3 run.py workspace switch <workspace_id>
+    python3 run.py workspace create
+    python3 run.py workspace reset [--workspace-id ID] [--all] [--dry-run] [--yes]
 
     # Trend detection (preview only)
-    python run.py trends [--top N] [--source SOURCE]
+    python3 run.py trends [--top N] [--source SOURCE]
 
     # Video generation
-    python run.py generate [--use-llm-curation]
+    python3 run.py generate [--use-llm-curation]
 
     # Script review (Gate 1)
-    python run.py review scripts
-    python run.py review show-script <script_id>
-    python run.py review approve-script <script_id> --approved-by "name"
+    python3 run.py review scripts [--all-workspaces]
+    python3 run.py review show-script <script_id>
+    python3 run.py review approve-script <script_id> --approved-by "name"
+    python3 run.py review export-visual-deck <script_id>
 
     # Video review (Gate 2)
-    python run.py review stats
-    python run.py review list
-    python run.py review show <video_id>
-    python run.py review publish <video_id> --approved-by "name"
+    python3 run.py review stats
+    python3 run.py review list [--all-workspaces]
+    python3 run.py review show <video_id>
+
+    # Note: Current workflow stops at content package export (manual upload to YouTube)
+    # Automated upload coming in future release
 
 Examples:
     # Morning: switch to tech channel and generate video
-    python run.py workspace switch tech_ai_creator
-    python run.py generate
+    python3 run.py workspace switch tech_ai_creator
+    python3 run.py generate
 
     # Review and approve script
-    python run.py review scripts
-    python run.py review show-script abc123-script-id
-    python run.py review approve-script abc123-script-id --approved-by "dan@company"
+    python3 run.py review scripts
+    python3 run.py review show-script abc123-script-id
+    python3 run.py review approve-script abc123-script-id --approved-by "dan@company"
 
-    # Review and publish video
-    python run.py review list
-    python run.py review show 6a1b1c2d-3e4f-5a6b-7c8d-9e0f1a2b3c4d
-    python run.py review publish 6a1b1c2d-3e4f-5a6b-7c8d-9e0f1a2b3c4d --approved-by "dan@company"
+    # Optional: Generate visual deck with DALL-E 3 reference images
+    python3 run.py review export-visual-deck abc123-script-id
+
+    # Review video packages (ready for manual upload)
+    python3 run.py review list
+    python3 run.py review show 6a1b1c2d-3e4f-5a6b-7c8d-9e0f1a2b3c4d
+    # After review: use exported content package for manual video assembly and YouTube upload
+
+    # Cleanup: reset workspace to clear unpublished records
+    python3 run.py workspace reset --dry-run  # Preview changes first
+    python3 run.py workspace reset --yes      # Execute reset on active workspace
+    python3 run.py workspace reset --all      # Reset all workspaces (clears recent_titles)
 """
 
 import sys
@@ -77,7 +89,6 @@ from yt_autopilot.io.datastore import (
     approve_script_for_generation,
     save_script_draft
 )
-from yt_autopilot.pipeline.produce_render_publish import publish_after_approval, produce_render_assets
 
 
 # ============================================================================
@@ -165,21 +176,22 @@ def cmd_trends(args):
             print(f"{i}. [{score:.2f}] {trend.keyword}{keyword_info}")
             print(f"   Source: {trend.source}")
             print(f"   CPM: ${trend.cpm_estimate:.1f} | Competition: {trend.competition_level} | Virality: {trend.virality_score:.2f}")
-            print(f"   Why: {trend.why_hot[:80]}...")
+            why_display = trend.why_hot if len(trend.why_hot) <= 200 else trend.why_hot[:200] + "..."
+            print(f"   Why: {why_display}")
             print()
 
         print("━" * 60)
         print("💡 Next steps:")
-        print(f"  - Generate video: python run.py generate")
-        print(f"  - See more: python run.py trends --top {args.top * 2}")
+        print(f"  - Generate video: python3 run.py generate")
+        print(f"  - See more: python3 run.py trends --top {args.top * 2}")
         if not args.source:
-            print(f"  - Filter source: python run.py trends --source reddit")
+            print(f"  - Filter source: python3 run.py trends --source reddit")
         print("━" * 60)
         print()
 
     except RuntimeError as e:
         print(f"\n⚠️  Error: {e}\n")
-        print("Run 'python run.py workspace switch <id>' to select a workspace")
+        print("Run 'python3 run.py workspace switch <id>' to select a workspace")
         print()
     except Exception as e:
         logger.error(f"Trend detection failed: {e}")
@@ -202,7 +214,7 @@ def cmd_workspace_list(args):
     if not workspaces:
         print("  (No workspaces found)")
         print()
-        print("  Create your first workspace with: python run.py workspace create")
+        print("  Create your first workspace with: python3 run.py workspace create")
         return
 
     for ws in workspaces:
@@ -310,7 +322,7 @@ def cmd_workspace_create(args):
         print(f"  Vertical: {vertical_id}")
         print()
         print(f"Switch to this workspace with:")
-        print(f"  python run.py workspace switch {workspace_id}")
+        print(f"  python3 run.py workspace switch {workspace_id}")
         print()
 
     except ValueError as e:
@@ -322,7 +334,6 @@ def cmd_workspace_reset(args):
     """Reset workspace by clearing recent titles and deleting unpublished records"""
     from yt_autopilot.core.workspace_manager import reset_workspace, load_workspace_config
     from yt_autopilot.io.datastore import list_workspace_records
-    from yt_autopilot.core.asset_manager import delete_video_assets
 
     # Determine which workspaces to reset
     if args.workspace_id:
@@ -410,9 +421,7 @@ def cmd_workspace_reset(args):
     print()
     print(f"Will DELETE:")
     print(f"  • {total_titles} recent title entries")
-    print(f"  • {total_records} unpublished records")
-    if args.delete_assets:
-        print(f"  • Asset files for deleted records")
+    print(f"  • {total_records} unpublished datastore records")
     print()
     print(f"Will KEEP:")
     print(f"  • {total_published} published video records")
@@ -446,7 +455,6 @@ def cmd_workspace_reset(args):
     print()
 
     total_deleted_records = 0
-    total_deleted_assets = 0
 
     for ws in workspace_data:
         ws_id = ws['id']
@@ -460,19 +468,7 @@ def cmd_workspace_reset(args):
             total_deleted_records += deleted_records
 
             print(f"  ✓ Cleared {result['titles_cleared']} recent titles")
-            print(f"  ✓ Deleted {deleted_records} unpublished records")
-
-            # Delete asset files if requested
-            if args.delete_assets and deleted_records > 0:
-                # Get video_internal_ids from unpublished records
-                for record in ws['records']:
-                    state = record.get('production_state')
-                    if state != 'SCHEDULED_ON_YOUTUBE':
-                        video_id = record.get('video_internal_id')
-                        if video_id and delete_video_assets(video_id):
-                            total_deleted_assets += 1
-
-                print(f"  ✓ Deleted {total_deleted_assets} asset directories")
+            print(f"  ✓ Deleted {deleted_records} unpublished datastore records")
 
         except Exception as e:
             print(f"  ✗ Error: {e}")
@@ -486,15 +482,13 @@ def cmd_workspace_reset(args):
     print("=" * 70)
     print()
     print(f"✓ Reset {len(workspace_data)} workspace(s)")
-    print(f"✓ Deleted {total_deleted_records} unpublished records")
-    if args.delete_assets:
-        print(f"✓ Deleted {total_deleted_assets} asset directories")
+    print(f"✓ Deleted {total_deleted_records} unpublished datastore records")
     print(f"✓ Kept {total_published} published records")
     print()
     print(f"Backup: data/records.jsonl.backup_*")
     print()
     print("Next steps:")
-    print("  python run.py generate")
+    print("  python3 run.py generate")
     print()
 
 
@@ -513,8 +507,8 @@ def cmd_generate(args):
         print("=" * 70)
         print(f"Vertical: {workspace['vertical_id']}")
         brand_tone = workspace.get('brand_tone', 'Not set')
-        if len(brand_tone) > 100:
-            print(f"Brand tone: {brand_tone[:100]}... [{len(brand_tone)} chars total]")
+        if len(brand_tone) > 200:
+            print(f"Brand tone: {brand_tone[:200]}... [{len(brand_tone)} chars total]")
         else:
             print(f"Brand tone: {brand_tone}")
         print("=" * 70)
@@ -547,7 +541,7 @@ def cmd_generate(args):
         # Show hook and metadata
         if hook != "N/A":
             # Truncate long hooks
-            hook_display = hook[:100] + "..." if len(hook) > 100 else hook
+            hook_display = hook[:150] + "..." if len(hook) > 150 else hook
             print(f"Hook: \"{hook_display}\"")
 
         print(f"Scenes: {num_scenes} scenes | Duration: ~{total_duration} seconds")
@@ -572,8 +566,8 @@ def cmd_generate(args):
 
             # Next steps
             print("💡 Next steps:")
-            print(f"  - Review full script: python run.py review show-script {script_id}")
-            print(f"  - Approve for asset generation: python run.py review approve-script {script_id} --approved-by \"you@company\"")
+            print(f"  - Review full script: python3 run.py review show-script {script_id}")
+            print(f"  - Approve for asset generation: python3 run.py review approve-script {script_id} --approved-by \"you@company\"")
             print()
             print("⚠️  Note: Approval will trigger expensive API calls (~$5-10 USD)")
         else:
@@ -610,7 +604,7 @@ def cmd_review_scripts(args):
             workspace_label = f"workspace: {workspace['workspace_name']}"
         except RuntimeError:
             print("\n⚠️  No active workspace found!")
-            print("Switch workspace with: python run.py workspace switch <id>")
+            print("Switch workspace with: python3 run.py workspace switch <id>")
             print("Or use --all-workspaces to see all scripts\n")
             return
 
@@ -626,7 +620,7 @@ def cmd_review_scripts(args):
         print("No scripts pending review.")
         print()
         print("TIP: Generate a new script draft with:")
-        print("  python run.py generate")
+        print("  python3 run.py generate")
         print()
         return
 
@@ -647,7 +641,7 @@ def cmd_review_scripts(args):
         script_obj = script.get('script', {})
         hook = script_obj.get('hook', '')
         if hook:
-            hook_preview = hook[:80] + "..." if len(hook) > 80 else hook
+            hook_preview = hook[:120] + "..." if len(hook) > 120 else hook
             print(f"  hook: {hook_preview}")
 
         # Scene count
@@ -661,8 +655,8 @@ def cmd_review_scripts(args):
 
     print("=" * 70)
     print("NEXT STEPS:")
-    print(f"  1. Review script details: python run.py review show-script <script_id>")
-    print(f"  2. Approve script: python run.py review approve-script <script_id> --approved-by \"you@company\"")
+    print(f"  1. Review script details: python3 run.py review show-script <script_id>")
+    print(f"  2. Approve script: python3 run.py review approve-script <script_id> --approved-by \"you@company\"")
     print("=" * 70)
 
 
@@ -748,16 +742,17 @@ def cmd_review_show_script(args):
         for scene in scenes:
             scene_id = scene.get('scene_id')
             voiceover = scene.get('voiceover_text', '')
-            veo_prompt = scene.get('prompt_for_veo', '')
+            ai_tool_prompt = scene.get('prompt_for_ai_tool', '')
+            tool_suggestion = scene.get('tool_suggestion', 'Any AI video tool')
             duration = scene.get('est_duration_seconds', 0)
 
             print(f"SCENE {scene_id} (~{duration}s)")
             print(f"  Voiceover:")
             print(f"    \"{voiceover}\"")
             print()
-            print(f"  Visual Prompt (Veo): [{len(veo_prompt)} chars]")
+            print(f"  Visual Prompt ({tool_suggestion}): [{len(ai_tool_prompt)} chars]")
             # Show full prompt (critical for verifying scene differentiation)
-            print(f"    {veo_prompt}")
+            print(f"    {ai_tool_prompt}")
             print()
 
     # ========================================================================
@@ -794,15 +789,168 @@ def cmd_review_show_script(args):
     # APPROVAL INSTRUCTIONS
     # ========================================================================
     print("=" * 70)
-    print("TO APPROVE THIS SCRIPT AND TRIGGER ASSET GENERATION:")
-    print(f"  python run.py review approve-script {script_id} --approved-by \"your@email\"")
+    print("TO APPROVE THIS SCRIPT:")
+    print(f"  python3 run.py review approve-script {script_id} --approved-by \"your@email\"")
     print()
-    print("WARNING: Approval will trigger expensive API calls:")
-    print("  - Sora 2 video generation (~$$$)")
-    print("  - OpenAI TTS audio generation (~$$)")
-    print("  - DALL-E 3 thumbnail generation (~$)")
-    print("  Total estimated cost: ~$5-10 USD per video")
+    print("Approval will automatically:")
+    print("  ✓ Export content package to Markdown with AI-ready prompts")
+    print("  ✓ Mark script as READY_FOR_GENERATION")
+    print()
+    print("OPTIONAL: Generate visual deck with reference images:")
+    print(f"  python3 run.py review export-visual-deck {script_id}")
+    print("  - Creates DALL-E 3 reference images for each scene")
+    print("  - Cost: ~$0.04 per scene")
+    print("  - Helps visualize the script like professional presentations")
     print("=" * 70)
+
+
+def cmd_export_visual_deck(args):
+    """Generate visual deck with reference images for script (Phase 1)."""
+    from yt_autopilot.core.schemas import ContentPackage, VideoPlan, VideoScript, VisualPlan, VisualScene, PublishingPackage, EditorialDecision
+    from yt_autopilot.services import generate_scene_reference_images
+    from yt_autopilot.io.exports import export_content_package_to_markdown
+    from yt_autopilot.core.workspace_manager import load_workspace_config
+
+    script_id = args.script_id
+
+    print("=" * 70)
+    print("GENERATING VISUAL DECK WITH REFERENCE IMAGES")
+    print("=" * 70)
+    print()
+    print(f"Script ID: {script_id}")
+    print()
+
+    # Load script draft
+    draft = get_script_draft(script_id)
+    if draft is None:
+        print("ERROR: Script draft not found")
+        sys.exit(1)
+
+    workspace_id = draft.get('workspace_id')
+    if not workspace_id:
+        print("ERROR: Workspace ID not found in draft")
+        sys.exit(1)
+
+    # Load workspace config
+    try:
+        workspace = load_workspace_config(workspace_id)
+    except FileNotFoundError:
+        print(f"ERROR: Workspace '{workspace_id}' not found")
+        sys.exit(1)
+
+    print(f"Workspace: {workspace['workspace_name']} ({workspace_id})")
+    print()
+
+    # Reconstruct ContentPackage from draft
+    print("⚙️  Reconstructing ContentPackage from draft...")
+    try:
+        # Reconstruct VisualScenes
+        scenes_data = draft.get('visuals', {}).get('scenes', [])
+        scenes = [VisualScene(**scene) for scene in scenes_data]
+
+        # Reconstruct ContentPackage
+        visuals_data = draft.get('visuals', {})
+        content_package = ContentPackage(
+            status=draft.get('status', 'APPROVED'),
+            video_plan=VideoPlan(**draft.get('video_plan', {})),
+            script=VideoScript(**draft.get('script', {})),
+            visuals=VisualPlan(
+                scenes=scenes,
+                style_notes=visuals_data.get('style_notes', ''),
+                aspect_ratio=visuals_data.get('aspect_ratio', '9:16'),
+                visual_context_id=visuals_data.get('visual_context_id'),
+                visual_context_name=visuals_data.get('visual_context_name'),
+                character_profile_id=visuals_data.get('character_profile_id'),
+                character_description=visuals_data.get('character_description'),
+                video_style_mode=visuals_data.get('video_style_mode', 'character_based'),
+                ai_selected_format=visuals_data.get('ai_selected_format'),
+                format_rationale=visuals_data.get('format_rationale')
+            ),
+            publishing=PublishingPackage(**draft.get('publishing', {})),
+            rejection_reason=draft.get('rejection_reason'),
+            llm_raw_script=draft.get('llm_raw_script'),
+            final_script_text=draft.get('final_script_text'),
+            editorial_decision=EditorialDecision(**draft['editorial_decision']) if draft.get('editorial_decision') else None
+        )
+    except Exception as e:
+        print(f"ERROR: Failed to reconstruct ContentPackage: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+    print("✓ ContentPackage reconstructed")
+    print()
+
+    # Generate reference images
+    print("🎨 Generating reference images with DALL-E 3...")
+    print()
+    print("⚠️  WARNING: This will trigger DALL-E 3 API calls:")
+    print(f"  - {len(scenes)} images at ~$0.04 each")
+    print(f"  - Estimated cost: ~${len(scenes) * 0.04:.2f} USD")
+    print()
+
+    response = input("Continue? [y/N]: ").strip().lower()
+    if response != 'y':
+        print("Cancelled.")
+        return
+
+    try:
+        content_package = generate_scene_reference_images(
+            content_package,
+            script_id,
+            workspace
+        )
+        print()
+        print("✓ Reference images generated")
+        print()
+    except Exception as e:
+        print(f"ERROR: Failed to generate reference images: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+    # Export visual deck
+    print("📄 Exporting visual deck with embedded images...")
+    try:
+        from pathlib import Path
+        from yt_autopilot.core.config import get_config
+
+        config = get_config()
+        output_dir = config["OUTPUT_DIR"] / workspace_id / script_id
+        markdown_path = output_dir / "visual_deck.md"
+
+        # Export with reference images
+        export_content_package_to_markdown(
+            content_package,
+            script_id,
+            workspace,
+            output_dir=output_dir
+        )
+
+        # Rename to visual_deck.md
+        content_package_path = output_dir / "content_package.md"
+        if content_package_path.exists():
+            content_package_path.rename(markdown_path)
+
+        print()
+        print("=" * 70)
+        print("✓ SUCCESS: Visual deck generated")
+        print("=" * 70)
+        print()
+        print(f"Visual deck: {markdown_path}")
+        print(f"Reference images: {output_dir / 'reference_images'}")
+        print()
+        print("You can now:")
+        print("  1. Open visual_deck.md to see the complete visual breakdown")
+        print("  2. Copy AI prompts from the markdown to your video generation tool")
+        print("  3. Use reference images as visual guides")
+        print("=" * 70)
+
+    except Exception as e:
+        print(f"ERROR: Failed to export visual deck: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
 
 def cmd_review_approve_script(args):
@@ -812,7 +960,7 @@ def cmd_review_approve_script(args):
 
     if not approved_by:
         print("ERROR: --approved-by is required")
-        print("Example: python run.py review approve-script <script_id> --approved-by \"dan@company\"")
+        print("Example: python3 run.py review approve-script <script_id> --approved-by \"dan@company\"")
         sys.exit(1)
 
     print("=" * 70)
@@ -841,24 +989,94 @@ def cmd_review_approve_script(args):
     try:
         approve_script_for_generation(script_id, approved_by)
 
+        # Phase 4.1: Automatic Markdown export after approval
         print("=" * 70)
-        print("✓ SUCCESS: Script approved")
+        print("✓ Script approved - generating content package export...")
+        print("=" * 70)
+        print()
+
+        # Load workspace config
+        workspace_id = draft.get('workspace_id')
+        output_dir = None  # Initialize to avoid UnboundLocalError
+
+        if workspace_id:
+            try:
+                from yt_autopilot.core.workspace_manager import load_workspace_config
+                from yt_autopilot.io.exports import export_content_package_to_markdown
+                from yt_autopilot.core.schemas import ContentPackage, VideoPlan, VideoScript, VisualPlan, VisualScene, PublishingPackage, EditorialDecision
+                from pathlib import Path
+
+                workspace = load_workspace_config(workspace_id)
+
+                # Reconstruct ContentPackage from draft
+                scenes_data = draft.get('visuals', {}).get('scenes', [])
+                scenes = [VisualScene(**scene) for scene in scenes_data]
+
+                visuals_data = draft.get('visuals', {})
+                content_package = ContentPackage(
+                    status=draft.get('status', 'APPROVED'),
+                    video_plan=VideoPlan(**draft.get('video_plan', {})),
+                    script=VideoScript(**draft.get('script', {})),
+                    visuals=VisualPlan(
+                        scenes=scenes,
+                        style_notes=visuals_data.get('style_notes', ''),
+                        aspect_ratio=visuals_data.get('aspect_ratio', '9:16'),
+                        visual_context_id=visuals_data.get('visual_context_id'),
+                        visual_context_name=visuals_data.get('visual_context_name'),
+                        character_profile_id=visuals_data.get('character_profile_id'),
+                        character_description=visuals_data.get('character_description'),
+                        video_style_mode=visuals_data.get('video_style_mode', 'character_based'),
+                        ai_selected_format=visuals_data.get('ai_selected_format'),
+                        format_rationale=visuals_data.get('format_rationale')
+                    ),
+                    publishing=PublishingPackage(**draft.get('publishing', {})),
+                    rejection_reason=draft.get('rejection_reason'),
+                    llm_raw_script=draft.get('llm_raw_script'),
+                    final_script_text=draft.get('final_script_text'),
+                    editorial_decision=EditorialDecision(**draft['editorial_decision']) if draft.get('editorial_decision') else None
+                )
+
+                # Export to Markdown
+                config = get_config()
+                output_dir = config["OUTPUT_DIR"] / workspace_id / script_id
+                markdown_path = export_content_package_to_markdown(
+                    content_package,
+                    script_id,
+                    workspace
+                )
+
+                print(f"✓ Content package exported: {markdown_path}")
+                print()
+            except Exception as export_error:
+                print(f"⚠️  Warning: Failed to auto-export content package: {export_error}")
+                print("   You can manually export later with:")
+                print(f"     python3 run.py review export-visual-deck {script_id}")
+                print()
+
+        print("=" * 70)
+        print("✓ SUCCESS: Script approved for content package")
         print("=" * 70)
         print(f"Script ID: {script_id}")
         print(f"New state: READY_FOR_GENERATION")
         print(f"Approved by: {approved_by}")
         print()
         print("NEXT STEPS:")
-        print("  1. Trigger asset generation:")
-        print("       from yt_autopilot.pipeline.produce_render_publish import produce_render_assets")
-        print(f"       produce_render_assets(script_internal_id='{script_id}')")
+        print("  1. Review the exported content package:")
+        if output_dir:
+            print(f"     {output_dir / 'content_package.md'}")
+        else:
+            print("     [Export failed - use export-visual-deck command to retry]")
         print()
-        print("  2. After generation completes, review the video:")
-        print("       python run.py review list")
-        print("       python run.py review show <video_id>")
+        print("  2. (Optional) Generate visual reference images:")
+        print(f"       python3 run.py review export-visual-deck {script_id}")
+        print("       This will add DALL-E 3 reference images (~$0.04 per scene)")
         print()
-        print("  3. If satisfied, publish to YouTube:")
-        print("       python run.py review publish <video_id> --approved-by \"your@email\"")
+        print("  3. Copy AI prompts to your preferred AI video tool:")
+        print("       - RunwayML Gen-3 Alpha")
+        print("       - Luma Dream Machine")
+        print("       - Pika Labs")
+        print()
+        print("  4. Assemble video manually and upload to YouTube")
         print("=" * 70)
 
     except Exception as e:
@@ -866,88 +1084,6 @@ def cmd_review_approve_script(args):
         print("✗ ERROR: Script approval failed")
         print("=" * 70)
         print(f"Error: {e}")
-        print("=" * 70)
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
-
-
-def cmd_review_generate_assets(args):
-    """Generate video assets from approved script (Gate 1 → Gate 2)."""
-    script_id = args.script_id
-
-    print("=" * 70)
-    print("GENERATING VIDEO ASSETS FROM APPROVED SCRIPT")
-    print("=" * 70)
-    print()
-    print(f"Script ID: {script_id}")
-    print()
-
-    # Verify script exists and is in READY_FOR_GENERATION state
-    draft = get_script_draft(script_id)
-    if draft is None:
-        print("=" * 70)
-        print("✗ ERROR: Script draft not found")
-        print("=" * 70)
-        print(f"Script ID {script_id} does not exist in datastore.")
-        print()
-        print("To list available scripts:")
-        print("  python run.py review scripts")
-        print("=" * 70)
-        sys.exit(1)
-
-    current_state = draft.get('production_state')
-    if current_state != 'READY_FOR_GENERATION':
-        print("=" * 70)
-        print("✗ ERROR: Script is not ready for generation")
-        print("=" * 70)
-        print(f"Current state: {current_state}")
-        print(f"Required state: READY_FOR_GENERATION")
-        print()
-        print("Scripts must be approved before asset generation:")
-        print(f"  python run.py review approve-script {script_id} --approved-by \"your@email\"")
-        print("=" * 70)
-        sys.exit(1)
-
-    print("⚠️  WARNING: This will trigger expensive API calls:")
-    print("  - Video generation (Sora 2 or Veo)")
-    print("  - Audio generation (OpenAI TTS)")
-    print("  - Thumbnail generation (DALL-E 3)")
-    print("  Estimated cost: ~$5-10 USD")
-    print()
-    print("Starting asset generation...")
-    print()
-
-    try:
-        result = produce_render_assets(script_internal_id=script_id)
-
-        print()
-        print("=" * 70)
-        print("✓ SUCCESS: Assets generated")
-        print("=" * 70)
-        print(f"Video ID: {result.get('video_internal_id')}")
-        print(f"Final video: {result.get('final_video_path')}")
-        print(f"Thumbnail: {result.get('thumbnail_path')}")
-        print()
-        print("NEXT STEPS:")
-        print("  1. Review the video:")
-        print(f"       python run.py review show {result.get('video_internal_id')}")
-        print()
-        print("  2. If satisfied, publish to YouTube:")
-        print(f"       python run.py review publish {result.get('video_internal_id')} --approved-by \"your@email\"")
-        print("=" * 70)
-
-    except Exception as e:
-        print()
-        print("=" * 70)
-        print("✗ ERROR: Asset generation failed")
-        print("=" * 70)
-        print(f"Error: {e}")
-        print()
-        print("Common issues:")
-        print("  - API keys not configured (check .env file)")
-        print("  - API quota exceeded")
-        print("  - Network connectivity problems")
         print("=" * 70)
         import traceback
         traceback.print_exc()
@@ -1059,7 +1195,7 @@ def cmd_review_list(args):
             workspace_label = f"workspace: {workspace['workspace_name']}"
         except RuntimeError:
             print("\n⚠️  No active workspace found!")
-            print("Switch workspace with: python run.py workspace switch <id>")
+            print("Switch workspace with: python3 run.py workspace switch <id>")
             print("Or use --all-workspaces to see all videos\n")
             return
 
@@ -1191,7 +1327,7 @@ def cmd_review_show(args):
     print(f"  Thumbnail Provider: {thumb_provider or '(not available - legacy record)'}")
 
     if thumbnail_prompt:
-        print(f"  Thumbnail Prompt: {thumbnail_prompt[:200]}{'...' if len(thumbnail_prompt) > 200 else ''}")
+        print(f"  Thumbnail Prompt: {thumbnail_prompt[:300]}{'...' if len(thumbnail_prompt) > 300 else ''}")
     else:
         print(f"  Thumbnail Prompt: (not available)")
 
@@ -1219,65 +1355,13 @@ def cmd_review_show(args):
     print()
 
     print("=" * 70)
-    print("To approve and publish this video:")
-    print(f"  python run.py review publish {video_id} --approved-by \"your@email\"")
-    print("=" * 70)
-
-
-def cmd_review_publish(args):
-    """Publish an approved draft to YouTube."""
-    video_id = args.video_id
-    approved_by = args.approved_by
-
-    if not approved_by:
-        print("ERROR: --approved-by is required")
-        print("Example: python run.py review publish <video_id> --approved-by \"dan@company\"")
-        sys.exit(1)
-
-    print("=" * 70)
-    print("PUBLISHING VIDEO TO YOUTUBE")
-    print("=" * 70)
+    print("Next steps - Manual workflow:")
+    print("  1. Review all exported assets (audio, video clips, script)")
+    print("  2. Assemble final video using your preferred editor")
+    print("  3. Upload to YouTube manually")
     print()
-    print(f"Video ID: {video_id}")
-    print(f"Approved by: {approved_by}")
-    print()
-    print("Uploading to YouTube and scheduling publication...")
-    print()
-
-    try:
-        result = publish_after_approval(video_id, approved_by)
-
-        if result["status"] == "SCHEDULED":
-            print("=" * 70)
-            print("✓ SUCCESS: Video scheduled on YouTube")
-            print("=" * 70)
-            print(f"YouTube Video ID: {result['video_id']}")
-            print(f"Publish at: {result['publishAt']}")
-            print(f"Title: {result['title']}")
-            print(f"Approved by: {result['approved_by']}")
-            print(f"Approved at: {result['approved_at_iso']}")
-            print("=" * 70)
-        elif result["status"] == "ERROR":
-            print("=" * 70)
-            print("✗ ERROR: Publication failed")
-            print("=" * 70)
-            print(f"Reason: {result.get('reason')}")
-            print("=" * 70)
-            sys.exit(1)
-        else:
-            print(f"Unexpected status: {result['status']}")
-            sys.exit(1)
-
-    except Exception as e:
-        print("=" * 70)
-        print("✗ EXCEPTION: Publication failed")
-        print("=" * 70)
-        print(f"Error: {e}")
-        print("=" * 70)
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
-
+    print("  (Automated upload coming in future release)")
+    print("=" * 70)
 
 # ============================================================================
 # MAIN ARGPARSE SETUP
@@ -1319,7 +1403,6 @@ def main():
     ws_reset = workspace_subparsers.add_parser("reset", help="Reset workspace by clearing recent titles and deleting unpublished records")
     ws_reset.add_argument("--workspace-id", help="Workspace ID to reset (default: active workspace)")
     ws_reset.add_argument("--all", action="store_true", help="Reset all workspaces")
-    ws_reset.add_argument("--delete-assets", action="store_true", help="Also delete asset files (videos, thumbnails, etc.)")
     ws_reset.add_argument("--dry-run", action="store_true", help="Preview changes without executing")
     ws_reset.add_argument("--yes", action="store_true", help="Skip confirmation prompt")
     ws_reset.set_defaults(func=cmd_workspace_reset)
@@ -1368,16 +1451,16 @@ def main():
     r_show_script.add_argument("script_id", help="Script internal ID")
     r_show_script.set_defaults(func=cmd_review_show_script)
 
-    r_approve_script = review_subparsers.add_parser("approve-script", help="[Gate 1] Approve script for asset generation")
+    r_approve_script = review_subparsers.add_parser("approve-script", help="[Gate 1] Approve script for content package export")
     r_approve_script.add_argument("script_id", help="Script internal ID")
     r_approve_script.add_argument("--approved-by", required=True, help="Approver identifier (e.g., dan@company)")
     r_approve_script.set_defaults(func=cmd_review_approve_script)
 
-    r_generate_assets = review_subparsers.add_parser("generate-assets", help="[Gate 1→2] Generate video assets from approved script")
-    r_generate_assets.add_argument("script_id", help="Script internal ID")
-    r_generate_assets.set_defaults(func=cmd_review_generate_assets)
+    r_export_deck = review_subparsers.add_parser("export-visual-deck", help="[Gate 1] Generate visual deck with DALL-E 3 reference images")
+    r_export_deck.add_argument("script_id", help="Script internal ID")
+    r_export_deck.set_defaults(func=cmd_export_visual_deck)
 
-    # Gate 2: Video review
+    # Gate 2: Video review (DEPRECATED - will be removed in Phase 2)
     r_stats = review_subparsers.add_parser("stats", help="Show datastore statistics and state distribution")
     r_stats.set_defaults(func=cmd_review_stats)
 
@@ -1388,11 +1471,6 @@ def main():
     r_show = review_subparsers.add_parser("show", help="[Gate 2] Show details of a specific draft")
     r_show.add_argument("video_id", help="Video internal ID")
     r_show.set_defaults(func=cmd_review_show)
-
-    r_publish = review_subparsers.add_parser("publish", help="[Gate 2] Approve and publish a draft to YouTube")
-    r_publish.add_argument("video_id", help="Video internal ID")
-    r_publish.add_argument("--approved-by", required=True, help="Approver identifier (e.g., dan@company)")
-    r_publish.set_defaults(func=cmd_review_publish)
 
     # ========================================================================
     # PARSE AND EXECUTE
@@ -1405,7 +1483,7 @@ def main():
             workspace = get_active_workspace()
             cmd_workspace_info(args)
             print()
-            print("Run 'python run.py --help' to see available commands")
+            print("Run 'python3 run.py --help' to see available commands")
             print()
         except RuntimeError:
             print()
@@ -1413,8 +1491,8 @@ def main():
             print()
             cmd_workspace_list(args)
             print()
-            print("Run 'python run.py workspace switch <id>' to select a workspace")
-            print("Or run 'python run.py workspace create' to create a new one")
+            print("Run 'python3 run.py workspace switch <id>' to select a workspace")
+            print("Or run 'python3 run.py workspace create' to create a new one")
             print()
         return
 

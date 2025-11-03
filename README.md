@@ -1245,6 +1245,108 @@ Per documentazione dettagliata di ogni step, consulta: **[docs/history.md](docs/
 
 ---
 
+## Quality Retry Framework (FASE 1-2)
+
+**Status**: ✅ Implemented and tested (not yet integrated in main pipeline)
+**Sprint**: Current (2025-11-02)
+
+### Overview
+
+The Quality Retry Framework automatically detects and fixes AI agent output quality issues before they reach production. When an agent generates output that doesn't meet quality thresholds (e.g., wrong bullet count, mismatched CTA), the framework automatically regenerates with explicit constraints.
+
+### FASE 1: Quality Retry Framework ✅
+
+**Implementation**: `yt_autopilot/core/agent_coordinator.py`
+
+**Features**:
+- **Quality Validators**: Functions that check agent output quality (not just errors)
+- **Quality Retry Functions**: Automatically regenerate output with constraints when validation fails
+- **AgentCoordinator Integration**: Seamless retry logic in `call_agent()` flow
+
+**Example**: Narrative Architect Bullet Count Validation
+```python
+# Content Depth Strategist recommends 6 bullets
+content_depth_strategy = {'recommended_bullets': 6}
+
+# Narrative Architect generates 4 bullets (mismatch)
+narrative_arc = design_narrative_arc(...)
+
+# Quality validator detects mismatch
+is_valid, error = validate_narrative_bullet_count(narrative_arc, context)
+# Returns: (False, "Expected 6 bullets, got 4")
+
+# Quality retry regenerates with explicit constraint
+new_narrative = regenerate_narrative_with_bullet_constraint(
+    narrative_arc, context, error,
+    bullet_count_constraint=6  # Force 6 bullets
+)
+# Second attempt generates correct count
+```
+
+**Test Coverage**: `test_fase1_unit.py` → ✅ 2/2 tests passed
+
+### FASE 2: Configurable Thresholds ✅
+
+**Implementation**: `config/validation_thresholds.yaml` + `core/config.py`
+
+**Features**:
+- **Global Defaults**: Standard thresholds for all workspaces
+- **Workspace Overrides**: Workspace-specific quality bars (e.g., finance_master: strict, gaming_channel: lenient)
+- **Format Overrides**: Format-specific adjustments (short/mid/long videos)
+- **Priority System**: Workspace > Format > Global
+
+**Configuration Example**:
+```yaml
+global:
+  narrative_bullet_count:
+    max_deviation: 1      # ±1 bullet allowed by default
+    strict_mode: true     # Trigger retry if exceeded
+
+workspace_overrides:
+  finance_master:         # Premium quality workspace
+    narrative_bullet_count:
+      max_deviation: 0    # Exact match required
+      strict_mode: true
+
+  gaming_channel:         # Casual content workspace
+    narrative_bullet_count:
+      max_deviation: 2    # ±2 bullets allowed
+      strict_mode: false  # Warnings only, no blocking
+```
+
+**Test Coverage**: `test_fase2_thresholds.py` → ✅ 6/6 tests passed
+
+### Integration Status ⚠️
+
+**Current State**:
+- ✅ FASE 1-2 fully implemented in `AgentCoordinator`
+- ✅ All unit tests passing
+- ❌ **Not yet integrated** in main pipeline (`build_video_package.py`)
+
+**Why**: The main pipeline currently calls agents directly without using `AgentCoordinator`, so quality retry logic is not active in production.
+
+**Next Steps**:
+1. Migrate `build_video_package()` to use `AgentCoordinator.execute_pipeline()`
+2. Run integration tests with quality retry active
+3. Deploy to production
+
+**See**: `docs/INTEGRATION_GAP.md` for detailed migration plan
+
+### FASE 3: Semantic CTA Validation 📅 Planned
+
+**Status**: Not yet implemented (planned for next sprint)
+
+**Goal**: Replace character-based CTA similarity (SequenceMatcher) with semantic similarity (sentence-transformers) to reduce false positives from paraphrasing.
+
+**Components**:
+- Install `sentence-transformers>=2.2.0`
+- Create `utils/semantic_similarity.py`
+- Implement `validate_cta_semantic_match()` validator
+- Implement `regenerate_script_with_cta_fix()` retry function
+- Add `forced_cta` parameter to `script_writer.write_script()`
+
+---
+
 ## Roadmap
 
 - [x] Step 01: Core foundation (schemas, config, logger, memory)
@@ -1274,7 +1376,32 @@ When adding new features:
 1. **Check layer boundaries** - respect import restrictions
 2. **Add types to schemas first** - if you need new data structures, add them to `core/schemas.py`
 3. **Log everything** - use `from yt_autopilot.core.logger import logger`
-4. **Update this README** - document new components
+4. **🚨 USE FALLBACK LOGGING** - When implementing fallback logic, **ALWAYS** use `log_fallback()` from `core/logger.py`
+   ```python
+   from yt_autopilot.core.logger import logger, log_fallback
+
+   try:
+       result = llm_generate_fn(...)
+   except Exception as e:
+       logger.error(f"LLM failed: {e}")
+       log_fallback("COMPONENT", "FALLBACK_TYPE", f"Reason: {e}", impact="HIGH")
+       result = fallback_logic()
+   ```
+5. **Update this README** - document new components
+
+### Development Conventions
+
+See [DEVELOPMENT_CONVENTIONS.md](./DEVELOPMENT_CONVENTIONS.md) for complete development guidelines, including:
+- **Fallback Logging System**: How to properly log fallback scenarios
+- **Error Handling**: Best practices for try/except blocks
+- **Test Quality Validation**: How to verify tests use real LLM output (not fallbacks)
+
+**Quick Fallback Validation**:
+```bash
+grep -c "🚨 FALLBACK" test.log
+# 0 = pure test (100% real LLM output)
+# >0 = fallbacks present (review needed)
+```
 
 ---
 

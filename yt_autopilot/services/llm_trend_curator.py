@@ -20,7 +20,7 @@ Cost: ~$0.01 per curation (cheap for high-value filtering)
 
 from typing import List, Dict, Optional
 from yt_autopilot.core.schemas import TrendCandidate
-from yt_autopilot.core.logger import logger
+from yt_autopilot.core.logger import logger, log_fallback
 import json
 
 
@@ -313,6 +313,180 @@ def parse_llm_curation_response(
         raise
 
 
+def _attempt_curation_improvement(
+    original_trends: List[TrendCandidate],
+    previous_selection_count: int,
+    vertical_id: str,
+    memory: Dict,
+    llm_generate_fn,
+    issue_type: str,
+    top_n: int = 10
+) -> str:
+    """
+    Sprint 2: LLM-driven retry mechanism for trend curation.
+
+    When curation returns too few trends (e.g., 1-4 out of 10), this function:
+    1. Analyzes why LLM filtering was too aggressive
+    2. Generates improved prompt with relaxed criteria
+    3. Returns enhanced prompt for retry
+
+    This is NOT a simple fallback - it uses LLM reasoning to understand what went wrong
+    and adjust the curation strategy accordingly.
+
+    Args:
+        original_trends: Full list of available trends
+        previous_selection_count: How many trends were selected in failed attempt
+        vertical_id: Content vertical
+        memory: Channel memory
+        llm_generate_fn: LLM generation function
+        issue_type: "too_few" | "too_much_spam" | "parse_fail"
+        top_n: Target number of trends (default: 10)
+
+    Returns:
+        Improved prompt string for retry curation
+
+    Cost: ~$0.005 per improvement analysis (cheap for recovering failed curation)
+    """
+    logger.info(f"🔁 Attempting curation improvement for issue: {issue_type}")
+    logger.info(f"   Previous selection: {previous_selection_count}/{top_n} trends")
+
+    # Build analysis prompt to understand what went wrong
+    analysis_prompt = f"""You are analyzing a failed YouTube trend curation attempt.
+
+CONTEXT:
+- Target: Select {top_n} high-quality trends for {vertical_id} channel
+- Previous result: Only {previous_selection_count} trends selected (should be {top_n})
+- Issue type: {issue_type}
+
+PROBLEM DIAGNOSIS:
+The LLM curator was too aggressive in filtering, likely because:
+1. TOO STRICT on educational value criteria (rejected borderline-educational trends)
+2. TOO STRICT on source quality rules (rejected all YouTube sources even if educational)
+3. TOO CONSERVATIVE on brand fit matching
+4. OVER-FILTERING spam indicators (rejected trends with minor spam signals)
+
+YOUR TASK:
+Provide 2-3 specific improvements to the curation prompt to increase selection without sacrificing quality.
+
+Focus on:
+- Relaxing overly strict criteria (e.g., "strongly educational" → "has educational angle")
+- Balancing source quality with content value (YouTube CAN be good if educational)
+- Being more lenient on minor spam indicators (hashtags alone ≠ spam)
+- Prioritizing momentum + timing over perfect brand fit
+
+OUTPUT FORMAT (JSON):
+{{
+  "improvements": [
+    "Specific improvement 1 (e.g., 'Accept YouTube trends if momentum > 0.7 AND keyword includes technical terms')",
+    "Specific improvement 2",
+    "Specific improvement 3"
+  ],
+  "reasoning": "Why these improvements will help select more trends without lowering quality"
+}}
+
+IMPORTANT: Return ONLY the JSON object, no other text.
+"""
+
+    try:
+        # Call LLM to analyze failure and suggest improvements
+        analysis_response = llm_generate_fn(
+            role="curation_optimizer",
+            task="Analyze curation failure and suggest prompt improvements",
+            context=analysis_prompt,
+            style_hints={
+                "response_format": "json",
+                "max_tokens": 400,
+                "temperature": 0.4
+            }
+        )
+
+        # Parse improvement suggestions
+        cleaned_response = analysis_response.strip()
+        if cleaned_response.startswith("```json"):
+            cleaned_response = cleaned_response[7:]
+        elif cleaned_response.startswith("```"):
+            cleaned_response = cleaned_response[3:]
+        if cleaned_response.endswith("```"):
+            cleaned_response = cleaned_response[:-3]
+        cleaned_response = cleaned_response.strip()
+
+        improvements_json = json.loads(cleaned_response)
+        improvements = improvements_json.get("improvements", [])
+        reasoning = improvements_json.get("reasoning", "")
+
+        logger.info(f"LLM improvement analysis: {reasoning}")
+        for i, improvement in enumerate(improvements, 1):
+            logger.info(f"  {i}. {improvement}")
+
+        # Build improved prompt with relaxed criteria
+        improved_prompt = build_curation_prompt(
+            trends=original_trends,
+            vertical_id=vertical_id,
+            memory=memory
+        )
+
+        # Inject improvements into prompt (replace strict criteria with relaxed version)
+        improvement_section = f"""
+🔁 RETRY ITERATION - RELAXED CRITERIA:
+
+Previous curation was too strict ({previous_selection_count}/{top_n} selected). Apply these adjustments:
+{chr(10).join(f'{i+1}. {imp}' for i, imp in enumerate(improvements))}
+
+UPDATED EVALUATION APPROACH:
+- ✓ Accept trends with PARTIAL educational value (not just purely educational)
+- ✓ YouTube trends are OK if momentum > 0.6 AND keyword shows technical/educational signals
+- ✓ Minor spam indicators (single hashtag, emoji) are acceptable if content has substance
+- ✓ Prioritize: MOMENTUM + TIMING > perfect brand fit
+- ✓ Goal: Select {top_n} trends that are "good enough" rather than "perfect"
+
+DECISION RULE FOR RETRY:
+If trend has:
+- High momentum (> 0.6) OR timely relevance
+- AND some educational angle (doesn't need to be pure tutorial)
+- AND source is Reddit/HN OR YouTube with technical keywords
+→ SELECT IT (even if not perfect brand fit)
+"""
+
+        # Insert improvement section after "YOUR TASK:" section
+        improved_prompt = improved_prompt.replace(
+            "YOUR TASK:",
+            improvement_section.strip() + "\n\nYOUR TASK:"
+        )
+
+        logger.info("✓ Generated improved curation prompt with relaxed criteria")
+        return improved_prompt
+
+    except Exception as e:
+        logger.error(f"Failed to generate improvement analysis: {e}")
+        log_fallback("LLM_CURATION", "GENERIC_IMPROVEMENT", f"LLM analysis failed: {e}", impact="MEDIUM")
+
+        # Fallback: simple relaxation without LLM analysis
+        improved_prompt = build_curation_prompt(
+            trends=original_trends,
+            vertical_id=vertical_id,
+            memory=memory
+        )
+
+        fallback_improvement = """
+🔁 RETRY ITERATION - RELAXED CRITERIA (Fallback):
+
+Previous curation returned too few trends. Apply these relaxed criteria:
+1. Accept YouTube trends if momentum > 0.6 AND keyword contains technical terms
+2. Minor spam indicators (single hashtag) are OK if content has educational value
+3. Prioritize momentum + timing over perfect brand fit
+4. Select trends that are "good enough" rather than waiting for "perfect"
+
+Goal: Select at least 7-8 high-quality trends in this retry.
+"""
+
+        improved_prompt = improved_prompt.replace(
+            "YOUR TASK:",
+            fallback_improvement.strip() + "\n\nYOUR TASK:"
+        )
+
+        return improved_prompt
+
+
 def curate_trends_with_llm(
     trends: List[TrendCandidate],
     vertical_id: str,
@@ -392,9 +566,73 @@ def curate_trends_with_llm(
             top_n=top_n  # Target number of trends
         )
 
-        # Ensure we return top_n trends (pad with highest momentum if needed)
+        # Sprint 2: Retry logic with LLM-driven iterative refinement
+        # Only retry if selection is severely under target AND we have enough trends
+        # Threshold: < 5 trends selected (50% of target) = too aggressive filtering
+        if len(curated_trends) < 5 and len(trends) >= 15:
+            logger.warning(f"✗ LLM curation severely under-selected ({len(curated_trends)}/{top_n})")
+            logger.info("  💡 Attempting LLM-driven curation improvement (1 retry)...")
+
+            try:
+                # Call improvement function to get better prompt
+                improved_prompt = _attempt_curation_improvement(
+                    original_trends=trends,
+                    previous_selection_count=len(curated_trends),
+                    vertical_id=vertical_id,
+                    memory=memory,
+                    llm_generate_fn=llm_generate_fn,
+                    issue_type="too_few",
+                    top_n=top_n
+                )
+
+                logger.info("🔁 Re-running LLM curation with improved prompt...")
+
+                # Retry LLM curation with improved prompt
+                retry_response = llm_generate_fn(
+                    role="trend_curator",
+                    task="Select the top 10 trending topics for video creation (retry with relaxed criteria)",
+                    context=improved_prompt,
+                    style_hints={
+                        "response_format": "json",
+                        "max_tokens": 500,
+                        "temperature": 0.3
+                    }
+                )
+
+                # Parse retry response
+                retry_curated_trends = parse_llm_curation_response(
+                    response_text=retry_response,
+                    original_trends=trends[:max_trends_to_evaluate],
+                    all_trends=trends,
+                    top_n=top_n
+                )
+
+                # Check if retry improved selection
+                logger.info(f"Trend count improvement: {len(curated_trends)} → {len(retry_curated_trends)} (+{len(retry_curated_trends) - len(curated_trends)})")
+
+                if len(retry_curated_trends) >= 7:  # At least 70% of target
+                    logger.info("✓ LLM curation IMPROVED after retry! 🎉")
+                    curated_trends = retry_curated_trends
+                elif len(retry_curated_trends) > len(curated_trends):
+                    logger.info(f"✓ Partial improvement ({len(retry_curated_trends)}/{top_n}) - using retry results")
+                    curated_trends = retry_curated_trends
+                else:
+                    logger.warning(f"✗ Retry didn't improve count ({len(retry_curated_trends)}/{top_n})")
+                    logger.info("   Using original results + momentum padding")
+                    # Keep original curated_trends, will pad below
+
+            except Exception as retry_error:
+                logger.error(f"Retry curation failed: {retry_error}")
+                log_fallback("LLM_CURATION", "MOMENTUM_PADDING", f"Retry exception: {retry_error}", impact="MEDIUM")
+                # Keep original curated_trends, will pad below
+
+        # Final padding if still below target (mechanical fallback after retry)
         if len(curated_trends) < top_n:
-            logger.warning(f"LLM returned only {len(curated_trends)} trends, expected {top_n}")
+            if len(curated_trends) < 5:
+                logger.warning(f"LLM returned only {len(curated_trends)} trends after retry, padding to {top_n}")
+            else:
+                logger.info(f"LLM returned {len(curated_trends)} trends, padding to {top_n}")
+
             # Add remaining trends by momentum score
             remaining = [t for t in trends if t not in curated_trends]
             remaining_sorted = sorted(remaining, key=lambda t: t.momentum_score, reverse=True)
@@ -405,7 +643,7 @@ def curate_trends_with_llm(
 
     except Exception as e:
         logger.error(f"LLM curation failed: {e}")
-        logger.warning("Falling back to momentum-based ranking (no LLM curation)")
+        log_fallback("LLM_CURATION", "MOMENTUM_ONLY", f"LLM call failed: {e}", impact="HIGH")
 
         # Fallback: return top N by momentum score
         return sorted(trends, key=lambda t: t.momentum_score, reverse=True)[:top_n]

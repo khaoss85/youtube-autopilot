@@ -1,0 +1,58 @@
+# Serie: Bubble Alert
+# Finance-specific series for market bubble analysis and early warning signals
+#
+# Target: Finance CPM $25-35, audience seeking risk management education
+# Structure: alert hook → evidence → defense strategy → lead magnet CTA
+# Duration: 25-35s (optimized for finance education depth)
+
+serie_id: bubble_alert
+name: "Bubble Alert"
+description: "Market bubble analysis with early warning signals and defense strategies for high-CPM finance audience"
+
+# Intro video configuration (Sora 2 generated, cached per serie)
+intro_duration_seconds: 1
+intro_veo_prompt: |
+  Market alert intro with professional warning aesthetic, vertical 9:16 format.
+  Bold red "BUBBLE ALERT" text with urgent but credible finance broadcast style.
+  Dark background with red accent lighting and subtle market chart overlay.
+  Professional news broadcast quality, optimized for YouTube Shorts vertical viewing.
+  High-end finance channel aesthetic, not sensationalistic.
+
+# Outro video configuration (Sora 2 generated, cached per serie)
+outro_duration_seconds: 2
+outro_veo_prompt: |
+  Bubble Alert series outro with follow prompt, vertical 9:16 format.
+  Text "RESTA PROTETTO - Segui Bubble Alert per altri segnali"
+  Professional closing with urgency mitigation (reassuring tone).
+  Finance broadcast aesthetic with notification bell icon.
+  Invites to download risk management resources.
+
+# Segment structure (ordered list defining video flow)
+segments:
+  - type: hook
+    name: "Alert Hook"
+    target_duration_min: 3
+    target_duration_max: 5
+    description: "Chi dice bolla (investor credibility) + perché ora (timing urgency). Es: 'Quando Burry ricompare dopo 2 anni... vuol dire qualcosa.'"
+
+  - type: evidence
+    name: "Bubble Evidence"
+    target_duration_min: 10
+    target_duration_max: 14
+    description: "3 segnali specifici che indicano bolla: valuation metrics, leva in aumento, sentiment indicators. Dati concreti, no allarmismo."
+
+  - type: defense
+    name: "Defense Strategy"
+    target_duration_min: 8
+    target_duration_max: 12
+    description: "Azioni di protezione: cosa NON comprare, come ridurre esposizione, asset class da preferire. Actionable e specifico."
+
+  - type: cta
+    name: "Lead Magnet CTA"
+    target_duration_min: 4
+    target_duration_max: 6
+    description: "CTA per checklist anti-bolla, watchlist, o comment trigger per risorsa gratuita. Es: 'Scrivi BURRY per i 3 indicatori completi'"
+
+# Overall target metrics
+total_target_duration_min: 25
+total_target_duration_max: 35

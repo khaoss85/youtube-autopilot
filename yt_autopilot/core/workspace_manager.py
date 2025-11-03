@@ -242,7 +242,7 @@ def switch_workspace(workspace_id: str) -> Dict[str, Any]:
 
     logger.info(f"Switched to workspace: {config['workspace_name']} ({workspace_id})")
     logger.info(f"  Vertical: {config['vertical_id']}")
-    logger.info(f"  Brand tone: {config.get('brand_tone', 'Not set')[:50]}...")
+    logger.info(f"  Brand tone: {config.get('brand_tone', 'Not set')[:100]}...")
 
     return config
 
@@ -384,7 +384,7 @@ def get_workspace_info(workspace_id: str) -> str:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  ID: {config['workspace_id']}
  Vertical: {config['vertical_id']} (CPM: ${cpm:.1f})
- Brand Tone: {config.get('brand_tone', 'Not set')[:60]}...
+ Brand Tone: {config.get('brand_tone', 'Not set')}
  Recent Videos: {len(config.get('recent_titles', []))}
  Banned Topics: {len(config.get('banned_topics', []))}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

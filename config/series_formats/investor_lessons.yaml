@@ -1,0 +1,58 @@
+# Serie: Investor Lessons
+# Finance-specific series for learning from legendary investors
+#
+# Target: Finance CPM $30-40, aspirational audience seeking investment wisdom
+# Structure: investor hook → key lesson → practical application → series CTA
+# Duration: 30-40s (longer for depth, higher CPM justifies extended watch time)
+
+serie_id: investor_lessons
+name: "Investor Lessons"
+description: "Learn from legendary investors with actionable strategies and practical application for serious finance audience"
+
+# Intro video configuration (Sora 2 generated, cached per serie)
+intro_duration_seconds: 1
+intro_veo_prompt: |
+  Investor lessons intro with elegant aspirational aesthetic, vertical 9:16 format.
+  Refined "INVESTOR LESSONS" text with gold/black professional color scheme.
+  Subtle success imagery: boardroom, charts trending up, wisdom symbols.
+  Educational but aspirational tone, premium finance content aesthetic.
+  High-end production value for serious investors.
+
+# Outro video configuration (Sora 2 generated, cached per serie)
+outro_duration_seconds: 2
+outro_veo_prompt: |
+  Investor lessons series outro with collection invitation, vertical 9:16 format.
+  Text "IMPARA DAI MIGLIORI - Serie Investor Lessons"
+  Aspirational closing that builds series brand and collector mentality.
+  Invitation to watch other lessons in the series (playlist building).
+  Premium aesthetic consistent with high-value educational content.
+
+# Segment structure (ordered list defining video flow)
+segments:
+  - type: hook
+    name: "Investor Hook"
+    target_duration_min: 4
+    target_duration_max: 6
+    description: "Chi è l'investor (credibility) + tesi/strategia unica che lo distingue. Es: 'Buffett ha fatto il 99% dei suoi soldi dopo i 50 anni. Come?'"
+
+  - type: lesson
+    name: "Key Lesson"
+    target_duration_min: 12
+    target_duration_max: 16
+    description: "Strategia o principio specifico con esempio storico/case study concreto. Non solo teoria, ma applicazione reale che ha funzionato. Es: 'Circle of competence: come Buffett rifiutò Amazon'"
+
+  - type: application
+    name: "Practical Application"
+    target_duration_min: 10
+    target_duration_max: 14
+    description: "Come applicare questa lezione oggi: passi concreti, framework replicabile, checklist mentale. Da 'nice story' a 'posso usarlo domani'. Es: '3 domande per testare il tuo circle of competence'"
+
+  - type: cta
+    name: "Series Continuation CTA"
+    target_duration_min: 4
+    target_duration_max: 6
+    description: "CTA per altre lezioni nella serie (playlist building) o comment per suggerire prossimo investor. Es: 'Prossima lezione: Ray Dalio su diversificazione. Seguimi per non perderla'"
+
+# Overall target metrics
+total_target_duration_min: 30
+total_target_duration_max: 40
