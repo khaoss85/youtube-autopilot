@@ -5,7 +5,7 @@ This is the single source of truth for data contracts.
 """
 
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Dict
 from datetime import datetime
 
 
@@ -467,4 +467,100 @@ class EditorialDecision(BaseModel):
     performance_context: Optional[str] = Field(
         None,
         description="Performance insights that influenced this decision (e.g., 'Analysis format has 25% higher retention than tutorial for this vertical')"
+    )
+
+
+class Timeline(BaseModel):
+    """
+    Single source of truth for video duration and temporal structure.
+
+    Created by Format Reconciler after arbitrating between Editorial and Duration
+    strategies. All downstream agents (Narrative, Script, Visual) receive this
+    object to ensure duration consistency across the entire pipeline.
+
+    Phase C - Sprint 1: Revenue-critical duration management.
+    Eliminates "weak agency contract" problem where agents used different duration values.
+
+    Example Usage:
+        >>> timeline = Timeline(
+        ...     reconciled_duration=420,  # 7 minutes
+        ...     format_type='mid',
+        ...     arbitration_source='compromise',
+        ...     editorial_weight=0.6,
+        ...     duration_weight=0.4,
+        ...     arbitration_reasoning='Editorial needs 3-point breakdown, Duration wants ad slots',
+        ...     editorial_duration_original=240,
+        ...     duration_strategy_original=600
+        ... )
+        >>> print(timeline.reconciled_duration)  # 420 (all agents use this)
+    """
+
+    # Core duration fields (single source of truth)
+    reconciled_duration: int = Field(
+        ...,
+        ge=15,
+        le=1200,
+        description="Final reconciled duration in seconds after Format Reconciler arbitration. This is the single source of truth for all agents."
+    )
+
+    format_type: str = Field(
+        ...,
+        description="Video format tier based on duration: 'short' (<60s), 'mid' (60s-8min), 'long' (8min+). Used for monetization strategy."
+    )
+
+    aspect_ratio: str = Field(
+        default="9:16",
+        description="Video aspect ratio. Typically '9:16' for short, '16:9' for mid/long, but can be overridden by workspace config."
+    )
+
+    # Arbitration audit trail (for transparency, analytics, and debugging)
+    arbitration_source: str = Field(
+        ...,
+        description="Which strategy influenced final decision: 'editorial_strategist' | 'duration_strategist' | 'compromise' | 'duration_strategist_fallback'"
+    )
+
+    editorial_weight: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="How much Editorial Strategist influenced final duration (0-1). Should sum with duration_weight to 1.0."
+    )
+
+    duration_weight: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="How much Duration Strategist influenced final duration (0-1). Should sum with editorial_weight to 1.0."
+    )
+
+    arbitration_reasoning: str = Field(
+        ...,
+        description="LLM explanation of why this duration was chosen. Used for analytics, debugging, and audit trail."
+    )
+
+    # Original strategy durations (for comparison, analytics, and debugging)
+    editorial_duration_original: int = Field(
+        ...,
+        ge=15,
+        le=1200,
+        description="Original duration proposed by Editorial Strategist (before arbitration)."
+    )
+
+    duration_strategy_original: int = Field(
+        ...,
+        ge=15,
+        le=1200,
+        description="Original duration proposed by Duration Strategist (before arbitration)."
+    )
+
+    # Optional: Segment-level timing constraints (from Editorial Strategist)
+    duration_breakdown: Optional[Dict[str, int]] = Field(
+        default=None,
+        description="Time allocation by segment: {'hook': 3, 'context': 8, 'insight': 10, 'cta': 5}. Total should match reconciled_duration. Useful for segment-aware validation."
+    )
+
+    # Metadata
+    created_at_step: str = Field(
+        default="format_reconciler",
+        description="Pipeline step where Timeline was created (always 'format_reconciler' in current architecture)."
     )

@@ -21,10 +21,27 @@ Example Divergence:
 """
 
 from typing import Dict, Any, Optional
-from yt_autopilot.core.schemas import EditorialDecision
+from yt_autopilot.core.schemas import EditorialDecision, Timeline
 from yt_autopilot.core.logger import logger, truncate_for_log, log_fallback
 from yt_autopilot.core.config import LOG_TRUNCATE_REASONING
 import json
+
+
+def _infer_aspect_ratio(duration_seconds: int, format_type: str) -> str:
+    """
+    Infers video aspect ratio based on duration and format type.
+
+    Args:
+        duration_seconds: Video duration in seconds
+        format_type: Format type ('short', 'mid', 'long')
+
+    Returns:
+        Aspect ratio string: '9:16' for short-form, '16:9' for long-form
+    """
+    if format_type == 'short' or duration_seconds < 60:
+        return "9:16"  # Vertical for Shorts
+    else:
+        return "16:9"  # Horizontal for mid/long-form
 
 
 def reconcile_format_strategies(
@@ -32,7 +49,7 @@ def reconcile_format_strategies(
     duration_strategy: Dict[str, Any],
     llm_generate_fn,
     workspace_config: Dict[str, Any]
-) -> Dict[str, Any]:
+) -> Timeline:
     """
     Arbitrates duration divergences between Editorial and Duration Strategist.
 
@@ -41,6 +58,9 @@ def reconcile_format_strategies(
     - Monetization goals (ad slots, watch time)
     - Audience engagement (retention, pacing)
 
+    Phase C - P0: Returns Timeline object (single source of truth for duration).
+    All downstream agents receive this Timeline to ensure duration consistency.
+
     Args:
         editorial_decision: Editorial Strategist's decision (includes duration_target)
         duration_strategy: Duration Strategist's output (includes target_duration_seconds)
@@ -48,23 +68,27 @@ def reconcile_format_strategies(
         workspace_config: Workspace configuration (for CPM, brand tone context)
 
     Returns:
-        Dict with:
-        - final_duration: int (reconciled duration in seconds)
+        Timeline object with:
+        - reconciled_duration: int (single source of truth for all agents)
         - format_type: str (short/mid/long)
-        - reasoning: str (LLM explanation of arbitration)
+        - aspect_ratio: str (9:16 for short, 16:9 for mid/long)
         - arbitration_source: str (which strategy won, or "compromise")
         - editorial_weight: float (how much editorial influenced final decision, 0-1)
         - duration_weight: float (how much duration influenced final decision, 0-1)
+        - arbitration_reasoning: str (LLM explanation)
+        - editorial_duration_original: int (original editorial proposal)
+        - duration_strategy_original: int (original duration proposal)
+        - duration_breakdown: dict (optional segment timing from editorial)
 
     Example:
-        >>> reconciled = reconcile_format_strategies(
+        >>> timeline = reconcile_format_strategies(
         ...     editorial_decision=EditorialDecision(duration_target=240, ...),
         ...     duration_strategy={'target_duration_seconds': 600, 'format_type': 'long'},
         ...     llm_generate_fn=generate_text,
         ...     workspace_config=workspace
         ... )
-        >>> print(reconciled['final_duration'])  # 420 (compromise)
-        >>> print(reconciled['reasoning'])  # "Editorial wants depth, Duration wants revenue..."
+        >>> print(timeline.reconciled_duration)  # 420 (compromise)
+        >>> print(timeline.arbitration_reasoning)  # "Editorial wants depth, Duration wants revenue..."
     """
     logger.info("Format Reconciler arbitrating duration strategies...")
 
@@ -81,14 +105,19 @@ def reconcile_format_strategies(
     # If divergence is small (<15%), no arbitration needed
     if divergence_pct < 15:
         logger.info("  Divergence <15%, using Duration Strategist (monetization priority)")
-        return {
-            'final_duration': duration_duration,
-            'format_type': duration_strategy.get('format_type', 'mid'),
-            'reasoning': f"Editorial ({editorial_duration}s) and Duration ({duration_duration}s) strategies closely aligned. Using Duration Strategist for monetization optimization.",
-            'arbitration_source': 'duration_strategist',
-            'editorial_weight': 0.3,
-            'duration_weight': 0.7
-        }
+        format_type = duration_strategy.get('format_type', 'mid')
+        return Timeline(
+            reconciled_duration=duration_duration,
+            format_type=format_type,
+            aspect_ratio=_infer_aspect_ratio(duration_duration, format_type),
+            arbitration_source='duration_strategist',
+            editorial_weight=0.3,
+            duration_weight=0.7,
+            arbitration_reasoning=f"Editorial ({editorial_duration}s) and Duration ({duration_duration}s) strategies closely aligned. Using Duration Strategist for monetization optimization.",
+            editorial_duration_original=editorial_duration,
+            duration_strategy_original=duration_duration,
+            duration_breakdown=editorial_decision.duration_breakdown if hasattr(editorial_decision, 'duration_breakdown') else None
+        )
 
     # Significant divergence - use LLM arbitration
     logger.info("  Significant divergence detected, calling LLM for arbitration...")
@@ -192,14 +221,30 @@ IMPORTANT:
         reconciled.setdefault('editorial_weight', 0.3)
         reconciled.setdefault('duration_weight', 0.7)
 
-        logger.info("✓ Format Reconciler decision:")
-        logger.info(f"  Final Duration: {reconciled['final_duration']}s ({reconciled['final_duration'] // 60}min {reconciled['final_duration'] % 60}s)")
-        logger.info(f"  Format Type: {reconciled['format_type']}")
-        logger.info(f"  Arbitration Source: {reconciled['arbitration_source']}")
-        logger.info(f"  Editorial Weight: {reconciled['editorial_weight']:.2f} | Duration Weight: {reconciled['duration_weight']:.2f}")
-        logger.info(f"  Reasoning: {truncate_for_log(reconciled['reasoning'], LOG_TRUNCATE_REASONING)}")
+        # Create Timeline object from LLM response
+        final_duration = reconciled['final_duration']
+        format_type = reconciled['format_type']
+        timeline = Timeline(
+            reconciled_duration=final_duration,
+            format_type=format_type,
+            aspect_ratio=_infer_aspect_ratio(final_duration, format_type),
+            arbitration_source=reconciled['arbitration_source'],
+            editorial_weight=reconciled['editorial_weight'],
+            duration_weight=reconciled['duration_weight'],
+            arbitration_reasoning=reconciled['reasoning'],
+            editorial_duration_original=editorial_duration,
+            duration_strategy_original=duration_duration,
+            duration_breakdown=editorial_decision.duration_breakdown if hasattr(editorial_decision, 'duration_breakdown') else None
+        )
 
-        return reconciled
+        logger.info("✓ Format Reconciler decision:")
+        logger.info(f"  Final Duration: {timeline.reconciled_duration}s ({timeline.reconciled_duration // 60}min {timeline.reconciled_duration % 60}s)")
+        logger.info(f"  Format Type: {timeline.format_type}")
+        logger.info(f"  Arbitration Source: {timeline.arbitration_source}")
+        logger.info(f"  Editorial Weight: {timeline.editorial_weight:.2f} | Duration Weight: {timeline.duration_weight:.2f}")
+        logger.info(f"  Reasoning: {truncate_for_log(timeline.arbitration_reasoning, LOG_TRUNCATE_REASONING)}")
+
+        return timeline
 
     except Exception as e:
         logger.error(f"Format Reconciler LLM failed: {e}")
@@ -213,11 +258,16 @@ IMPORTANT:
         )
 
         # Fallback: Use Duration Strategist (prioritize monetization)
-        return {
-            'final_duration': duration_duration,
-            'format_type': duration_strategy.get('format_type', 'mid'),
-            'reasoning': f"LLM arbitration failed ({str(e)}). Defaulting to Duration Strategist for monetization optimization.",
-            'arbitration_source': 'duration_strategist_fallback',
-            'editorial_weight': 0.0,
-            'duration_weight': 1.0
-        }
+        format_type = duration_strategy.get('format_type', 'mid')
+        return Timeline(
+            reconciled_duration=duration_duration,
+            format_type=format_type,
+            aspect_ratio=_infer_aspect_ratio(duration_duration, format_type),
+            arbitration_source='duration_strategist_fallback',
+            editorial_weight=0.0,
+            duration_weight=1.0,
+            arbitration_reasoning=f"LLM arbitration failed ({str(e)}). Defaulting to Duration Strategist for monetization optimization.",
+            editorial_duration_original=editorial_duration,
+            duration_strategy_original=duration_duration,
+            duration_breakdown=editorial_decision.duration_breakdown if hasattr(editorial_decision, 'duration_breakdown') else None
+        )

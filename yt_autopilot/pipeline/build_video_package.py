@@ -1108,28 +1108,30 @@ Return ONLY a JSON object:
     logger.info("Step 3.6.5: Running Format Reconciler (duration arbitration)...")
     logger.info("=" * 70)
 
+    # Phase C - P0: Initialize timeline (single source of truth for duration)
+    timeline = None
+
     if editorial_decision and duration_strategy:
         # Call Format Reconciler to arbitrate duration divergence
-        reconciled_format = reconcile_format_strategies(
+        # Phase C - P0: Returns Timeline object (single source of truth)
+        timeline = reconcile_format_strategies(
             editorial_decision=editorial_decision,
             duration_strategy=duration_strategy,
             llm_generate_fn=llm_generate_fn,  # Sprint 2: Use language-validated wrapper
             workspace_config=workspace
         )
 
-        logger.info(f"✓ Format reconciliation complete:")
+        logger.info(f"✓ Format reconciliation complete (Timeline created):")
         logger.info(f"  Editorial duration: {editorial_decision.duration_target}s")
         logger.info(f"  Duration Strategist: {duration_strategy['target_duration_seconds']}s")
-        logger.info(f"  Final reconciled: {reconciled_format['final_duration']}s ({reconciled_format['format_type']})")
-        logger.info(f"  Arbitration source: {reconciled_format['arbitration_source']}")
-        logger.info(f"  Editorial weight: {reconciled_format['editorial_weight']:.2f} | Duration weight: {reconciled_format['duration_weight']:.2f}")
-        logger.info(f"  Reasoning: {truncate_for_log(reconciled_format['reasoning'], LOG_TRUNCATE_REASONING)}")
+        logger.info(f"  Final reconciled: {timeline.reconciled_duration}s ({timeline.format_type})")
+        logger.info(f"  Arbitration source: {timeline.arbitration_source}")
+        logger.info(f"  Editorial weight: {timeline.editorial_weight:.2f} | Duration weight: {timeline.duration_weight:.2f}")
+        logger.info(f"  Reasoning: {truncate_for_log(timeline.arbitration_reasoning, LOG_TRUNCATE_REASONING)}")
 
-        # Update duration_strategy with reconciled values
-        duration_strategy['target_duration_seconds'] = reconciled_format['final_duration']
-        duration_strategy['format_type'] = reconciled_format['format_type']
-        duration_strategy['reconciliation_applied'] = True
-        duration_strategy['reconciliation_reasoning'] = reconciled_format['reasoning']
+        # Phase C - P0: No longer mutate duration_strategy - Timeline is single source of truth
+        # REMOVED: duration_strategy in-place mutation (lines 1129-1132)
+        # All agents now receive timeline directly instead of modified duration_strategy
 
         # ========== VALIDATION GATE 2: POST-DURATION ==========
         logger.info("")
@@ -1141,10 +1143,11 @@ Return ONLY a JSON object:
             gate2_validator = Gate2_PostDurationValidator()
 
             # Note: visual_plan not yet available, pass None for aspect ratio
+            # Phase C - P0: Pass Timeline object instead of reconciled_format dict
             gate2_result = gate2_validator.validate(
                 editorial_decision=editorial_decision,
                 duration_strategy=duration_strategy,
-                reconciled_format=reconciled_format,
+                reconciled_format=timeline,  # Now Timeline object (backward compatible with .reconciled_duration)
                 visual_plan_aspect_ratio=None  # Will be validated again in Gate 4
             )
 
@@ -1184,9 +1187,10 @@ Return ONLY a JSON object:
     if editorial_decision and duration_strategy:
         # Call Content Depth Strategist to determine optimal bullets count
         # FASE 1 FIX: Run BEFORE Narrative so we can pass bullet_count_constraint
+        # Phase C - P0: Use timeline.reconciled_duration (single source of truth)
         content_depth_strategy = analyze_content_depth(
             topic=video_plan.working_title,
-            target_duration=reconciled_format.get('final_duration', duration_strategy['target_duration_seconds']),
+            target_duration=timeline.reconciled_duration,
             narrative_arc={},  # Empty dict - Narrative not generated yet
             editorial_decision=editorial_decision.__dict__ if hasattr(editorial_decision, '__dict__') else editorial_decision,
             workspace=workspace,
@@ -1206,7 +1210,8 @@ Return ONLY a JSON object:
     else:
         logger.warning("Skipping Content Depth Strategist (no editorial/duration strategy)")
         # Fallback: deterministic bullets count
-        target_dur = reconciled_format.get('final_duration', 480) if reconciled_format else 480
+        # Phase C - P0: Use timeline.reconciled_duration if available
+        target_dur = timeline.reconciled_duration if timeline else 480
         bullets_count = max(2, min(6, target_dur // 90))  # 90s per bullet
         content_depth_strategy = {
             'recommended_bullets': bullets_count,
@@ -1609,12 +1614,13 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
 
         gate3_validator = Gate3_PostScriptValidator(llm_generate_fn=llm_generate_fn)
 
+        # Phase C - P0: Use timeline.reconciled_duration (single source of truth)
         gate3_result = gate3_validator.validate(
             script=script,
             content_depth_strategy=content_depth_strategy,
             editorial_decision=editorial_decision,
             workspace=workspace,
-            target_duration=reconciled_format['final_duration']
+            target_duration=timeline.reconciled_duration
         )
 
         log_validation_result(gate3_result, gate_number=3)
@@ -1662,12 +1668,13 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
                 logger.info("  ✅ Language corrected, re-validating...")
 
                 # Re-validate after fix
+                # Phase C - P0: Use timeline.reconciled_duration (single source of truth)
                 gate3_result = gate3_validator.validate(
                     script=script,
                     content_depth_strategy=content_depth_strategy,
                     editorial_decision=editorial_decision,
                     workspace=workspace,
-                    target_duration=reconciled_format['final_duration']
+                    target_duration=timeline.reconciled_duration
                 )
 
                 if gate3_result.is_valid:
@@ -1770,7 +1777,8 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
     logger.info(f"  Aspect ratio: {visual_plan.aspect_ratio}")
 
     # VALIDATION: Format Coherence (aspect ratio + duration)
-    target_duration_final = reconciled_format.get('final_duration', 480)  # From Format Reconciler
+    # Phase C - P0: Use timeline.reconciled_duration (single source of truth)
+    target_duration_final = timeline.reconciled_duration if timeline else 480
     logger.info("")
     logger.info("📐 FORMAT COHERENCE VALIDATION")
     corrected_duration, corrected_aspect, was_corrected, reasoning = validate_and_enforce_format(
@@ -1802,11 +1810,12 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
 
         gate4_validator = Gate4_PostVisualValidator()
 
+        # Phase C - P0: Pass Timeline object instead of reconciled_format dict
         gate4_result = gate4_validator.validate(
             visual_plan=visual_plan,
             script=script,
             duration_strategy=duration_strategy,
-            reconciled_format=reconciled_format
+            reconciled_format=timeline  # Now Timeline object (backward compatible)
         )
 
         log_validation_result(gate4_result, gate_number=4)
