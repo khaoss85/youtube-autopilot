@@ -1234,14 +1234,16 @@ Return ONLY a JSON object:
         logger.info(f"  Using Content Depth recommendation: {recommended_bullets} content acts")
 
         # Call Narrative Architect with bullet count constraint
+        # Phase C - P2: Pass Timeline object for duration enforcement
         narrative_arc = design_narrative_arc(
             topic=video_plan.working_title,
-            target_duration_seconds=duration_strategy['target_duration_seconds'],
+            target_duration_seconds=duration_strategy['target_duration_seconds'],  # Deprecated (timeline overrides)
             workspace_config=workspace,
             duration_strategy=duration_strategy,
             editorial_decision=editorial_decision.__dict__ if hasattr(editorial_decision, '__dict__') else editorial_decision,
             bullet_count_constraint=recommended_bullets,  # FASE 1: Force specific bullet count from start
-            llm_generate_fn=llm_generate_fn  # WEEK 2 Task 2.1: Use language-validated LLM
+            llm_generate_fn=llm_generate_fn,  # WEEK 2 Task 2.1: Use language-validated LLM
+            timeline=timeline  # Phase C - P2: Single source of truth for duration
         )
 
         logger.info(f"✓ Narrative arc created with {len(narrative_arc['narrative_structure'])} acts")
@@ -1345,13 +1347,15 @@ Return ONLY a JSON object:
                 recommended_bullets = content_depth_strategy.get('recommended_bullets')
                 logger.info(f"   Forcing narrative to generate EXACTLY {recommended_bullets} content acts...")
 
+                # Phase C - P2: Pass Timeline object for duration enforcement
                 narrative_arc_v2 = design_narrative_arc(
                     topic=video_plan.working_title,
-                    target_duration_seconds=duration_strategy['target_duration_seconds'],
+                    target_duration_seconds=duration_strategy['target_duration_seconds'],  # Deprecated (timeline overrides)
                     workspace_config=workspace,
                     duration_strategy=duration_strategy,
                     editorial_decision=editorial_decision.__dict__ if hasattr(editorial_decision, '__dict__') else editorial_decision,
-                    bullet_count_constraint=recommended_bullets  # FASE 1: Force specific bullet count
+                    bullet_count_constraint=recommended_bullets,  # FASE 1: Force specific bullet count
+                    timeline=timeline  # Phase C - P2: Single source of truth for duration
                 )
 
                 # Re-validate after retry

@@ -17,6 +17,7 @@ Replaces: Generic LLM script generation with strategic narrative design.
 from typing import Dict, Any, List, Optional
 from yt_autopilot.services.llm_router import generate_text
 from yt_autopilot.core.logger import logger, log_fallback
+from yt_autopilot.core.schemas import Timeline
 
 
 def design_narrative_arc(
@@ -26,7 +27,8 @@ def design_narrative_arc(
     duration_strategy: Dict[str, Any],
     editorial_decision: Dict[str, Any],
     bullet_count_constraint: Optional[int] = None,  # FASE 1: Quality retry constraint
-    llm_generate_fn: callable = None  # WEEK 2 Task 2.1: Language-validated LLM wrapper
+    llm_generate_fn: callable = None,  # WEEK 2 Task 2.1: Language-validated LLM wrapper
+    timeline: Optional[Timeline] = None  # PHASE C - P2: Single source of truth for duration
 ) -> Dict[str, Any]:
     """
     AI-driven narrative arc design for emotional retention optimization.
@@ -43,14 +45,18 @@ def design_narrative_arc(
     - Cliffhangers between sections
     - Proper punctuation and pacing marks
 
+    Phase C - P2: Now uses Timeline object as single source of truth for duration.
+    If timeline provided, uses timeline.reconciled_duration (overrides target_duration_seconds).
+
     Args:
         topic: Video topic/title
-        target_duration_seconds: Target video duration
+        target_duration_seconds: Target video duration (DEPRECATED if timeline provided)
         workspace_config: Brand tone, style, personality
         duration_strategy: Output from Duration Strategist
         editorial_decision: Editorial strategy context
         bullet_count_constraint: FASE 1 - If provided, force exactly this many content acts (quality retry)
         llm_generate_fn: WEEK 2 Task 2.1 - Language-validated LLM wrapper (uses generate_text if None)
+        timeline: PHASE C - P2 - Timeline object with reconciled_duration (single source of truth)
 
     Returns:
         Dict with:
@@ -64,18 +70,27 @@ def design_narrative_arc(
     Example:
         >>> arc = design_narrative_arc(
         ...     topic="$6.5M margin call disaster",
-        ...     target_duration_seconds=420,
+        ...     target_duration_seconds=420,  # Ignored if timeline provided
         ...     workspace_config=workspace,
         ...     duration_strategy=duration_strategy,
         ...     editorial_decision=editorial,
-        ...     bullet_count_constraint=6  # FASE 1: Force 6 content acts
+        ...     bullet_count_constraint=6,  # FASE 1: Force 6 content acts
+        ...     timeline=timeline  # PHASE C - P2: Single source of truth
         ... )
         >>> print(arc['voice_personality'])  # "Confident financial educator"
         >>> print(arc['full_voiceover'][:100])  # Hook with personality
     """
+    # Phase C - P2: Use Timeline.reconciled_duration as single source of truth
+    if timeline:
+        actual_duration = timeline.reconciled_duration
+        duration_source = "Timeline.reconciled_duration"
+    else:
+        actual_duration = target_duration_seconds
+        duration_source = "target_duration_seconds (fallback)"
+
     logger.info("Narrative Architect designing story structure...")
     logger.info(f"  Topic: {topic}")
-    logger.info(f"  Target Duration: {target_duration_seconds}s ({target_duration_seconds // 60}min {target_duration_seconds % 60}s)")
+    logger.info(f"  Target Duration: {actual_duration}s ({actual_duration // 60}min {actual_duration % 60}s) [from {duration_source}]")
 
     # Extract context
     brand_tone = workspace_config.get('brand_tone', 'Professional, educational')
@@ -108,7 +123,7 @@ ALL OUTPUT MUST BE IN {language_instruction}. Every single word of voiceover mus
 DO NOT mix languages. If you see examples in other languages below, IGNORE their language and write in {language_instruction}.
 
 TOPIC: "{topic}"
-TARGET DURATION: {target_duration_seconds}s ({target_duration_seconds // 60}min {target_duration_seconds % 60}s)
+TARGET DURATION: {actual_duration}s ({actual_duration // 60}min {actual_duration % 60}s) [PHASE C - P2: From Timeline.reconciled_duration - MUST RESPECT]
 FORMAT: {format_type} (short/mid/long)
 CONTENT DEPTH: {content_depth_score:.2f} (0=thin, 1=deep)
 
@@ -226,7 +241,7 @@ CRITICAL:
 - Use proper punctuation (commas, periods, em-dashes, ellipses)
 - NO filler words ("um", "like", "you know")
 - Specific examples > abstract concepts
-- Duration must sum to approximately {target_duration_seconds}s (±10%)
+- ⚠️ Duration must sum to approximately {actual_duration}s (±10%) - TIMELINE CONSTRAINT MUST BE RESPECTED ⚠️
 {f'''
 ⚠️ SELF-VERIFICATION (REQUIRED BEFORE RESPONDING):
 1. Count your content acts (acts that are NOT Hook or Payoff_CTA)
@@ -344,7 +359,7 @@ RESPOND WITH RAW JSON ONLY.
                 },
                 {
                     'act_name': 'Content',
-                    'duration_seconds': target_duration_seconds - 6,
+                    'duration_seconds': actual_duration - 6,
                     'emotional_beat': 'information',
                     'voiceover': basic_content,
                     'retention_tactic': 'value delivery'
@@ -364,6 +379,6 @@ RESPOND WITH RAW JSON ONLY.
             'emotional_beats': [
                 {'timestamp': 0, 'act': 'Hook', 'emotion': 'curiosity'},
                 {'timestamp': 3, 'act': 'Content', 'emotion': 'information'},
-                {'timestamp': target_duration_seconds - 3, 'act': 'CTA', 'emotion': 'community'}
+                {'timestamp': actual_duration - 3, 'act': 'CTA', 'emotion': 'community'}
             ]
         }
