@@ -131,6 +131,35 @@ class SceneVoiceover(BaseModel):
     )
 
 
+class TextOverlay(BaseModel):
+    """
+    Text overlay planned by AI based on content analysis.
+
+    Phase B1: AI-driven overlay planning for stats, key points, CTAs, and subtitles.
+    The Visual Planner's LLM analyzes scene content and suggests overlays.
+    """
+    text: str = Field(..., description="Text to display on screen")
+    timing_start: int = Field(..., ge=0, description="Start time in seconds from scene start")
+    timing_duration: int = Field(..., ge=1, description="Display duration in seconds")
+    position: str = Field(..., description="Screen position (AI-selected based on content)")
+    style: str = Field(..., description="Visual style (AI-selected: bold, subtle, animated, kinetic)")
+    purpose: str = Field(..., description="Why this overlay exists (AI reasoning: stat, key_point, cta, subtitle)")
+
+
+class BRollNote(BaseModel):
+    """
+    B-roll insertion planned by AI for visual variety and engagement.
+
+    Phase B1: AI-driven B-roll planning based on content needs.
+    The Visual Planner's LLM identifies moments where B-roll enhances the message.
+    """
+    timing_start: int = Field(..., ge=0, description="Start time in seconds from scene start")
+    timing_duration: int = Field(..., ge=1, description="B-roll clip duration in seconds")
+    description: str = Field(..., description="What B-roll to show (AI-generated description)")
+    source_type: str = Field(..., description="Source type (AI-selected: stock, graphic, screen_recording, animation)")
+    purpose: str = Field(..., description="Why this B-roll (AI reasoning: data_viz, engagement_break, visual_proof)")
+
+
 class VideoScript(BaseModel):
     """
     Complete script with hook, body, and CTA.
@@ -180,6 +209,15 @@ class VisualScene(BaseModel):
     reference_image_path: Optional[str] = Field(
         None,
         description="Phase 1: Path to reference image for this scene (generated on-demand with export-visual-deck command)"
+    )
+    # Phase B1: AI-driven overlay and B-roll planning
+    text_overlays: List[TextOverlay] = Field(
+        default_factory=list,
+        description="Phase B1: AI-planned text overlays for stats, key points, CTAs, and subtitles"
+    )
+    broll_notes: List[BRollNote] = Field(
+        default_factory=list,
+        description="Phase B1: AI-planned B-roll insertions for visual variety and engagement"
     )
 
 

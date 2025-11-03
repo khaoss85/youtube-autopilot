@@ -127,6 +127,88 @@ except Exception as e:
        return rule_based_validation(package)
    ```
 
+### 🚨 REGOLA CRITICA: OGNI Exception Handler con Fallback DEVE Usare log_fallback()
+
+**NON È OPZIONALE** - Se il tuo exception handler implementa fallback logic (continua con dati alternativi invece di crashare), **DEVI** usare `log_fallback()`.
+
+**Perché?**
+- Test possono passare con mock data senza che tu lo sappia
+- Production fallback invisibili compromettono quality metrics
+- Debug diventa impossibile senza traccia di fallback
+
+**Come verificare conformità**:
+```bash
+# Trova exception handlers senza log_fallback (potenziali violazioni)
+grep -rn "except.*:" yt_autopilot/ --include="*.py" | while read line; do
+    file=$(echo "$line" | cut -d: -f1)
+    if ! grep -q "log_fallback" "$file"; then
+        echo "⚠️  $file potrebbe avere fallback non loggati"
+    fi
+done
+```
+
+### Esempi Aggiornati (Novembre 2025)
+
+1. **LLM Router - OpenAI Fallback** (`services/llm_router.py:102-109`) ✅ FIXED:
+   ```python
+   result = _call_openai(openai_key, role, full_prompt)
+   if result:
+       return result
+   else:
+       # 🚨 CRITICAL: Log OpenAI fallback for visibility
+       log_fallback(
+           component="LLM_ROUTER",
+           fallback_type="OPENAI_FAILED",
+           reason="OpenAI API call failed or returned None",
+           impact="CRITICAL"
+       )
+       logger.warning("  ✗ OpenAI GPT failed, using deterministic fallback...")
+   ```
+
+2. **LLM Router - No Provider** (`services/llm_router.py:113-118`) ✅ FIXED:
+   ```python
+   # 🚨 CRITICAL: Log no provider fallback for visibility
+   log_fallback(
+       component="LLM_ROUTER",
+       fallback_type="NO_PROVIDER",
+       reason="No LLM API keys configured (LLM_OPENAI_API_KEY missing)",
+       impact="CRITICAL"
+   )
+   logger.warning("  No LLM provider available - returning fallback")
+   fallback = _generate_fallback(role, task, context)
+   ```
+
+3. **Monetization QA - Rule-Based Fallback** (`agents/monetization_qa.py:345-347`) ✅:
+   ```python
+   except Exception as e:
+       logger.error(f"Monetization QA AI validation failed: {e}")
+       log_fallback("MONETIZATION_QA", "RULE_BASED", f"LLM validation failed: {e}", impact="HIGH")
+       # 116 lines of comprehensive rule-based validation follow
+   ```
+
+### Tool di Enforcement (Prevenzione Automatica)
+
+**Pre-commit Hook** - Blocca commit con fallback non loggati:
+```bash
+# .git/hooks/pre-commit
+git diff --cached --name-only | grep '\.py$' | xargs grep -l 'except.*:' | while read file; do
+    if ! grep -q 'log_fallback' "$file"; then
+        echo "⚠️  $file: Exception handler senza log_fallback"
+        exit 1
+    fi
+done
+```
+
+**Linter Custom** - Analisi AST per rilevare violazioni:
+```bash
+# Esegui linter custom
+python tools/lint_fallbacks.py
+
+# Output example:
+# ❌ yt_autopilot/services/trend_source.py:156 - missing_log_fallback
+# ✅ All other files compliant
+```
+
 ### Documentazione Completa
 
 Vedi `/tmp/FALLBACK_LOGGING_SYSTEM.md` per documentazione dettagliata del sistema.
@@ -312,6 +394,6 @@ Non serve modificare nessun altro file - il cambiamento si propaga automaticamen
 
 ---
 
-**Data ultima revisione**: 2025-11-02
+**Data ultima revisione**: 2025-11-03
 
-**Responsabile**: Sistema di logging centralizzato implementato e validato. Log truncation utilities standardizzate.
+**Responsabile**: Sistema di logging centralizzato implementato e validato. Log truncation utilities standardizzate. Fallback logging enforcement migliorato con fix critici a llm_router.py.

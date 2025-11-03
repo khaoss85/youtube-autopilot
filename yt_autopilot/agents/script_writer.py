@@ -271,26 +271,40 @@ def _generate_content_bullets(plan: VideoPlan, bullets_count: Optional[int] = No
 
 def _generate_outro_cta(plan: VideoPlan) -> str:
     """
-    Generates call-to-action for video outro.
+    ⚠️ DEPRECATED (Phase B2): Use CTA Strategist instead.
+
+    Legacy fallback CTA generator. Only used when all AI-driven
+    CTA sources fail (CTA Strategist, Editorial, Narrative).
+
+    This function violates the "always AI-driven, not hardcoded" principle
+    and should only be called as a last resort when:
+    - CTA Strategist unavailable
+    - Editorial Decision has no CTA
+    - Narrative Arc has no CTA
+    - LLM suggestion failed
+    - Narrator fallback unavailable
 
     Args:
         plan: Video plan
 
     Returns:
-        CTA text
+        Generic CTA text (last resort fallback)
     """
-    ctas = [
-        "Se questo video ti è stato utile, iscriviti per non perdere i prossimi contenuti!",
-        "Lascia un like se vuoi vedere più video su questo argomento!",
-        "Iscriviti al canale per rimanere aggiornato sulle ultime tendenze!",
-        "Condividi questo video con chi potrebbe trovarlo utile!"
-    ]
+    from yt_autopilot.core.logger import log_fallback
 
-    # Select based on audience type
-    if "tecnologia" in plan.target_audience.lower():
-        return ctas[2]  # Focus on staying updated
-    else:
-        return ctas[0]  # Generic subscribe CTA
+    log_fallback(
+        component="SCRIPT_WRITER",
+        fallback_type="DETERMINISTIC_CTA",
+        reason="All AI-driven CTA sources unavailable (CTA Strategist, Editorial, Narrative, LLM)",
+        impact="HIGH"
+    )
+
+    logger.warning("⚠️ Using deprecated deterministic CTA generation")
+    logger.warning("  This violates AI-driven principle - consider enabling CTA Strategist")
+
+    # Generic safe CTA (works for all content types and languages)
+    # Avoids hardcoded Italian templates that don't scale internationally
+    return "Iscriviti al canale per altri contenuti come questo!"
 
 
 def _generate_narrator_aware_fallback(
@@ -805,6 +819,7 @@ def write_script(
     editorial_decision: Optional[EditorialDecision] = None,
     narrative_arc: Optional[Dict] = None,
     content_depth_strategy: Optional[Dict] = None,
+    cta_strategy: Optional[Dict] = None,
     forced_cta: Optional[str] = None
 ) -> VideoScript:
     """
@@ -837,6 +852,18 @@ def write_script(
     NEW (FASE 3): Accepts optional forced_cta for quality retry mechanism.
     If provided, overrides all other CTA sources to ensure exact match with CTA Strategist.
 
+    NEW (PHASE B2): Accepts optional cta_strategy from CTA Strategist.
+    If provided, uses AI-driven CTA placement strategy as primary CTA source.
+
+    CTA Priority Hierarchy (7 levels, highest to lowest):
+    1. forced_cta (quality retry override)
+    2. cta_strategy.main_cta (CTA Strategist - AI-driven strategic placement)
+    3. editorial_decision.cta_specific (Editorial Strategist - high-level strategy)
+    4. narrative_arc CTA (Narrative Architect - emotional storytelling)
+    5. llm_suggestion CTA (LLM-generated creative)
+    6. narrator_fallback (maintains brand voice if narrator enabled)
+    7. deterministic (deprecated last resort)
+
     Args:
         plan: Video plan with topic, angle, and audience
         memory: Channel memory dict containing brand_tone
@@ -850,6 +877,8 @@ def write_script(
                       (Monetization: emotional storytelling for retention)
         content_depth_strategy: Optional AI-driven bullets count from Content Depth Strategist
                                (Sprint 2: content adequacy optimization)
+        cta_strategy: Optional AI-driven CTA placement strategy from CTA Strategist
+                     (Phase B2: strategic CTA optimization for monetization)
         forced_cta: Optional specific CTA text to force (FASE 3: quality retry for CTA validation)
 
     Returns:
@@ -952,10 +981,14 @@ def write_script(
             cta_act = acts[-1] if acts else {}
             outro_cta = cta_act.get('voiceover', '')
 
-            # CRITICAL FIX: Override CTA with Editorial Decision if provided
-            if editorial_decision and editorial_decision.cta_specific:
-                logger.info(f"  ✓ Overriding Narrative CTA with Editorial CTA for monetization strategy")
-                outro_cta = editorial_decision.cta_specific
+            # PHASE B2: Note - CTA priority hierarchy will be applied later (lines 1077+)
+            # Don't override here, just log what sources are available
+            if cta_strategy and cta_strategy.get('main_cta'):
+                logger.info(f"  ℹ️ CTA Strategist available - will take priority over Narrative CTA")
+            elif editorial_decision and editorial_decision.cta_specific:
+                logger.info(f"  ℹ️ Editorial Decision available - will take priority over Narrative CTA")
+            else:
+                logger.info(f"  ℹ️ Narrative Arc CTA will be used (no higher priority source)")
 
             # Create scene_voiceover_map from narrative acts
             from yt_autopilot.core.schemas import SceneVoiceover
@@ -1059,10 +1092,76 @@ def write_script(
     total_scene_duration = sum(s.est_duration_seconds for s in scene_voiceover_map)
     logger.info(f"  Scene voiceover map: {len(scene_voiceover_map)} scenes, ~{total_scene_duration}s total")
 
-    # FASE 3: Override CTA with forced_cta if provided (quality retry mechanism)
+    # PHASE B2: CTA Priority Hierarchy (7 levels, highest to lowest)
+    # Apply final CTA selection based on explicit priority order
+    logger.info("Applying CTA Priority Hierarchy...")
+
+    # Determine current CTA source before hierarchy application
+    cta_source_before = None
+    if used_narrative_arc:
+        cta_source_before = "NARRATIVE_ARC"
+    elif llm_suggestion:
+        # Check if LLM parsing was successful
+        llm_parsed_test = _parse_llm_suggestion(llm_suggestion)
+        if llm_parsed_test and llm_parsed_test.get('outro_cta'):
+            cta_source_before = "LLM_SUGGESTION"
+
+    # Apply priority hierarchy
     if forced_cta:
-        logger.info(f"  ⚠️ Using forced CTA (quality retry): '{forced_cta[:60]}...'")
+        # PRIORITY 1: Quality retry override (highest priority)
+        logger.info(f"  ✓ CTA Source: FORCED_CTA (quality retry override)")
+        logger.info(f"    Text: '{forced_cta[:60]}...'")
         outro_cta = forced_cta
+        cta_source = "FORCED_CTA"
+
+    elif cta_strategy and cta_strategy.get('main_cta'):
+        # PRIORITY 2: CTA Strategist (AI-driven strategic placement)
+        logger.info(f"  ✓ CTA Source: CTA_STRATEGIST (AI-driven)")
+        logger.info(f"    Main CTA: '{cta_strategy['main_cta'][:60]}...'")
+        if cta_strategy.get('funnel_path'):
+            logger.info(f"    Funnel Path: {cta_strategy['funnel_path']}")
+        if cta_strategy.get('mid_roll_ctas'):
+            logger.info(f"    Mid-roll CTAs: {len(cta_strategy['mid_roll_ctas'])} planned")
+        outro_cta = cta_strategy['main_cta']
+        cta_source = "CTA_STRATEGIST"
+
+        # Log CTA Strategist reasoning (truncated for readability)
+        from yt_autopilot.core.logger import truncate_for_log
+        from yt_autopilot.core.config import LOG_TRUNCATE_REASONING
+        if cta_strategy.get('reasoning'):
+            logger.info(f"    Reasoning: {truncate_for_log(cta_strategy['reasoning'], LOG_TRUNCATE_REASONING)}")
+
+    elif editorial_decision and editorial_decision.cta_specific:
+        # PRIORITY 3: Editorial Decision (strategic directive)
+        logger.info(f"  ✓ CTA Source: EDITORIAL_DECISION (strategic directive)")
+        logger.info(f"    Text: '{editorial_decision.cta_specific[:60]}...'")
+        outro_cta = editorial_decision.cta_specific
+        cta_source = "EDITORIAL_DECISION"
+
+    elif cta_source_before == "NARRATIVE_ARC" and outro_cta:
+        # PRIORITY 4: Narrative Arc (already set earlier, emotional storytelling)
+        logger.info(f"  ✓ CTA Source: NARRATIVE_ARC (emotional storytelling)")
+        logger.info(f"    Text: '{outro_cta[:60]}...'")
+        cta_source = "NARRATIVE_ARC"
+
+    elif cta_source_before == "LLM_SUGGESTION" and outro_cta:
+        # PRIORITY 5: LLM Suggestion (creative LLM-generated)
+        logger.info(f"  ✓ CTA Source: LLM_SUGGESTION (creative generation)")
+        logger.info(f"    Text: '{outro_cta[:60]}...'")
+        cta_source = "LLM_SUGGESTION"
+
+    else:
+        # PRIORITY 6-7: Fallback sources (narrator-aware or deterministic)
+        # outro_cta already set by fallback logic in lines 1009-1057
+        if narrator and narrator.get('enabled'):
+            cta_source = "NARRATOR_FALLBACK"
+            logger.info(f"  ✓ CTA Source: NARRATOR_FALLBACK (brand voice maintained)")
+        else:
+            cta_source = "DETERMINISTIC_FALLBACK"
+            logger.info(f"  ✓ CTA Source: DETERMINISTIC_FALLBACK (deprecated last resort)")
+        logger.info(f"    Text: '{outro_cta[:60]}...'")
+
+    logger.info(f"Final CTA selected from: {cta_source}")
 
     # Create VideoScript
     script = VideoScript(

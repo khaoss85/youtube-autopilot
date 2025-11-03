@@ -1592,7 +1592,8 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
         series_format=series_format,
         editorial_decision=editorial_decision,  # Step 11: Pass AI strategy
         narrative_arc=narrative_arc,  # Monetization Refactor: Pass emotional storytelling
-        content_depth_strategy=content_depth_strategy  # Sprint 2: AI-driven bullets count
+        content_depth_strategy=content_depth_strategy,  # Sprint 2: AI-driven bullets count
+        cta_strategy=cta_strategy  # Phase B2: AI-driven CTA placement
     )
 
     logger.info(f"✓ Script generated: {len(script.bullets)} content points")

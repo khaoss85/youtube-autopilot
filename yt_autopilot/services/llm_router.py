@@ -27,7 +27,7 @@ Usage:
 """
 
 from typing import Dict, Any, Optional
-from yt_autopilot.core.logger import logger, truncate_for_log
+from yt_autopilot.core.logger import logger, truncate_for_log, log_fallback
 from yt_autopilot.core.config import (
     get_llm_anthropic_key,
     get_llm_openai_key,
@@ -99,9 +99,23 @@ def generate_text(
             logger.info(f"  ✓ OpenAI GPT succeeded ({len(result)} chars)")
             return result
         else:
+            # 🚨 CRITICAL: Log OpenAI fallback for visibility
+            log_fallback(
+                component="LLM_ROUTER",
+                fallback_type="OPENAI_FAILED",
+                reason="OpenAI API call failed or returned None",
+                impact="CRITICAL"
+            )
             logger.warning("  ✗ OpenAI GPT failed, using deterministic fallback...")
 
     # No key or provider failed - graceful fallback
+    # 🚨 CRITICAL: Log no provider fallback for visibility
+    log_fallback(
+        component="LLM_ROUTER",
+        fallback_type="NO_PROVIDER",
+        reason="No LLM API keys configured (LLM_OPENAI_API_KEY missing)",
+        impact="CRITICAL"
+    )
     logger.warning("  No LLM provider available - returning fallback")
     fallback = _generate_fallback(role, task, context)
     logger.info(f"  Fallback generated: {truncate_for_log(fallback, LOG_TRUNCATE_CONTENT)}")
@@ -147,9 +161,23 @@ def _call_anthropic(api_key: str, role: str, prompt: str) -> Optional[str]:
         return None
 
     except ImportError:
+        # 🚨 Log Anthropic SDK missing fallback
+        log_fallback(
+            component="LLM_ROUTER_ANTHROPIC",
+            fallback_type="SDK_NOT_INSTALLED",
+            reason="anthropic package not installed",
+            impact="HIGH"
+        )
         logger.error("  Anthropic SDK not installed - run: pip install anthropic")
         return None
     except Exception as e:
+        # 🚨 Log Anthropic API error fallback
+        log_fallback(
+            component="LLM_ROUTER_ANTHROPIC",
+            fallback_type="API_ERROR",
+            reason=str(e),
+            impact="HIGH"
+        )
         logger.error(f"  Anthropic API error: {e}")
         return None
 
@@ -198,9 +226,23 @@ def _call_openai(api_key: str, role: str, prompt: str) -> Optional[str]:
         return None
 
     except ImportError:
+        # 🚨 CRITICAL: Log OpenAI SDK missing fallback
+        log_fallback(
+            component="LLM_ROUTER_OPENAI",
+            fallback_type="SDK_NOT_INSTALLED",
+            reason="openai package not installed",
+            impact="CRITICAL"
+        )
         logger.error("  OpenAI SDK not installed - run: pip install openai")
         return None
     except Exception as e:
+        # 🚨 CRITICAL: Log OpenAI API error fallback
+        log_fallback(
+            component="LLM_ROUTER_OPENAI",
+            fallback_type="API_ERROR",
+            reason=str(e),
+            impact="CRITICAL"
+        )
         logger.error(f"  OpenAI API error: {e}")
         return None
 

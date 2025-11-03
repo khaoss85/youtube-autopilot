@@ -9,7 +9,7 @@ Step 08: Extended with YouTube Data API v3 integration for real trend detection.
 
 from typing import List, Dict, Optional
 from yt_autopilot.core.schemas import TrendCandidate
-from yt_autopilot.core.logger import logger
+from yt_autopilot.core.logger import logger, log_fallback
 from yt_autopilot.core.config import get_youtube_data_api_key, get_vertical_config
 import requests
 
@@ -153,9 +153,23 @@ def _fetch_youtube_trending(
         return trends
 
     except requests.exceptions.RequestException as e:
+        # 🚨 Log YouTube API failure fallback
+        log_fallback(
+            component="TREND_SOURCE_YOUTUBE",
+            fallback_type="API_REQUEST_FAILED",
+            reason=f"YouTube Data API request failed: {e}",
+            impact="HIGH"
+        )
         logger.error(f"YouTube Data API request failed: {e}")
         return []
     except Exception as e:
+        # 🚨 Log YouTube data processing fallback
+        log_fallback(
+            component="TREND_SOURCE_YOUTUBE",
+            fallback_type="PROCESSING_ERROR",
+            reason=f"Error processing YouTube trending data: {e}",
+            impact="HIGH"
+        )
         logger.error(f"Error processing YouTube trending data: {e}")
         return []
 
@@ -236,6 +250,13 @@ def _fetch_youtube_search(
         return trends
 
     except Exception as e:
+        # 🚨 Log YouTube search API fallback
+        log_fallback(
+            component="TREND_SOURCE_YOUTUBE_SEARCH",
+            fallback_type="SEARCH_API_ERROR",
+            reason=f"YouTube search API error: {e}",
+            impact="MEDIUM"
+        )
         logger.error(f"YouTube search API error: {e}")
         return []
 
@@ -299,7 +320,14 @@ def _fetch_youtube_scrape(
                     view_count = int(float(view_count_str.replace("M", "")) * 1000000)
                 else:
                     view_count = int(view_count_str)
-            except:
+            except Exception as e:
+                # 🚨 Log view count parse fallback
+                log_fallback(
+                    component="TREND_SOURCE_YOUTUBE_SCRAPE",
+                    fallback_type="VIEW_COUNT_PARSE_FAILED",
+                    reason=f"Failed to parse view count '{view_text}': {e}",
+                    impact="LOW"
+                )
                 view_count = 0
 
             # Calculate momentum (simplified)
@@ -325,6 +353,13 @@ def _fetch_youtube_scrape(
         return trends
 
     except Exception as e:
+        # 🚨 Log YouTube scraping fallback
+        log_fallback(
+            component="TREND_SOURCE_YOUTUBE_SCRAPE",
+            fallback_type="SCRAPING_FAILED",
+            reason=f"YouTube scraping failed: {e}",
+            impact="MEDIUM"
+        )
         logger.error(f"YouTube scraping failed: {e}")
         return []
 
@@ -673,8 +708,22 @@ def fetch_trends(vertical_id: str = "tech_ai", use_real_apis: bool = True) -> Li
             all_trends.extend(reddit_rising)
 
         except ImportError:
+            # 🚨 Log Reddit import fallback
+            log_fallback(
+                component="TREND_SOURCE_REDDIT",
+                fallback_type="IMPORT_FAILED",
+                reason="Reddit trend source not available (reddit_trend_source module import failed)",
+                impact="MEDIUM"
+            )
             logger.debug("Reddit trend source not available (import failed)")
         except Exception as e:
+            # 🚨 Log Reddit API failure fallback
+            log_fallback(
+                component="TREND_SOURCE_REDDIT",
+                fallback_type="API_FETCH_FAILED",
+                reason=f"Reddit trend fetching failed: {e}",
+                impact="MEDIUM"
+            )
             logger.warning(f"Reddit trend fetching failed: {e}")
 
         # ========================================================================
@@ -688,8 +737,22 @@ def fetch_trends(vertical_id: str = "tech_ai", use_real_apis: bool = True) -> Li
             all_trends.extend(hn_trends)
 
         except ImportError:
+            # 🚨 Log Hacker News import fallback
+            log_fallback(
+                component="TREND_SOURCE_HACKERNEWS",
+                fallback_type="IMPORT_FAILED",
+                reason="Hacker News trend source not available (hackernews_trend_source module import failed)",
+                impact="MEDIUM"
+            )
             logger.debug("Hacker News trend source not available (import failed)")
         except Exception as e:
+            # 🚨 Log Hacker News API failure fallback
+            log_fallback(
+                component="TREND_SOURCE_HACKERNEWS",
+                fallback_type="API_FETCH_FAILED",
+                reason=f"Hacker News trend fetching failed: {e}",
+                impact="MEDIUM"
+            )
             logger.warning(f"Hacker News trend fetching failed: {e}")
 
         # ========================================================================
@@ -706,8 +769,22 @@ def fetch_trends(vertical_id: str = "tech_ai", use_real_apis: bool = True) -> Li
             all_trends.extend(channels_trends)
 
         except ImportError:
+            # 🚨 Log YouTube Channels import fallback
+            log_fallback(
+                component="TREND_SOURCE_YOUTUBE_CHANNELS",
+                fallback_type="IMPORT_FAILED",
+                reason="YouTube channels source not available (youtube_channels_source module import failed)",
+                impact="MEDIUM"
+            )
             logger.debug("YouTube channels source not available (import failed)")
         except Exception as e:
+            # 🚨 Log YouTube Channels API failure fallback
+            log_fallback(
+                component="TREND_SOURCE_YOUTUBE_CHANNELS",
+                fallback_type="API_FETCH_FAILED",
+                reason=f"YouTube channels trend fetching failed: {e}",
+                impact="MEDIUM"
+            )
             logger.warning(f"YouTube channels trend fetching failed: {e}")
 
         # TODO Phase 3: Twitter/X, Google Trends (Glimpse API)

@@ -43,6 +43,7 @@ import random
 from yt_autopilot.core.schemas import VideoPlan, VideoScript, VisualPlan, VisualScene, SceneVoiceover, SeriesFormat
 from yt_autopilot.core.memory_store import get_visual_style
 from yt_autopilot.core.logger import logger
+from yt_autopilot.agents.cinematographer import get_cinematic_specs
 
 
 def _estimate_duration_from_text(text: str) -> int:
@@ -278,584 +279,8 @@ CTA: {script.outro_cta}"""
 # ==============================================================================
 # CINEMATIC PROMPT ENGINE (Sora 2 Best Practices)
 # ==============================================================================
-
-def _get_shot_progression(series_format_name: str) -> List[Dict]:
-    """
-    Returns shot type progression for a series format.
-
-    Sora 2 Best Practice: Alternate wide → medium → close for engagement.
-    Each shot type serves a specific purpose in storytelling.
-
-    Args:
-        series_format_name: Name of series format (tutorial, how_to, news_flash)
-
-    Returns:
-        List of shot specifications with type, lens, and purpose
-    """
-    SHOT_PROGRESSIONS = {
-        "tutorial": [
-            {"shot": "wide", "lens": "24mm", "purpose": "establish context"},
-            {"shot": "medium", "lens": "50mm", "purpose": "hook attention"},
-            {"shot": "close", "lens": "85mm", "purpose": "detail focus"},
-            {"shot": "medium", "lens": "50mm", "purpose": "process show"},
-            {"shot": "close", "lens": "85mm", "purpose": "key point"},
-            {"shot": "wide", "lens": "35mm", "purpose": "recap overview"}
-        ],
-        "how_to": [
-            {"shot": "wide", "lens": "24mm", "purpose": "setup"},
-            {"shot": "medium", "lens": "50mm", "purpose": "intro"},
-            {"shot": "close", "lens": "85mm", "purpose": "step detail"},
-            {"shot": "close", "lens": "85mm", "purpose": "step detail"},
-            {"shot": "medium", "lens": "50mm", "purpose": "result"},
-            {"shot": "wide", "lens": "35mm", "purpose": "outro"}
-        ],
-        "news_flash": [
-            {"shot": "medium", "lens": "50mm", "purpose": "urgent open"},
-            {"shot": "close", "lens": "85mm", "purpose": "key fact"},
-            {"shot": "wide", "lens": "35mm", "purpose": "context"},
-            {"shot": "medium", "lens": "50mm", "purpose": "impact"}
-        ]
-    }
-
-    # Default to tutorial if format not found
-    return SHOT_PROGRESSIONS.get(series_format_name, SHOT_PROGRESSIONS["tutorial"])
-
-
-def _select_shot_type(scene_index: int, series_format_name: str) -> Dict:
-    """
-    Selects shot type for a specific scene based on progression.
-
-    Args:
-        scene_index: Scene position (0-based)
-        series_format_name: Format name
-
-    Returns:
-        Shot spec dict with shot, lens, purpose
-    """
-    progression = _get_shot_progression(series_format_name)
-    # Cycle through progression if we have more scenes
-    return progression[scene_index % len(progression)]
-
-
-def _select_camera_movement(segment_name: str) -> str:
-    """
-    Selects appropriate camera movement for segment type.
-
-    Sora 2 Best Practice: One movement per scene, simple and choreographed.
-
-    Args:
-        segment_name: Segment type (hook, intro, content_X, outro)
-
-    Returns:
-        Camera movement description
-    """
-    CAMERA_MOVEMENTS = {
-        "hook": "slow push in",  # engagement
-        "intro": "static hold",  # stability
-        "content": "slow dolly forward",  # reveal
-        "outro": "slow zoom out"  # closure
-    }
-
-    # Match segment type
-    if segment_name == "hook":
-        return CAMERA_MOVEMENTS["hook"]
-    elif segment_name == "intro":
-        return CAMERA_MOVEMENTS["intro"]
-    elif segment_name == "outro":
-        return CAMERA_MOVEMENTS["outro"]
-    else:
-        return CAMERA_MOVEMENTS["content"]
-
-
-def _get_lighting_design(vertical_id: str) -> Dict:
-    """
-    Returns lighting design specifications for a vertical.
-
-    Args:
-        vertical_id: Content vertical (finance, tech_ai, fitness, etc.)
-
-    Returns:
-        Lighting spec dict with mood, primary, direction, intensity, accents
-    """
-    LIGHTING_STYLES = {
-        "finance": {
-            "mood": "professional, trustworthy",
-            "primary": "soft diffused daylight",
-            "direction": "top-left key light",
-            "intensity": "medium-high",
-            "accents": "blue-tinted highlights for data viz"
-        },
-        "tech_ai": {
-            "mood": "futuristic, energetic",
-            "primary": "cool LED panels",
-            "direction": "rim lighting from behind",
-            "intensity": "high contrast",
-            "accents": "cyan and magenta edge lights"
-        },
-        "fitness": {
-            "mood": "motivational, dynamic",
-            "primary": "natural golden hour",
-            "direction": "side key with strong shadows",
-            "intensity": "high",
-            "accents": "warm orange accents"
-        },
-        "gaming": {
-            "mood": "energetic, vibrant",
-            "primary": "RGB LED gaming lights",
-            "direction": "backlit with color cycling",
-            "intensity": "high contrast",
-            "accents": "neon purple and green"
-        },
-        "education": {
-            "mood": "clear, focused",
-            "primary": "soft overhead lighting",
-            "direction": "even front key",
-            "intensity": "medium",
-            "accents": "warm white highlights"
-        }
-    }
-
-    # Default to education for unknown verticals
-    return LIGHTING_STYLES.get(vertical_id, LIGHTING_STYLES["education"])
-
-
-def _generate_audio_cues(segment_name: str, ai_format: str, vertical_id: str) -> str:
-    """
-    Generates audio cue descriptions for Sora 2 prompts.
-
-    Sora 2 Best Practice: Specify ambient sounds and effects for richer output.
-
-    Args:
-        segment_name: Segment type
-        ai_format: Visual format (animated_infographics, kinetic_typography, etc.)
-        vertical_id: Content vertical
-
-    Returns:
-        Audio cue description string
-    """
-    # Format-specific audio patterns
-    FORMAT_AUDIO = {
-        "animated_infographics": {
-            "hook": "attention-grabbing notification chime",
-            "content": "data point ping sounds, subtle chart whooshes",
-            "outro": "completion tone"
-        },
-        "kinetic_typography": {
-            "hook": "bold text impact sound",
-            "content": "text slide whooshes, rhythmic beats",
-            "outro": "fade to silence"
-        },
-        "cinematic_broll": {
-            "hook": "dramatic ambient swell",
-            "content": "environmental sounds matching scene",
-            "outro": "soft fade out"
-        },
-        "whiteboard_animation": {
-            "hook": "pen writing sound",
-            "content": "drawing sounds, subtle paper texture",
-            "outro": "final stroke completion"
-        },
-        "code_visualization": {
-            "hook": "terminal startup beep",
-            "content": "keyboard typing, code execution sounds",
-            "outro": "process complete chime"
-        }
-    }
-
-    # Vertical ambient sounds
-    VERTICAL_AMBIENT = {
-        "finance": "subtle keyboard typing, professional office atmosphere",
-        "tech_ai": "soft tech ambience, data processing hum",
-        "fitness": "motivational background energy",
-        "gaming": "ambient game UI sounds"
-    }
-
-    # Get format-specific audio
-    format_audio_dict = FORMAT_AUDIO.get(ai_format, FORMAT_AUDIO["cinematic_broll"])
-    segment_type = "hook" if segment_name == "hook" else ("outro" if segment_name == "outro" else "content")
-    format_audio = format_audio_dict[segment_type]
-
-    # Add vertical ambient if available
-    vertical_ambient = VERTICAL_AMBIENT.get(vertical_id, "")
-
-    if vertical_ambient:
-        return f"{format_audio}, {vertical_ambient}"
-    return format_audio
-
-
-def _get_emotional_context(segment_name: str, scene_index: int, total_scenes: int) -> Dict:
-    """
-    Returns emotional energy level and story beat role for retention optimization.
-
-    Sora 2 Best Practice: Orchestrate emotional pacing to prevent retention drops.
-    Research shows viewers drop off at seconds 4-7 if energy plateaus.
-
-    Energy Levels:
-    - HIGH: Maximum impact, attention grab (hook scenes)
-    - BUILDING: Rising tension, curiosity build (problem/challenge scenes)
-    - PEAK: Maximum engagement, climax moment (key insight/solution)
-    - RELEASE: Satisfaction, resolution (solution delivery)
-    - CALL_ACTION: Invitation energy, direct address (CTA scenes)
-
-    Story Beats (Italian naming for script consistency):
-    - GRABBER: Stop-scroll hook, immediate attention
-    - TENSIONE: Problem/challenge presentation, build curiosity
-    - RIVELAZIONE: Key insight or surprising data point
-    - SOLUZIONE: Solution/answer delivery, value provision
-    - CTA: Call-to-action, direct invitation
-
-    Args:
-        segment_name: Segment type (hook, problem, solution, cta, content_X, etc.)
-        scene_index: Scene position (0-based)
-        total_scenes: Total number of content scenes
-
-    Returns:
-        Dict with energy_level (str), story_beat (str), pacing_note (str)
-
-    Example:
-        >>> ctx = _get_emotional_context("hook", 0, 4)
-        >>> ctx["energy_level"]
-        'HIGH'
-        >>> ctx["story_beat"]
-        'GRABBER'
-    """
-    # Energy progression mapping by segment type
-    SEGMENT_EMOTIONAL_MAP = {
-        "hook": {
-            "energy_level": "HIGH",
-            "story_beat": "GRABBER",
-            "pacing_note": "Maximum impact - stop scroll within 2 seconds"
-        },
-        "problem": {
-            "energy_level": "BUILDING",
-            "story_beat": "TENSIONE",
-            "pacing_note": "Rising curiosity - create empathy and investment"
-        },
-        "solution": {
-            "energy_level": "RELEASE",
-            "story_beat": "SOLUZIONE",
-            "pacing_note": "Satisfying payoff - deliver value and resolution"
-        },
-        "cta": {
-            "energy_level": "CALL_ACTION",
-            "story_beat": "CTA",
-            "pacing_note": "Inviting energy - direct friendly address"
-        },
-        "intro": {
-            "energy_level": "HIGH",
-            "story_beat": "GRABBER",
-            "pacing_note": "Establish presence - confident opening"
-        },
-        "outro": {
-            "energy_level": "CALL_ACTION",
-            "story_beat": "CTA",
-            "pacing_note": "Memorable close - invitation to engage"
-        }
-    }
-
-    # Handle generic content_X segments with position-based logic
-    if segment_name.startswith("content_"):
-        # Distribute energy across content scenes to prevent plateau
-        scene_position_ratio = scene_index / max(total_scenes - 1, 1)
-
-        if scene_position_ratio < 0.33:
-            # Early content: Build tension
-            return {
-                "energy_level": "BUILDING",
-                "story_beat": "TENSIONE",
-                "pacing_note": "Build curiosity - introduce complexity"
-            }
-        elif scene_position_ratio < 0.66:
-            # Mid content: Peak moment
-            return {
-                "energy_level": "PEAK",
-                "story_beat": "RIVELAZIONE",
-                "pacing_note": "Key insight - deliver surprising value"
-            }
-        else:
-            # Late content: Release to solution
-            return {
-                "energy_level": "RELEASE",
-                "story_beat": "SOLUZIONE",
-                "pacing_note": "Payoff delivery - satisfy curiosity"
-            }
-
-    # Look up segment in map, default to BUILDING if not found
-    emotional_context = SEGMENT_EMOTIONAL_MAP.get(
-        segment_name,
-        {
-            "energy_level": "BUILDING",
-            "story_beat": "TENSIONE",
-            "pacing_note": "Maintain engagement - progressive reveal"
-        }
-    )
-
-    return emotional_context
-
-
-def _build_7layer_cinematic_prompt(
-    scene_context: Dict,
-    cinematic_specs: Dict,
-    audio_design: str,
-    brand_identity: Dict,
-    ai_format: str,
-    segment_text: str,
-    emotional_context: Optional[Dict] = None
-) -> str:
-    """
-    Builds a 7-layer cinematic prompt structure following Sora 2 best practices.
-
-    Layers:
-    1. Scena e ambientazione
-    2. Soggetto e azione
-    3. Inquadratura e camera
-    4. Illuminazione e colori
-    5. Dettagli fisici e materiali
-    6. Audio e suoni
-    7. Esclusioni (negazioni)
-    8. BONUS: Energy level (retention optimization)
-
-    Args:
-        scene_context: Dict with topic, duration, segment_name
-        cinematic_specs: Dict with shot, lens, purpose, camera_movement, lighting
-        audio_design: Audio cues string
-        brand_identity: Dict with colors (primary, secondary, accent), format
-        ai_format: Visual format (animated_infographics, etc.)
-        segment_text: Scene voiceover text for content description
-        emotional_context: Optional dict with energy_level, story_beat, pacing_note
-
-    Returns:
-        Cinematic prompt string optimized for Sora 2/Veo
-    """
-    shot = cinematic_specs['shot']
-    lens = cinematic_specs['lens']
-    purpose = cinematic_specs['purpose']
-    camera_movement = cinematic_specs['camera_movement']
-    lighting = cinematic_specs['lighting']
-
-    colors = brand_identity['colors']
-    topic = scene_context['topic']
-
-    # Extract content preview from segment_text (first 50 chars or key phrase)
-    content_preview = segment_text[:50] + "..." if len(segment_text) > 50 else segment_text
-
-    # Build prompt following 7-layer structure
-    prompt_parts = []
-
-    # LAYER 1: SCENA E AMBIENTAZIONE
-    prompt_parts.append(f"{shot.capitalize()} shot")
-
-    # LAYER 2: SOGGETTO E AZIONE (format-specific + content-specific)
-    if ai_format == "animated_infographics":
-        prompt_parts.append(f"showing: {content_preview}. Animated data visualization")
-    elif ai_format == "kinetic_typography":
-        prompt_parts.append(f"with text: {content_preview}. Bold kinetic typography animation")
-    elif ai_format == "cinematic_broll":
-        prompt_parts.append(f"illustrating: {content_preview}. Professional b-roll footage")
-    elif ai_format == "code_visualization":
-        prompt_parts.append(f"demonstrating: {content_preview}. Code editor visualization")
-    elif ai_format == "whiteboard_animation":
-        prompt_parts.append(f"explaining: {content_preview}. Hand-drawn whiteboard animation")
-    else:
-        prompt_parts.append(f"about: {content_preview}")
-
-    # LAYER 3: INQUADRATURA E CAMERA
-    prompt_parts.append(f"{lens} lens, {camera_movement}, {purpose}")
-
-    # LAYER 4: ILLUMINAZIONE E COLORI
-    prompt_parts.append(
-        f"{lighting['primary']}, {lighting['direction']}, "
-        f"{colors['primary']} primary, {colors['secondary']} secondary, "
-        f"{colors['accent']} accents, {lighting['mood']} mood"
-    )
-
-    # LAYER 5: DETTAGLI FISICI
-    prompt_parts.append("smooth professional surfaces, crisp high-definition quality")
-
-    # LAYER 6: AUDIO E SUONI
-    prompt_parts.append(f"Audio: {audio_design}")
-
-    # LAYER 7: ESCLUSIONI
-    if "faceless" in brand_identity.get('mode', ''):
-        prompt_parts.append("NO PEOPLE VISIBLE")
-
-    # LAYER 8 (BONUS): ENERGY LEVEL (retention optimization)
-    if emotional_context:
-        energy_level = emotional_context['energy_level']
-        story_beat = emotional_context['story_beat']
-
-        # Map energy levels to visual descriptors
-        energy_descriptors = {
-            "HIGH": "maximum visual energy, bold dynamic movement",
-            "BUILDING": "rising tension, progressive reveal",
-            "PEAK": "climactic moment, striking visual impact",
-            "RELEASE": "satisfying resolution, smooth delivery",
-            "CALL_ACTION": "inviting energy, direct engagement"
-        }
-
-        energy_desc = energy_descriptors.get(energy_level, "engaging pacing")
-        prompt_parts.append(f"Energy: {energy_desc} ({story_beat} beat)")
-
-    # Add vertical format constraint
-    prompt_parts.append("Vertical 9:16 format optimized for mobile")
-
-    # Combine all layers
-    prompt = ". ".join(prompt_parts) + "."
-
-    return prompt
-
-
-def _generate_cinematic_scene_prompt(
-    segment_name: str,
-    segment_text: str,
-    plan: VideoPlan,
-    scene_index: int,
-    total_scenes: int,
-    series_format_name: str,
-    vertical_id: str,
-    ai_format: str,
-    brand_manual: Dict,
-    is_faceless: bool = True
-) -> str:
-    """
-    Generates a cinematic scene prompt integrating all Sora 2 best practices.
-
-    This is the master function that orchestrates:
-    - Shot type progression (wide/medium/close variety)
-    - Camera movement choreography
-    - Lighting design per vertical
-    - Audio cues generation
-    - 7-layer prompt structure
-    - Content-specific descriptions
-
-    Args:
-        segment_name: Segment type (hook, intro, content_X, outro)
-        segment_text: Scene voiceover text
-        plan: Video plan for context
-        scene_index: Scene position (0-based)
-        total_scenes: Total number of scenes
-        series_format_name: Format name (tutorial, how_to, news_flash)
-        vertical_id: Content vertical (finance, tech_ai, etc.)
-        ai_format: Visual format (animated_infographics, etc.)
-        brand_manual: Brand identity with color palette
-        is_faceless: Whether video is faceless (no people)
-
-    Returns:
-        Cinematic Veo/Sora prompt string
-    """
-    # Step 1: Select shot type based on progression
-    shot_specs = _select_shot_type(scene_index, series_format_name)
-
-    # Step 2: Select camera movement
-    camera_movement = _select_camera_movement(segment_name)
-
-    # Step 3: Get lighting design for vertical
-    lighting = _get_lighting_design(vertical_id)
-
-    # Step 4: Generate audio cues
-    audio_cues = _generate_audio_cues(segment_name, ai_format, vertical_id)
-
-    # Step 5: Extract brand colors
-    palette = brand_manual.get('color_palette', {}) if brand_manual else {}
-    colors = {
-        'primary': palette.get('primary', '#1976D2'),
-        'secondary': palette.get('secondary', '#4CAF50'),
-        'accent': palette.get('accent', '#FFC107'),
-        'background': palette.get('background', '#263238')
-    }
-
-    # Step 6: Build cinematic specs bundle
-    cinematic_specs = {
-        'shot': shot_specs['shot'],
-        'lens': shot_specs['lens'],
-        'purpose': shot_specs['purpose'],
-        'camera_movement': camera_movement,
-        'lighting': lighting
-    }
-
-    scene_context = {
-        'topic': plan.working_title,
-        'duration': 0,  # Will be calculated later
-        'segment_name': segment_name
-    }
-
-    brand_identity = {
-        'colors': colors,
-        'format': ai_format,
-        'mode': 'faceless' if is_faceless else 'character'
-    }
-
-    # Step 7: Build 7-layer cinematic prompt
-    prompt = _build_7layer_cinematic_prompt(
-        scene_context=scene_context,
-        cinematic_specs=cinematic_specs,
-        audio_design=audio_cues,
-        brand_identity=brand_identity,
-        ai_format=ai_format,
-        segment_text=segment_text
-    )
-
-    logger.debug(
-        f"  Generated cinematic prompt for scene {scene_index + 1}: "
-        f"{shot_specs['shot']} shot, {camera_movement}, {ai_format}"
-    )
-
-    return prompt
-
-
-def _optimize_hook_scene(
-    hook_text: str,
-    plan: VideoPlan,
-    ai_format: str,
-    brand_colors: Dict,
-    vertical_id: str
-) -> str:
-    """
-    Optimizes the first scene as a visual HOOK for maximum impact.
-
-    Sora 2 Best Practice: First 2-3 seconds are crucial for retention.
-    Create stunning, attention-grabbing opening that stops scrolling.
-
-    Args:
-        hook_text: Hook voiceover text
-        plan: Video plan
-        ai_format: Visual format
-        brand_colors: Color palette
-        vertical_id: Content vertical
-
-    Returns:
-        Hook-optimized cinematic prompt
-    """
-    # Hook strategies per format
-    HOOK_STRATEGIES = {
-        "animated_infographics": "Bold data reveal with dramatic chart rise",
-        "kinetic_typography": "Text burst onto screen with high impact",
-        "cinematic_broll": "Stunning visual establishing shot",
-        "code_visualization": "Terminal boot sequence with dramatic reveal",
-        "whiteboard_animation": "Hand draws attention-grabbing element"
-    }
-
-    hook_strategy = HOOK_STRATEGIES.get(ai_format, "Dynamic opening with visual energy")
-
-    # Get lighting for dramatic effect
-    lighting = _get_lighting_design(vertical_id)
-
-    # Build hook-optimized prompt
-    prompt = (
-        f"HOOK SCENE - Maximum Impact Opening. "
-        f"MEDIUM SHOT with SLOW PUSH IN for engagement. "
-        f"{hook_strategy}. "
-        f"Content: \"{hook_text[:40]}...\". "
-        f"High visual energy with {brand_colors['accent']} accent pops. "
-        f"{lighting['primary']}, {lighting['accents']}. "
-        f"Immediate visual interest - show most compelling element FIRST. "
-        f"Purpose: Stop scroll, capture attention within first 2 seconds. "
-        f"Vertical 9:16 format."
-    )
-
-    logger.info(f"  🎯 Hook scene optimized for maximum impact retention")
-
-    return prompt
+# Phase B1: Cinematography functions extracted to cinematographer.py
+# Use get_cinematic_specs() from cinematographer for all cinematography needs
 
 
 def _generate_ai_enhanced_scene_prompt(
@@ -908,16 +333,32 @@ def _generate_ai_enhanced_scene_prompt(
     Returns:
         Dict with 'prompt' (str) and 'composition' (dict for next scene)
     """
-    # Step 1: Gather all cinematic specs (for context and fallback)
-    shot_specs = _select_shot_type(scene_index, series_format_name)
-    camera_movement = _select_camera_movement(segment_name)
-    lighting = _get_lighting_design(vertical_id)
-    audio_cues = _generate_audio_cues(segment_name, ai_format, vertical_id)
+    # Phase B1: Use cinematographer for all cinematic specifications
+    cinematic_specs = get_cinematic_specs(
+        scene_index=scene_index,
+        segment_name=segment_name,
+        series_format_name=series_format_name,
+        vertical_id=vertical_id,
+        ai_format=ai_format,
+        total_scenes=total_scenes
+    )
 
-    # Step 1b: Get emotional context for retention optimization
-    # Task 1.3.b: Use emotional_beat from Narrative Architect if available
-    # This preserves the carefully designed emotional pacing from narrative design
-    emotional_context = _get_emotional_context(segment_name, scene_index, total_scenes)
+    # Extract individual elements from cinematographer result
+    shot_specs = {
+        'shot': cinematic_specs['shot_type'],
+        'lens': cinematic_specs['lens'],
+        'purpose': cinematic_specs['purpose']
+    }
+    camera_movement = cinematic_specs['camera_movement']
+    lighting = cinematic_specs['lighting']
+    audio_cues = cinematic_specs['audio_cues']
+
+    # Build emotional context from cinematographer result
+    emotional_context = {
+        'energy_level': cinematic_specs['energy_level'],
+        'story_beat': cinematic_specs['story_beat'],
+        'pacing_note': cinematic_specs['pacing_note']
+    }
 
     # Step 2: Extract brand colors
     palette = brand_manual.get('color_palette', {}) if brand_manual else {}
@@ -1055,7 +496,56 @@ Generate a 300-500 character Sora 2/Veo prompt that synthesizes all 7 layers int
 Be specific, concrete, and visual. The prompt should be ready to use directly with Sora/Veo API.
 Focus on describing what will be SEEN and HEARD in this specific scene.
 
-OUTPUT FORMAT: Direct prompt text only, no explanations."""
+ADDITIONALLY (Phase B1 - AI-Driven Post-Production Planning):
+Analyze the voiceover content and plan:
+
+**TEXT OVERLAYS** (Best Practice: Overlays enhance mobile viewing and retention):
+- Identify numbers, stats, percentages that deserve visual emphasis
+- Identify key points to display as text (for mobile/no-audio viewing)
+- If this is a CTA scene, suggest visual call-to-action overlay
+- For each overlay specify: text, timing_start (seconds from scene start), timing_duration (seconds), position (top_center/center/bottom_center/etc), style (bold/subtle/animated), purpose (stat/key_point/cta/subtitle)
+
+**B-ROLL INSERTIONS** (Best Practice: B-roll adds variety and supports message):
+- Identify moments where B-roll would enhance engagement or provide visual proof
+- Suggest B-roll for: data visualization (charts/graphs), product demos, visual evidence, engagement breaks in long scenes
+- For each B-roll specify: timing_start (seconds), timing_duration (seconds), description (what B-roll to show), source_type (stock/graphic/screen_recording/animation), purpose (data_viz/engagement_break/visual_proof)
+
+RULES FOR AI PLANNING:
+- If voiceover has numbers/stats → suggest overlay to emphasize them
+- If scene is >8 seconds → consider B-roll for variety
+- If scene describes data/trends → suggest chart/graph B-roll
+- If scene is demo/tutorial → suggest screen recording B-roll
+- If scene is hook → use animated overlays for maximum impact
+- If scene is CTA (outro) → suggest visual call-to-action overlay
+- For mobile viewing: prioritize subtitles/overlays for key points
+- NO overlays if scene is too short (<3 seconds)
+- Be selective: quality over quantity
+
+EXAMPLE (for reference):
+Voiceover: "Bitcoin ha raggiunto $67,000 questa settimana, +15% in 7 giorni."
+Scene duration: 6 seconds
+
+text_overlays: [
+  {{"text": "$67,000", "timing_start": 1, "timing_duration": 2, "position": "top_center", "style": "bold", "purpose": "stat"}},
+  {{"text": "+15% 📈", "timing_start": 3, "timing_duration": 2, "position": "center", "style": "animated", "purpose": "stat"}}
+]
+
+broll_notes: [
+  {{"timing_start": 2, "timing_duration": 4, "description": "Animated chart showing Bitcoin price rising from $58k to $67k over 7 days with green upward trend line", "source_type": "graphic", "purpose": "data_viz"}}
+]
+
+OUTPUT FORMAT (JSON):
+{{
+  "veo_prompt": "<your 300-500 char cinematic prompt>",
+  "text_overlays": [
+    {{"text": "<text>", "timing_start": <int>, "timing_duration": <int>, "position": "<position>", "style": "<style>", "purpose": "<purpose>"}}
+  ],
+  "broll_notes": [
+    {{"timing_start": <int>, "timing_duration": <int>, "description": "<description>", "source_type": "<type>", "purpose": "<purpose>"}}
+  ]
+}}
+
+⚠️ CRITICAL: Respond with VALID JSON ONLY. No explanations before or after."""
 
     # Step 4: Call LLM with error handling
     try:
@@ -1067,12 +557,64 @@ OUTPUT FORMAT: Direct prompt text only, no explanations."""
             role="cinematographer",
             task=llm_prompt,
             context="",  # Context is in task
-            style_hints={"temperature": 0.7}  # Creative but not too random
+            style_hints={"temperature": 0.7, "response_format": "json"}  # Request JSON
         )
 
-        prompt = response.strip()
+        # Parse JSON response (Phase B1: Extract prompt + overlays + B-roll)
+        import json
+        import re
 
-        logger.info(f"  ✓ AI-enhanced prompt generated for scene {scene_index + 1} ({len(prompt)} chars)")
+        # Clean response (remove markdown code blocks if present)
+        response_clean = response.strip()
+        if response_clean.startswith('```'):
+            response_clean = re.sub(r'^```(?:json)?\s*\n', '', response_clean)
+            response_clean = re.sub(r'\n```\s*$', '', response_clean)
+
+        try:
+            llm_result = json.loads(response_clean)
+            prompt = llm_result.get('veo_prompt', response_clean)  # Fallback to full response if no veo_prompt
+
+            # Parse text overlays (AI-generated)
+            text_overlays = []
+            if 'text_overlays' in llm_result and isinstance(llm_result['text_overlays'], list):
+                from yt_autopilot.core.schemas import TextOverlay
+                for overlay_data in llm_result['text_overlays']:
+                    try:
+                        text_overlays.append(TextOverlay(
+                            text=overlay_data['text'],
+                            timing_start=overlay_data['timing_start'],
+                            timing_duration=overlay_data['timing_duration'],
+                            position=overlay_data['position'],
+                            style=overlay_data['style'],
+                            purpose=overlay_data['purpose']
+                        ))
+                    except Exception as e:
+                        logger.debug(f"    Skipping invalid overlay: {e}")
+
+            # Parse B-roll notes (AI-generated)
+            broll_notes = []
+            if 'broll_notes' in llm_result and isinstance(llm_result['broll_notes'], list):
+                from yt_autopilot.core.schemas import BRollNote
+                for broll_data in llm_result['broll_notes']:
+                    try:
+                        broll_notes.append(BRollNote(
+                            timing_start=broll_data['timing_start'],
+                            timing_duration=broll_data['timing_duration'],
+                            description=broll_data['description'],
+                            source_type=broll_data['source_type'],
+                            purpose=broll_data['purpose']
+                        ))
+                    except Exception as e:
+                        logger.debug(f"    Skipping invalid B-roll note: {e}")
+
+            logger.info(f"  ✓ AI-enhanced prompt generated for scene {scene_index + 1} ({len(prompt)} chars)")
+            logger.info(f"    AI planned: {len(text_overlays)} text overlays, {len(broll_notes)} B-roll insertions")
+
+        except json.JSONDecodeError as e:
+            logger.warning(f"  ⚠️ Could not parse JSON from LLM (using response as prompt): {e}")
+            prompt = response_clean
+            text_overlays = []
+            broll_notes = []
 
         # Build composition info for next scene's spatial continuity
         current_composition = {
@@ -1083,42 +625,35 @@ OUTPUT FORMAT: Direct prompt text only, no explanations."""
 
         return {
             'prompt': prompt,
-            'composition': current_composition
+            'composition': current_composition,
+            'text_overlays': text_overlays,  # Phase B1: AI-planned overlays
+            'broll_notes': broll_notes  # Phase B1: AI-planned B-roll
         }
 
     except Exception as e:
         logger.warning(f"  ⚠️ AI prompt generation failed for scene {scene_index + 1}: {e}")
         logger.info(f"  → Falling back to deterministic prompt generation")
 
-        # Step 5: Fallback to deterministic system
-        scene_context = {
-            'topic': plan.working_title,
-            'duration': 0,
-            'segment_name': segment_name
-        }
+        # Phase B1: Log fallback for overlay/B-roll planning failure
+        from yt_autopilot.core.logger import log_fallback
+        log_fallback(
+            component="VISUAL_PLANNER",
+            fallback_type="DETERMINISTIC_PROMPT_NO_OVERLAYS",
+            reason=f"LLM failed to generate prompt with overlays/B-roll: {e}",
+            impact="MEDIUM"
+        )
 
-        cinematic_specs = {
-            'shot': shot_specs['shot'],
-            'lens': shot_specs['lens'],
-            'purpose': shot_specs['purpose'],
-            'camera_movement': camera_movement,
-            'lighting': lighting
-        }
+        # Step 5: Fallback to deterministic system using cinematographer's cinematic prompt
+        # Phase B1: Cinematographer already built the prompt, we can use it directly
+        from yt_autopilot.agents.cinematographer import build_cinematic_prompt
 
-        brand_identity = {
-            'colors': colors,
-            'format': ai_format,
-            'mode': video_style_mode
-        }
-
-        fallback_prompt = _build_7layer_cinematic_prompt(
-            scene_context=scene_context,
+        fallback_prompt = build_cinematic_prompt(
             cinematic_specs=cinematic_specs,
-            audio_design=audio_cues,
-            brand_identity=brand_identity,
+            brand_colors=colors,
             ai_format=ai_format,
             segment_text=segment_text,
-            emotional_context=emotional_context  # Pass emotional context to fallback
+            video_style_mode=video_style_mode,
+            topic=plan.working_title
         )
 
         # Build composition info for next scene (same as success path)
@@ -1128,9 +663,12 @@ OUTPUT FORMAT: Direct prompt text only, no explanations."""
             'spatial_anchor': f"{lighting['mood']} lit {ai_format} space with {colors['primary']} tones"
         }
 
+        # Phase B1: Return empty arrays for overlays/B-roll (no AI planning available)
         return {
             'prompt': fallback_prompt,
-            'composition': current_composition
+            'composition': current_composition,
+            'text_overlays': [],  # Empty - fallback has no overlay planning
+            'broll_notes': []  # Empty - fallback has no B-roll planning
         }
 
 
@@ -1746,7 +1284,9 @@ def generate_visual_plan(
                 prompt_for_ai_tool=veo_prompt,
                 est_duration_seconds=total_duration,
                 voiceover_text=full_narrative,
-                segment_type="full_narrative"
+                segment_type="full_narrative",
+                text_overlays=result.get('text_overlays', []),  # Phase B1: AI-planned overlays
+                broll_notes=result.get('broll_notes', [])  # Phase B1: AI-planned B-roll
             )
             scenes.append(single_scene)
 
@@ -1843,12 +1383,15 @@ def generate_visual_plan(
 
                 # Create VisualScene with embedded voiceover text (Step 07.3)
                 # and segment_type (Step 07.5)
+                # Phase B1: Include AI-planned overlays and B-roll from result
                 scene = VisualScene(
                     scene_id=scene_vo.scene_id,
                     prompt_for_ai_tool=veo_prompt,
                     est_duration_seconds=scene_vo.est_duration_seconds,
                     voiceover_text=scene_vo.voiceover_text,  # Sync with script!
-                    segment_type=segment_name  # Step 07.5: Tag with segment type
+                    segment_type=segment_name,  # Step 07.5: Tag with segment type
+                    text_overlays=result.get('text_overlays', []),  # Phase B1: AI-planned overlays
+                    broll_notes=result.get('broll_notes', [])  # Phase B1: AI-planned B-roll
                 )
 
                 scenes.append(scene)
