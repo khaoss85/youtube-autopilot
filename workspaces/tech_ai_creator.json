@@ -11,7 +11,10 @@
     "promesse di cure mediche garantite",
     "uso di musica protetta da copyright"
   ],
-  "recent_titles": [],
+  "recent_titles": [
+    "How I Built a $1.2k MRR Business in 30 Days Without Spending on Ads",
+    "Build a Micro-SaaS in 30 Days: Cursor Pro + Claude Code vs V0 + ChatGPT?"
+  ],
   "narrator_persona": {
     "enabled": true,
     "name": "Tech Insider",
@@ -34,10 +37,25 @@
     "voice_model": "onyx",
     "speed": 1.1
   },
+  "subscriber_persona": {
+    "why_subscribed": "Actionable tech insights and AI implementation strategies from a real engineer",
+    "content_expectations": {
+      "depth": "medium-high",
+      "unique_angle": "required",
+      "actionability": "high",
+      "technical_accuracy": "required"
+    },
+    "tone_expectation": "Direct, energetic, educational but practical",
+    "value_proposition": "Learn cutting-edge tech and AI tools with real-world implementation examples",
+    "avoid_patterns": [
+      "Generic tech news without unique perspective",
+      "Overly theoretical content without practical application",
+      "Clickbait without substance"
+    ]
+  },
   "content_formula": {
     "hook_pattern": "urgent_fact",
     "cta_style": "soft_ask",
-    "target_duration_seconds": 60,
     "pacing": "fast"
   },
   "visual_brand_manual": {
@@ -110,5 +128,36 @@
         "code_visualization"
       ]
     }
+  },
+  "_ai_authority_notice": {
+    "version": "2.0",
+    "note": "Format, duration, bullets count are decided by AI agents. Config contains only strategic brand parameters.",
+    "ai_agents": [
+      "Editorial Strategist",
+      "Duration Strategist + Format Reconciler",
+      "Format Validator (derived from duration)",
+      "Content Depth Strategist",
+      "CTA Strategist",
+      "Editorial Strategist",
+      "Format Validator + Duration Strategist"
+    ],
+    "decisions": {
+      "format": "Editorial Strategist",
+      "duration": "Duration Strategist + Format Reconciler",
+      "aspect_ratio": "Format Validator (derived from duration)",
+      "bullets_count": "Content Depth Strategist",
+      "cta_type": "CTA Strategist",
+      "serie_concept": "Editorial Strategist",
+      "video_style_mode": "Format Validator + Duration Strategist"
+    }
+  },
+  "_migration_hints": {
+    "duration_preference_range": {
+      "min": 30,
+      "max": 120,
+      "legacy_value": 60,
+      "note": "AI should decide optimal within this flexible range"
+    },
+    "notice": "These are HINTS from legacy config, not constraints. AI can override."
   }
 }

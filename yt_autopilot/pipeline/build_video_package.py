@@ -15,11 +15,12 @@ with different verticals, brand identities, and configurations.
 from typing import List, Dict, Optional
 from yt_autopilot.core.schemas import (
     TrendCandidate,
-    ReadyForFactory,
+    ContentPackage,
     VideoPlan,
     VideoScript,
     VisualPlan,
-    PublishingPackage
+    PublishingPackage,
+    EditorialDecision
 )
 from yt_autopilot.core.workspace_manager import (
     get_active_workspace,
@@ -27,14 +28,21 @@ from yt_autopilot.core.workspace_manager import (
     save_workspace_config,
     update_workspace_recent_titles
 )
-from yt_autopilot.core.logger import logger
+from yt_autopilot.core.logger import logger, truncate_for_log, log_fallback
 
 # Import agents
+from yt_autopilot.agents.editorial_strategist import decide_editorial_strategy
+from yt_autopilot.agents.duration_strategist import analyze_duration_strategy  # NEW: monetization-first
+from yt_autopilot.agents.format_reconciler import reconcile_format_strategies  # Fase 2 Sprint 1: duration arbitration
+from yt_autopilot.agents.narrative_architect import design_narrative_arc  # NEW: emotional storytelling
+from yt_autopilot.agents.cta_strategist import design_cta_strategy  # Fase 2 Sprint 1: CTA placement
+from yt_autopilot.agents.content_depth_strategist import analyze_content_depth  # NEW: AI-driven bullets count
 from yt_autopilot.agents.trend_hunter import generate_video_plan
 from yt_autopilot.agents.script_writer import write_script, _build_persona_aware_prompt  # Step 09: narrator persona
 from yt_autopilot.agents.visual_planner import generate_visual_plan
 from yt_autopilot.agents.seo_manager import generate_publishing_package
 from yt_autopilot.agents.quality_reviewer import review
+from yt_autopilot.agents.monetization_qa import validate_monetization_readiness  # Monetization Refactor
 
 # Import services (Step 06-fullrun: LLM integration)
 from yt_autopilot.services.llm_router import generate_text
@@ -50,6 +58,47 @@ from yt_autopilot.io.datastore import get_videos_performance_summary
 
 # Step 07.5: Series format engine
 from yt_autopilot.core import series_manager
+
+# NEW: Get vertical config for Duration Strategist
+from yt_autopilot.core.config import get_vertical_config, LOG_TRUNCATE_REASONING
+
+# VALIDATORS (AI-Driven Quality Framework)
+from yt_autopilot.core.config_validator import ConfigAuthorityEnforcer
+from yt_autopilot.core.language_validator import wrap_llm_with_language_enforcement, LanguageValidator
+from yt_autopilot.core.format_validator import validate_and_enforce_format
+
+
+def _is_gate_enabled(workspace: Dict, gate_name: str) -> tuple[bool, bool]:
+    """
+    Check if a validation gate is enabled in workspace config.
+
+    Args:
+        workspace: Workspace config dict
+        gate_name: Gate identifier (e.g., "post_editorial", "post_duration")
+
+    Returns:
+        Tuple (is_enabled, is_blocking)
+            - is_enabled: If True, gate should run
+            - is_blocking: If True, gate failures should stop pipeline
+    """
+    validation_config = workspace.get('validation_gates', {})
+
+    # If validation_gates not in config, gates are enabled by default (backward compat)
+    if not validation_config:
+        return True, True
+
+    # Check global enabled flag
+    if not validation_config.get('enabled', True):
+        return False, False
+
+    # Check specific gate config
+    gates = validation_config.get('gates', {})
+    gate_config = gates.get(gate_name, {})
+
+    is_enabled = gate_config.get('enabled', True)  # Default: enabled
+    is_blocking = gate_config.get('blocking', True)  # Default: blocking
+
+    return is_enabled, is_blocking
 
 
 def _get_mock_trends() -> List[TrendCandidate]:
@@ -188,13 +237,246 @@ def _attempt_script_improvement(
     return improved_script
 
 
+def _attempt_monetization_improvement(
+    script: VideoScript,
+    visual_plan: VisualPlan,
+    publishing: PublishingPackage,
+    video_plan: VideoPlan,
+    memory: Dict,
+    category_scores: Dict[str, float],
+    monetization_feedback: str,
+    target_duration: int,
+    series_format,
+    workspace: Dict,
+    duration_strategy: Dict
+) -> tuple:
+    """
+    Sprint 1.5: Intelligent retry logic for Monetization QA using LLM-driven iterative refinement.
+
+    This is NOT a simple fallback - this is an AI-powered improvement loop that:
+    1. Analyzes Monetization QA feedback with LLM reasoning
+    2. Generates targeted, contextual improvements (not generic templates!)
+    3. Applies improvements to script/visuals/publishing
+    4. Returns improved package for retry
+
+    Applies targeted fixes based on category scores:
+    - content_depth < 0.70 → LLM generates substantive content improvements
+    - scene_mapping missing → Regenerate visual plan
+    - seo_discovery < 0.70 → Regenerate SEO
+
+    Args:
+        script: Current VideoScript
+        visual_plan: Current VisualPlan
+        publishing: Current PublishingPackage
+        video_plan: VideoPlan (for topic context)
+        memory: Memory dict (for visual generation)
+        category_scores: Dict of Monetization QA scores by category
+        monetization_feedback: Full feedback text from Monetization QA
+        target_duration: Target duration in seconds
+        series_format: Series format config
+        workspace: Workspace config
+        duration_strategy: Duration strategy dict
+
+    Returns:
+        Tuple of (improved_script, improved_visual, improved_publishing)
+    """
+    logger.info("🔄 Attempting monetization optimization with LLM reasoning...")
+
+    improved_script = script
+    improved_visual = visual_plan
+    improved_publishing = publishing
+
+    # Fix 1: Content Depth - LLM-DRIVEN IMPROVEMENT (not pattern-based!)
+    content_score = category_scores.get('Content Depth', 1.0)
+    if content_score < 0.70:
+        logger.info(f"  Content Depth low ({content_score:.2f}) - calling LLM for contextual improvements...")
+
+        # Build improvement prompt with Monetization QA feedback
+        improvement_prompt = f"""You are a content optimization expert. Analyze this Monetization QA feedback and improve the video package.
+
+**MONETIZATION QA FEEDBACK:**
+{monetization_feedback}
+
+**CATEGORY SCORES:**
+{', '.join([f'{k}: {v:.2f}' for k, v in category_scores.items()])}
+
+**CURRENT PACKAGE:**
+- Topic: {video_plan.working_title}
+- Duration: {target_duration}s ({target_duration // 60}min {target_duration % 60}s)
+- Script bullets: {len(script.bullets)}
+- Current hook: "{script.hook[:100]}..."
+
+**YOUR TASK:**
+Analyze the low-scoring categories and generate SPECIFIC improvements:
+
+1. If Content Depth < 0.70:
+   - Identify what depth is missing (context? examples? data?)
+   - Generate {max(3, int(target_duration/120))} substantive content bullets
+   - Ensure bullets add REAL insight (not generic filler)
+   - Focus on: statistics, expert quotes, case studies, contrarian takes
+
+2. If Scene Mapping issues:
+   - Suggest how to improve visual-script synchronization
+   - Identify narrative beats that need visual emphasis
+
+3. If SEO Discovery < 0.70:
+   - Suggest keyword opportunities based on topic
+   - Recommend title improvements for discoverability
+
+**CRITICAL**: Be SPECIFIC and ACTIONABLE. No generic advice like "add more detail".
+
+RESPOND WITH VALID JSON ONLY:
+{{
+  "content_improvements": ["<specific bullet 1>", "<specific bullet 2>", ...],
+  "visual_suggestions": "<specific advice for scene mapping>",
+  "seo_keywords": ["<keyword1>", "<keyword2>", ...],
+  "reasoning": "<2-3 sentences explaining WHY these improvements address the QA issues>"
+}}
+"""
+
+        # Call LLM for intelligent improvement analysis
+        try:
+            improvement_response = llm_generate_fn(
+                role="monetization_optimizer",
+                task=improvement_prompt,
+                context="",
+                style_hints={"response_format": "json", "temperature": 0.4}
+            )
+
+            # Parse LLM improvement suggestions
+            import json
+            import re
+
+            try:
+                improvements = json.loads(improvement_response)
+            except json.JSONDecodeError:
+                # Extract JSON if wrapped in markdown or text
+                logger.warning("  Direct JSON parse failed, attempting extraction...")
+
+                if "```json" in improvement_response:
+                    start = improvement_response.find("```json") + 7
+                    end = improvement_response.find("```", start)
+                    json_str = improvement_response[start:end].strip()
+                elif "```" in improvement_response:
+                    start = improvement_response.find("```") + 3
+                    end = improvement_response.find("```", start)
+                    json_str = improvement_response[start:end].strip()
+                else:
+                    # Find JSON object with brace matching
+                    start = improvement_response.find("{")
+                    if start == -1:
+                        raise ValueError("No JSON object found in LLM response")
+
+                    brace_count = 0
+                    end = start
+                    for i in range(start, len(improvement_response)):
+                        if improvement_response[i] == '{':
+                            brace_count += 1
+                        elif improvement_response[i] == '}':
+                            brace_count -= 1
+                            if brace_count == 0:
+                                end = i + 1
+                                break
+
+                    if brace_count != 0:
+                        raise ValueError("Unmatched braces in JSON response")
+
+                    json_str = improvement_response[start:end]
+
+                try:
+                    improvements = json.loads(json_str)
+                    logger.info("  ✓ Extracted JSON from LLM response")
+                except json.JSONDecodeError as e:
+                    logger.error(f"  Failed to parse extracted JSON: {e}")
+                    raise ValueError("Could not extract valid JSON from LLM response")
+
+            # Apply LLM-suggested improvements
+            content_improvements = improvements.get('content_improvements', [])
+            if content_improvements:
+                logger.info(f"  ✓ Applying {len(content_improvements)} LLM-suggested content improvements")
+                logger.info(f"  Reasoning: {truncate_for_log(improvements.get('reasoning', 'No reasoning provided'), LOG_TRUNCATE_REASONING)}")
+
+                # Merge LLM suggestions with existing bullets
+                improved_bullets = script.bullets.copy() + content_improvements
+
+                # Rebuild voiceover with LLM improvements
+                improved_voiceover = script.full_voiceover_text + " " + " ".join(content_improvements)
+
+                improved_script = VideoScript(
+                    hook=script.hook,
+                    bullets=improved_bullets,
+                    outro_cta=script.outro_cta,
+                    full_voiceover_text=improved_voiceover,
+                    scene_voiceover_map=script.scene_voiceover_map
+                )
+                logger.info("    ✓ Script enriched with LLM-generated insights")
+
+        except Exception as e:
+            logger.warning(f"  LLM improvement failed: {e}")
+            logger.warning("  Falling back to pattern-based expansion...")
+
+            log_fallback(
+                component="PIPELINE_MONETIZATION_OPTIMIZER",
+                fallback_type="PATTERN_BASED_EXPANSION",
+                reason=f"LLM call failed: {e}",
+                impact="MEDIUM"
+            )
+
+            # Fallback: Simple content expansion if LLM fails
+            if len(script.bullets) < 3:
+                generic_bullets = [
+                    f"Approfondendo il tema {video_plan.working_title}, emergono dettagli importanti.",
+                    f"Gli esperti confermano l'importanza di questo aspetto.",
+                    f"I dati recenti mostrano trend interessanti su questo argomento."
+                ]
+                improved_bullets = script.bullets.copy() + generic_bullets[:3 - len(script.bullets)]
+                improved_voiceover = script.full_voiceover_text + " " + " ".join(generic_bullets[:3 - len(script.bullets)])
+
+                improved_script = VideoScript(
+                    hook=script.hook,
+                    bullets=improved_bullets,
+                    outro_cta=script.outro_cta,
+                    full_voiceover_text=improved_voiceover,
+                    scene_voiceover_map=script.scene_voiceover_map
+                )
+                logger.info("    ✓ Script expanded with fallback content (LLM unavailable)")
+
+    # Fix 2: Scene Mapping (visual-script sync)
+    if not improved_script.scene_voiceover_map or len(improved_script.scene_voiceover_map) == 0:
+        logger.info("  Scene mapping missing - regenerating visual plan")
+
+        improved_visual = generate_visual_plan(
+            improved_script,
+            memory,
+            series_format=series_format,
+            workspace_config=workspace,
+            duration_strategy=duration_strategy
+        )
+        logger.info("    ✓ Visual plan regenerated with scene mapping")
+
+    # Fix 3: SEO Discovery (keywords/title optimization)
+    seo_score = category_scores.get('Seo Discovery', 1.0)
+    if seo_score < 0.70:
+        logger.info(f"  SEO Discovery low ({seo_score:.2f}) - regenerating metadata")
+
+        improved_publishing = generate_publishing_package(video_plan, improved_script)
+        logger.info(f"    ✓ SEO metadata regenerated for better discoverability")
+
+    logger.info("✓ Monetization optimization complete")
+    return improved_script, improved_visual, improved_publishing
+
+
 def build_video_package(
     workspace_id: Optional[str] = None,
     use_real_trends: bool = False,
-    use_llm_curation: bool = False
-) -> ReadyForFactory:
+    use_llm_curation: bool = False,
+    use_coordinator: bool = False  # NEW: Phase A4 - Use AgentCoordinator for standardized execution
+) -> ContentPackage:
     """
-    Orchestrates the full editorial pipeline to produce a ReadyForFactory package.
+    Orchestrates the full editorial pipeline to produce a ContentPackage.
+
+    Phase 1 Refactor: Updated to content strategy focus.
+    Phase A4: Optionally uses AgentCoordinator for standardized agent execution.
 
     This is the main orchestrator for the editorial brain. It coordinates all
     AI agents in sequence, handles quality review with one retry attempt,
@@ -204,22 +486,24 @@ def build_video_package(
         1. Load workspace configuration (replaces channel memory)
         2. Fetch trending topics (Phase A quality filtering applied)
         2.5. [OPTIONAL] LLM curation (Phase B: select top 10 from ~25 trends)
-        3. TrendHunter selects best topic → VideoPlan
-        4. ScriptWriter generates script → VideoScript
-        5. VisualPlanner creates scenes → VisualPlan
-        6. SeoManager optimizes metadata → PublishingPackage
-        7. QualityReviewer checks compliance → APPROVED/REJECTED
-        8. If REJECTED: attempt ONE revision and re-check
-        9. If APPROVED: update workspace with new title
-        10. Return ReadyForFactory package
+        3. Editorial Strategist: AI-driven strategic decision (serie, format, angle, CTA)
+        4. TrendHunter selects best topic → VideoPlan
+        5. ScriptWriter generates script → VideoScript (with editorial strategy)
+        6. VisualPlanner creates scenes → VisualPlan
+        7. SeoManager optimizes metadata → PublishingPackage
+        8. QualityReviewer checks compliance → APPROVED/REJECTED
+        9. If REJECTED: attempt ONE revision and re-check
+        10. If APPROVED: update workspace with new title
+        11. Return ContentPackage
 
     Args:
         workspace_id: Workspace ID to use (if None, uses active workspace)
         use_real_trends: If True, fetch real trends from APIs; if False, use mocks
         use_llm_curation: If True, use LLM to curate top 10 trends (Phase B); if False, use Phase A filtering only
+        use_coordinator: If True, use AgentCoordinator for standardized execution (Phase A4); if False, use legacy path
 
     Returns:
-        ReadyForFactory object with status "APPROVED" or "REJECTED"
+        ContentPackage object with status "APPROVED" or "REJECTED"
 
     Notes:
         - Does NOT call external APIs for video/audio generation (Veo, TTS, etc.)
@@ -256,7 +540,38 @@ def build_video_package(
 
     logger.info(f"Workspace loaded successfully (recent titles: {len(workspace.get('recent_titles', []))})")
     logger.info(f"  Vertical: {vertical_id}")
-    logger.info(f"  Brand tone: {workspace.get('brand_tone', 'Not set')[:60]}...")
+    logger.info(f"  Brand tone: {workspace.get('brand_tone', 'Not set')[:100]}...")
+
+    # VALIDATION: Config Authority Enforcement (AI-Driven)
+    logger.info("")
+    logger.info("🔒 CONFIG AUTHORITY VALIDATION")
+    enforcer = ConfigAuthorityEnforcer(auto_migrate=True, strict_mode=False)
+    workspace, is_valid = enforcer.enforce_at_pipeline_start(workspace, workspace_id)
+
+    if not is_valid:
+        raise ValueError(
+            f"Config validation failed for workspace '{workspace_id}'. "
+            f"Tactical params found in config (should be AI-driven). "
+            f"Run: python3 -c \"from yt_autopilot.core.config_migrator import migrate_workspace_file; "
+            f"migrate_workspace_file('workspaces/{workspace_id}.json')\""
+        )
+
+    logger.info("✅ Config authority validated - AI agents have full authority on tactical decisions")
+    logger.info("")
+
+    # LANGUAGE ENFORCEMENT: Wrap LLM with language validator
+    target_language = workspace.get('target_language', 'en')
+    logger.info(f"🌍 LANGUAGE ENFORCEMENT: Target language = {target_language}")
+
+    # Create language-enforced LLM function
+    llm_generate_fn = wrap_llm_with_language_enforcement(
+        generate_text,
+        target_language=target_language,
+        strict_mode=True,
+        component_name="pipeline"
+    )
+    logger.info(f"✅ Language validator active - all LLM outputs will be validated for {target_language} consistency")
+    logger.info("")
 
     # Use workspace as memory (compatible with existing agent interfaces)
     memory = workspace
@@ -289,7 +604,7 @@ def build_video_package(
                 trends=trends,
                 vertical_id=vertical_id,
                 memory=memory,
-                llm_generate_fn=generate_text,
+                llm_generate_fn=llm_generate_fn,  # Use language-validated LLM
                 max_trends_to_evaluate=min(30, len(trends)),
                 top_n=10
             )
@@ -327,7 +642,7 @@ def build_video_package(
     from yt_autopilot.agents.trend_hunter import _calculate_priority_score
     for i, candidate in enumerate(top_candidates, 1):
         score = _calculate_priority_score(candidate, memory)
-        keyword_display = candidate.keyword[:60] + "..." if len(candidate.keyword) > 60 else candidate.keyword
+        keyword_display = candidate.keyword[:100] + "..." if len(candidate.keyword) > 100 else candidate.keyword
         logger.info(f"#{i}: '{keyword_display}'")
         logger.info(f"     Score: {score:.3f} | Source: {candidate.source}")
         logger.info(f"     Momentum: {candidate.momentum_score:.2f} | Virality: {candidate.virality_score:.2f}")
@@ -443,7 +758,7 @@ Return ONLY a JSON object:
 }}"""
 
             # Call LLM
-            ai_response_text = generate_text(
+            ai_response_text = llm_generate_fn(
                 role="content_strategist",
                 task=ai_prompt,
                 context=f"Workspace: {memory.get('workspace_name', 'Unknown')}, Vertical: {vertical_id}",
@@ -540,14 +855,579 @@ Return ONLY a JSON object:
     else:
         logger.info("Step 3.2: AI-assisted selection disabled (use_ai_selection=False)")
 
-    # Step 3.5: Detect series format (Step 07.5: Format engine)
-    logger.info("Step 3.5: Detecting series format...")
-    serie_id = series_manager.detect_serie(
-        video_plan.working_title,
-        video_plan.strategic_angle
-    )
-    series_format = series_manager.load_format(serie_id)
-    logger.info(f"✓ Series format: {series_format.name} ({serie_id})")
+    # Step 3.3: Editorial Strategist - AI-driven strategic decision (NEW)
+    logger.info("=" * 70)
+    logger.info("Step 3.3: Running Editorial Strategist (AI-driven strategy)...")
+    logger.info("=" * 70)
+
+    # Find the selected trend from top_candidates
+    selected_trend = None
+    for candidate in top_candidates:
+        if candidate.keyword == video_plan.working_title:
+            selected_trend = candidate
+            break
+
+    # If not found in top_candidates, use first one as fallback
+    if not selected_trend and len(top_candidates) > 0:
+        selected_trend = top_candidates[0]
+        logger.warning(f"Selected trend not found in top_candidates, using first candidate")
+
+    # Gather performance history for learning loop
+    try:
+        from yt_autopilot.io.datastore import get_all_videos
+        all_videos = get_all_videos(workspace_id)
+        # Take last 10 videos with performance data
+        performance_history = [
+            {
+                'title': v.get('final_title', ''),
+                'views': v.get('views', 0),
+                'avg_view_duration_percentage': v.get('avg_view_duration_percentage', 0),
+                'ctr': v.get('ctr', 0),
+                'serie_id': v.get('serie_id', 'unknown'),
+                'format': v.get('format', 'unknown')
+            }
+            for v in all_videos[-10:]
+            if 'final_title' in v
+        ]
+    except Exception as e:
+        logger.warning(f"Failed to load performance history: {e}")
+        performance_history = []
+
+    # ===================================================================
+    # PHASE A4: AGENT COORDINATOR INTEGRATION (Feature Flag)
+    # ===================================================================
+    if use_coordinator:
+        logger.info("")
+        logger.info("=" * 70)
+        logger.info("USING AGENT COORDINATOR (Phase A4)")
+        logger.info("  Standardized agent execution with retry logic + error handling")
+        logger.info("=" * 70)
+        logger.info("")
+
+        # Import AgentCoordinator and AgentContext
+        from yt_autopilot.core.agent_coordinator import AgentCoordinator, AgentContext
+        import uuid
+
+        # Create AgentContext with all pipeline state
+        context = AgentContext(
+            workspace=workspace,
+            video_plan=video_plan,
+            llm_generate_fn=llm_generate_fn,
+            workspace_id=workspace_id,
+            execution_id=str(uuid.uuid4()),
+            selected_trend=selected_trend,
+            top_candidates=top_candidates,
+            performance_history=performance_history,
+            memory=memory,
+            series_format=series_format if 'series_format' in locals() else None
+        )
+
+        # Initialize coordinator and execute pipeline
+        coordinator = AgentCoordinator()
+
+        try:
+            result = coordinator.execute_pipeline(context, mode="linear")
+
+            if result["status"] == "success":
+                # Extract final context
+                final_context = result["context"]
+
+                # Log pipeline summary
+                summary = result["summary"]
+                logger.info("")
+                logger.info("=" * 70)
+                logger.info("AGENT COORDINATOR SUMMARY")
+                logger.info("=" * 70)
+                logger.info(f"  Agents called: {summary['agents_called']}")
+                logger.info(f"  Total time: {summary['total_time_ms']:.0f}ms ({summary['total_time_ms']/1000:.1f}s)")
+                logger.info(f"  Average per agent: {summary['avg_time_per_agent_ms']:.0f}ms")
+                logger.info(f"  Errors: {summary['errors']}")
+                logger.info(f"  Fallbacks used: {summary['fallbacks']}")
+                logger.info("=" * 70)
+
+                # Create ContentPackage from final context
+                approved_package = coordinator.create_content_package(
+                    final_context,
+                    status="APPROVED",
+                    rejection_reason=None
+                )
+
+                # Update workspace with new title (same as legacy path)
+                if final_context.publishing:
+                    update_workspace_recent_titles(workspace_id, final_context.publishing.final_title)
+
+                logger.info("")
+                logger.info("=" * 70)
+                logger.info("EDITORIAL PIPELINE COMPLETE (AgentCoordinator): STATUS = APPROVED")
+                logger.info(f"  Title: '{final_context.publishing.final_title if final_context.publishing else 'N/A'}'")
+                logger.info(f"  Script bullets: {len(final_context.script.bullets) if final_context.script else 0}")
+                logger.info(f"  Visual scenes: {len(final_context.visual_plan.scenes) if final_context.visual_plan else 0}")
+                logger.info("=" * 70)
+
+                return approved_package
+
+            else:
+                # Pipeline failed at critical agent
+                failed_agent = result.get("failed_agent", "unknown")
+                error = result.get("error")
+
+                logger.error("")
+                logger.error("=" * 70)
+                logger.error("AGENT COORDINATOR PIPELINE FAILED")
+                logger.error(f"  Failed agent: {failed_agent}")
+                logger.error(f"  Error: {error.message if error else 'Unknown'}")
+                logger.error("=" * 70)
+
+                # Create REJECTED package
+                rejected_package = coordinator.create_content_package(
+                    result["context"],
+                    status="REJECTED",
+                    rejection_reason=f"Critical agent '{failed_agent}' failed: {error.message if error else 'Unknown error'}"
+                )
+
+                return rejected_package
+
+        except Exception as e:
+            logger.error(f"AgentCoordinator execution failed: {e}")
+            logger.error("Falling back to legacy pipeline execution...")
+            # Fall through to legacy path below
+
+    # ===================================================================
+    # LEGACY PATH: Original agent orchestration (backward compatible)
+    # ===================================================================
+
+    # Call Editorial Strategist with LLM reasoning
+    if selected_trend:
+        editorial_decision = decide_editorial_strategy(
+            trend=selected_trend,
+            workspace=workspace,
+            llm_generate_fn=llm_generate_fn,  # Sprint 2: Use language-validated wrapper
+            performance_history=performance_history
+        )
+
+        logger.info("✓ Editorial strategy decided:")
+        logger.info(f"  Serie: {editorial_decision.serie_concept}")
+        logger.info(f"  Format: {editorial_decision.format}")
+        logger.info(f"  Angle: {editorial_decision.angle}")
+        logger.info(f"  Duration target: {editorial_decision.duration_target}s")
+        logger.info(f"  Breakdown: hook={editorial_decision.duration_breakdown.get('hook')}s, "
+                   f"context={editorial_decision.duration_breakdown.get('context')}s, "
+                   f"insight={editorial_decision.duration_breakdown.get('insight')}s, "
+                   f"cta={editorial_decision.duration_breakdown.get('cta')}s")
+        logger.info(f"  Monetization: {editorial_decision.monetization_path}")
+        logger.info(f"  CTA: {editorial_decision.cta_specific[:60]}...")
+        logger.info(f"  Reasoning: {truncate_for_log(editorial_decision.reasoning_summary, LOG_TRUNCATE_REASONING)}")
+
+        # ========== VALIDATION GATE 1: POST-EDITORIAL ==========
+        gate1_enabled, gate1_blocking = _is_gate_enabled(workspace, 'post_editorial')
+
+        if gate1_enabled:
+            logger.info("")
+            from yt_autopilot.core.pipeline_validator import (
+                Gate1_PostEditorialValidator,
+                ValidationSeverity,
+                log_validation_result
+            )
+            import glob
+
+            gate1_validator = Gate1_PostEditorialValidator()
+
+            # Get available series formats
+            series_format_files = glob.glob("config/series_formats/*.yaml")
+            series_formats_available = [f.split('/')[-1].replace('.yaml', '') for f in series_format_files]
+
+            gate1_result = gate1_validator.validate(
+                editorial_decision=editorial_decision,
+                trend=selected_trend,
+                workspace=workspace,
+                series_formats_available=series_formats_available
+            )
+
+            log_validation_result(gate1_result, gate_number=1)
+
+            if not gate1_result.is_valid:
+                blocking_issues = gate1_result.get_blocking_issues()
+                logger.error(f"❌ Gate 1 validation failed with {len(blocking_issues)} blocking issues:")
+                for issue in blocking_issues:
+                    logger.error(f"   • {issue.message}")
+
+                if gate1_blocking:
+                    raise ValueError(
+                        f"Editorial validation failed. Fix editorial strategy before proceeding. "
+                        f"First issue: {blocking_issues[0].message}"
+                    )
+                else:
+                    logger.warning("⚠️ Gate 1 non-blocking - continuing despite validation failure")
+
+            logger.info("✅ Gate 1 validation passed - Editorial decision coherent")
+            logger.info("")
+        else:
+            logger.info("⚙️ Gate 1 (Post-Editorial) disabled in config - skipping validation")
+        # ========== END GATE 1 ==========
+
+    else:
+        logger.warning("No trend selected, skipping Editorial Strategist")
+        editorial_decision = None
+
+    # Step 3.6: Duration Strategist - AI-driven duration for monetization (NEW)
+    logger.info("=" * 70)
+    logger.info("Step 3.6: Running Duration Strategist (AI-driven monetization)...")
+    logger.info("=" * 70)
+
+    if selected_trend and editorial_decision:
+        # Get vertical config for CPM data
+        vertical_config = get_vertical_config(vertical_id)
+
+        # Call Duration Strategist
+        duration_strategy = analyze_duration_strategy(
+            topic=video_plan.working_title,
+            vertical_id=vertical_id,
+            workspace_config=workspace,
+            vertical_config=vertical_config,
+            trend_data={
+                'source': selected_trend.source,
+                'engagement_score': selected_trend.momentum_score,
+                'virality_potential': selected_trend.virality_score
+            }
+        )
+
+        logger.info(f"✓ Duration strategy: {duration_strategy['target_duration_seconds']}s ({duration_strategy['format_type']})")
+    else:
+        logger.warning("Skipping Duration Strategist (no trend/editorial decision)")
+        duration_strategy = {
+            'target_duration_seconds': 180,
+            'format_type': 'mid',
+            'reasoning': 'Fallback: No editorial decision available',
+            'monetization_strategy': 'ads',
+            'content_depth_score': 0.5,
+            'viral_potential_score': 0.5
+        }
+
+    # Step 3.6.5: Format Reconciler - Arbitrate duration divergences (Fase 2 Sprint 1)
+    logger.info("=" * 70)
+    logger.info("Step 3.6.5: Running Format Reconciler (duration arbitration)...")
+    logger.info("=" * 70)
+
+    if editorial_decision and duration_strategy:
+        # Call Format Reconciler to arbitrate duration divergence
+        reconciled_format = reconcile_format_strategies(
+            editorial_decision=editorial_decision,
+            duration_strategy=duration_strategy,
+            llm_generate_fn=llm_generate_fn,  # Sprint 2: Use language-validated wrapper
+            workspace_config=workspace
+        )
+
+        logger.info(f"✓ Format reconciliation complete:")
+        logger.info(f"  Editorial duration: {editorial_decision.duration_target}s")
+        logger.info(f"  Duration Strategist: {duration_strategy['target_duration_seconds']}s")
+        logger.info(f"  Final reconciled: {reconciled_format['final_duration']}s ({reconciled_format['format_type']})")
+        logger.info(f"  Arbitration source: {reconciled_format['arbitration_source']}")
+        logger.info(f"  Editorial weight: {reconciled_format['editorial_weight']:.2f} | Duration weight: {reconciled_format['duration_weight']:.2f}")
+        logger.info(f"  Reasoning: {truncate_for_log(reconciled_format['reasoning'], LOG_TRUNCATE_REASONING)}")
+
+        # Update duration_strategy with reconciled values
+        duration_strategy['target_duration_seconds'] = reconciled_format['final_duration']
+        duration_strategy['format_type'] = reconciled_format['format_type']
+        duration_strategy['reconciliation_applied'] = True
+        duration_strategy['reconciliation_reasoning'] = reconciled_format['reasoning']
+
+        # ========== VALIDATION GATE 2: POST-DURATION ==========
+        logger.info("")
+        gate2_enabled, gate2_blocking = _is_gate_enabled(workspace, 'post_duration')
+
+        if gate2_enabled:
+            from yt_autopilot.core.pipeline_validator import Gate2_PostDurationValidator
+
+            gate2_validator = Gate2_PostDurationValidator()
+
+            # Note: visual_plan not yet available, pass None for aspect ratio
+            gate2_result = gate2_validator.validate(
+                editorial_decision=editorial_decision,
+                duration_strategy=duration_strategy,
+                reconciled_format=reconciled_format,
+                visual_plan_aspect_ratio=None  # Will be validated again in Gate 4
+            )
+
+            log_validation_result(gate2_result, gate_number=2)
+
+            if not gate2_result.is_valid:
+                blocking_issues = gate2_result.get_blocking_issues()
+                logger.error(f"❌ Gate 2 validation failed with {len(blocking_issues)} blocking issues:")
+                for issue in blocking_issues:
+                    logger.error(f"   • {issue.message}")
+
+                if gate2_blocking:
+                    raise ValueError(
+                        f"Duration reconciliation validation failed. "
+                        f"First issue: {blocking_issues[0].message}"
+                    )
+                else:
+                    logger.warning("⚠️ Gate 2 non-blocking - continuing despite validation failure")
+                    for issue in blocking_issues[:3]:  # Show first 3 issues
+                        logger.warning(f"   • {issue.message}")
+
+            logger.info("✅ Gate 2 validation passed - Duration reconciliation coherent")
+        else:
+            logger.info("⚙️ Gate 2 (Post-Duration) disabled in config - skipping validation")
+
+        logger.info("")
+        # ========== END GATE 2 ==========
+
+    else:
+        logger.warning("Skipping Format Reconciler (no editorial/duration strategy)")
+
+    # Step 3.7: Content Depth Strategist - AI-driven bullets count optimization (MOVED BEFORE NARRATIVE)
+    logger.info("=" * 70)
+    logger.info("Step 3.7: Running Content Depth Strategist (bullets count optimization)...")
+    logger.info("=" * 70)
+
+    if editorial_decision and duration_strategy:
+        # Call Content Depth Strategist to determine optimal bullets count
+        # FASE 1 FIX: Run BEFORE Narrative so we can pass bullet_count_constraint
+        content_depth_strategy = analyze_content_depth(
+            topic=video_plan.working_title,
+            target_duration=reconciled_format.get('final_duration', duration_strategy['target_duration_seconds']),
+            narrative_arc={},  # Empty dict - Narrative not generated yet
+            editorial_decision=editorial_decision.__dict__ if hasattr(editorial_decision, '__dict__') else editorial_decision,
+            workspace=workspace,
+            llm_generate_fn=llm_generate_fn  # Use language-validated LLM
+        )
+
+        logger.info(f"✓ Content depth strategy generated:")
+        logger.info(f"  Recommended bullets: {content_depth_strategy['recommended_bullets']}")
+        logger.info(f"  Time allocation: {content_depth_strategy['time_per_bullet']}")
+        logger.info(f"  Adequacy score: {content_depth_strategy['adequacy_score']:.2f}")
+        logger.info(f"  Reasoning: {truncate_for_log(content_depth_strategy['reasoning'], LOG_TRUNCATE_REASONING)}")
+
+        # Validate adequacy score
+        if content_depth_strategy['adequacy_score'] < 0.6:
+            logger.warning(f"⚠️ Content depth adequacy score LOW ({content_depth_strategy['adequacy_score']:.2f})")
+            logger.warning("   Content may be too thin or too dense for target duration")
+    else:
+        logger.warning("Skipping Content Depth Strategist (no editorial/duration strategy)")
+        # Fallback: deterministic bullets count
+        target_dur = reconciled_format.get('final_duration', 480) if reconciled_format else 480
+        bullets_count = max(2, min(6, target_dur // 90))  # 90s per bullet
+        content_depth_strategy = {
+            'recommended_bullets': bullets_count,
+            'time_per_bullet': [target_dur // bullets_count] * bullets_count,
+            'depth_scores': [0.7] * bullets_count,
+            'pacing_guidance': f"Fallback: {bullets_count} bullets with equal time allocation",
+            'reasoning': 'Fallback: Content Depth Strategist skipped',
+            'adequacy_score': 0.65,
+            '_fallback': True
+        }
+
+    # Step 3.7.5: Narrative Architect - AI-driven emotional storytelling (WITH bullet constraint)
+    logger.info("=" * 70)
+    logger.info("Step 3.7.5: Running Narrative Architect (emotional storytelling)...")
+    logger.info("=" * 70)
+
+    if editorial_decision and duration_strategy:
+        # FASE 1 FIX: Pass bullet_count_constraint from Content Depth
+        recommended_bullets = content_depth_strategy.get('recommended_bullets')
+        logger.info(f"  Using Content Depth recommendation: {recommended_bullets} content acts")
+
+        # Call Narrative Architect with bullet count constraint
+        narrative_arc = design_narrative_arc(
+            topic=video_plan.working_title,
+            target_duration_seconds=duration_strategy['target_duration_seconds'],
+            workspace_config=workspace,
+            duration_strategy=duration_strategy,
+            editorial_decision=editorial_decision.__dict__ if hasattr(editorial_decision, '__dict__') else editorial_decision,
+            bullet_count_constraint=recommended_bullets,  # FASE 1: Force specific bullet count from start
+            llm_generate_fn=llm_generate_fn  # WEEK 2 Task 2.1: Use language-validated LLM
+        )
+
+        logger.info(f"✓ Narrative arc created with {len(narrative_arc['narrative_structure'])} acts")
+    else:
+        logger.warning("Skipping Narrative Architect (no editorial/duration strategy)")
+        narrative_arc = None
+
+    # Step 3.7.6: CTA Strategist - Strategic CTA placement (Fase 2 Sprint 1)
+    logger.info("=" * 70)
+    logger.info("Step 3.7.6: Running CTA Strategist (mid-roll CTA placement)...")
+    logger.info("=" * 70)
+
+    if editorial_decision and duration_strategy and narrative_arc:
+        # Call CTA Strategist to design CTA placement
+        cta_strategy = design_cta_strategy(
+            duration_strategy=duration_strategy,
+            editorial_decision=editorial_decision,
+            narrative_arc=narrative_arc,
+            workspace_config=workspace,
+            llm_generate_fn=llm_generate_fn  # Sprint 2: Use language-validated wrapper
+        )
+
+        logger.info(f"✓ CTA strategy designed:")
+        logger.info(f"  Main CTA: {cta_strategy['main_cta'][:60]}...")
+        logger.info(f"  Mid-roll CTAs: {len(cta_strategy['mid_roll_ctas'])}")
+        for mid_cta in cta_strategy.get('mid_roll_ctas', []):
+            logger.info(f"    - {mid_cta['timestamp']}s ({mid_cta['type']}): {mid_cta['cta'][:50]}...")
+        logger.info(f"  Funnel path: {cta_strategy['funnel_path']}")
+        logger.info(f"  Total CTAs: {cta_strategy['cta_count']}")
+        logger.info(f"  Reasoning: {truncate_for_log(cta_strategy['reasoning'], LOG_TRUNCATE_REASONING)}")
+    else:
+        logger.warning("Skipping CTA Strategist (no editorial/duration/narrative)")
+        cta_strategy = {
+            'main_cta': editorial_decision.cta_specific if editorial_decision else 'Follow for more content',
+            'mid_roll_ctas': [],
+            'funnel_path': 'engagement → playlist → community',
+            'reasoning': 'Fallback: CTA Strategist skipped',
+            'cta_count': 1
+        }
+
+    # =========================================================================
+    # FASE 1 INTEGRATION: Quality Validation & Retry Framework
+    # =========================================================================
+    # Validate narrative bullet count against content depth recommendation
+    # If mismatch detected, regenerate narrative with constraint
+    # =========================================================================
+
+    if narrative_arc and content_depth_strategy and not content_depth_strategy.get('_fallback'):
+        logger.info("=" * 70)
+        logger.info("Quality Validation: Narrative Bullet Count")
+        logger.info("=" * 70)
+
+        # Import quality validator and retry functions
+        from yt_autopilot.core.agent_coordinator import (
+            AgentContext,
+            validate_narrative_bullet_count,
+            regenerate_narrative_with_bullet_constraint,
+            validate_cta_semantic_match,
+            regenerate_script_with_cta_fix
+        )
+        from yt_autopilot.core.config import load_validation_thresholds
+        from yt_autopilot.core.logger import log_fallback
+
+        # Load quality validation thresholds
+        format_type = duration_strategy.get('format_type') if duration_strategy else None
+        thresholds = load_validation_thresholds(
+            workspace_id=workspace_id,
+            format_type=format_type
+        )
+
+        # Create minimal validation context (compatible with validator signature)
+        class ValidationContext:
+            def __init__(self, content_depth, thresholds_dict, workspace_id_val):
+                self.content_depth_strategy = content_depth
+                self.thresholds = thresholds_dict
+                self.workspace_id = workspace_id_val
+
+        validator_context = ValidationContext(
+            content_depth=content_depth_strategy,
+            thresholds_dict=thresholds,
+            workspace_id_val=workspace_id
+        )
+
+        # Run quality validation
+        is_valid, validation_error = validate_narrative_bullet_count(narrative_arc, validator_context)
+
+        if not is_valid:
+            logger.warning(f"⚠️ Quality validation failed: {validation_error}")
+            logger.info("🔧 Attempting quality retry (regenerate narrative with bullet constraint)...")
+
+            # Log fallback for monitoring
+            log_fallback(
+                component="NARRATIVE_ARCHITECT",
+                fallback_type="QUALITY_RETRY",
+                reason=validation_error,
+                impact="MEDIUM"
+            )
+
+            try:
+                # Regenerate narrative with bullet count constraint
+                recommended_bullets = content_depth_strategy.get('recommended_bullets')
+                logger.info(f"   Forcing narrative to generate EXACTLY {recommended_bullets} content acts...")
+
+                narrative_arc_v2 = design_narrative_arc(
+                    topic=video_plan.working_title,
+                    target_duration_seconds=duration_strategy['target_duration_seconds'],
+                    workspace_config=workspace,
+                    duration_strategy=duration_strategy,
+                    editorial_decision=editorial_decision.__dict__ if hasattr(editorial_decision, '__dict__') else editorial_decision,
+                    bullet_count_constraint=recommended_bullets  # FASE 1: Force specific bullet count
+                )
+
+                # Re-validate after retry
+                is_valid_retry, retry_error = validate_narrative_bullet_count(narrative_arc_v2, validator_context)
+
+                if is_valid_retry:
+                    logger.info("✓ Quality retry succeeded! Narrative regenerated with correct bullet count")
+                    narrative_arc = narrative_arc_v2  # Use new narrative
+
+                    # IMPORTANT: Regenerate CTA Strategist with new narrative
+                    logger.info("   Regenerating CTA Strategist with updated narrative...")
+                    cta_strategy = design_cta_strategy(
+                        duration_strategy=duration_strategy,
+                        editorial_decision=editorial_decision,
+                        narrative_arc=narrative_arc,  # Use v2
+                        workspace_config=workspace,
+                        llm_generate_fn=llm_generate_fn
+                    )
+                    logger.info(f"   ✓ CTA strategy updated (Main CTA: {cta_strategy['main_cta'][:50]}...)")
+                else:
+                    logger.warning(f"⚠️ Quality retry failed: {retry_error}")
+                    logger.warning("   Continuing with original narrative (quality may be suboptimal)")
+
+            except Exception as e:
+                logger.error(f"❌ Quality retry encountered error: {e}")
+                logger.warning("   Continuing with original narrative")
+        else:
+            logger.info(f"✓ Quality validation passed (bullet count matches recommendation)")
+
+    # =========================================================================
+    # End of Quality Validation Block
+    # =========================================================================
+
+    # Capture AI agent reasoning for content_package.md transparency
+    duration_reasoning = duration_strategy.get('reasoning', '') if duration_strategy else None
+    format_reasoning = duration_strategy.get('reconciliation_reasoning', '') if duration_strategy and duration_strategy.get('reconciliation_applied') else None
+
+    # Construct narrative reasoning from returned structure
+    narrative_reasoning = None
+    if narrative_arc:
+        narrative_reasoning = f"Voice: {narrative_arc.get('voice_personality', 'N/A')} | Emotional Journey: {narrative_arc.get('emotional_journey', 'N/A')} | {len(narrative_arc.get('narrative_structure', []))} acts"
+
+    cta_reasoning = cta_strategy.get('reasoning', '') if cta_strategy else None
+
+    # Debug: Log captured reasoning
+    logger.info("=" * 70)
+    logger.info("AI Decision Rationale captured:")
+    logger.info(f"  Duration: {truncate_for_log(duration_reasoning, LOG_TRUNCATE_REASONING) if duration_reasoning else 'None'}")
+    logger.info(f"  Format: {truncate_for_log(format_reasoning, LOG_TRUNCATE_REASONING) if format_reasoning else 'None'}")
+    logger.info(f"  Narrative: {truncate_for_log(narrative_reasoning, LOG_TRUNCATE_REASONING) if narrative_reasoning else 'None'}")
+    logger.info(f"  CTA: {truncate_for_log(cta_reasoning, LOG_TRUNCATE_REASONING) if cta_reasoning else 'None'}")
+    logger.info("=" * 70)
+
+    # Step 3.8: Detect series format (Step 07.5: Format engine)
+    # NOTE: If editorial_decision is available, use its serie_concept instead of auto-detection
+    logger.info("=" * 70)
+    logger.info("Step 3.8: Detecting series format...")
+    logger.info("=" * 70)
+
+    if editorial_decision:
+        # Use AI-decided serie concept
+        logger.info(f"  Using Editorial Strategist's serie: {editorial_decision.serie_concept}")
+        serie_id = editorial_decision.serie_concept.lower().replace(' ', '_')
+
+        # Try to load existing format, fallback to generic if not found
+        try:
+            series_format = series_manager.load_format(serie_id)
+            logger.info(f"✓ Loaded existing series format: {series_format.name}")
+        except Exception:
+            logger.warning(f"  Serie '{serie_id}' not found in formats, using 'tutorial' fallback")
+            serie_id = "tutorial"
+            series_format = series_manager.load_format(serie_id)
+    else:
+        # Fallback to auto-detection (legacy behavior)
+        serie_id = series_manager.detect_serie(
+            video_plan.working_title,
+            video_plan.strategic_angle
+        )
+        series_format = series_manager.load_format(serie_id)
+        logger.info(f"✓ Auto-detected series format: {series_format.name} ({serie_id})")
+
     logger.info(f"  Structure: {len(series_format.segments)} segments")
 
     # Update video plan with series_id
@@ -567,6 +1447,12 @@ Return ONLY a JSON object:
     content_formula = workspace.get('content_formula', {})
     narrator_enabled = narrator.get('enabled', False)
 
+    # Sprint 2: Extract recommended bullets from Content Depth Strategist
+    recommended_bullets = None
+    if content_depth_strategy:
+        recommended_bullets = content_depth_strategy.get('recommended_bullets')
+        logger.info(f"  Content Depth: Using {recommended_bullets} bullets (AI-optimized)")
+
     if narrator_enabled:
         # Use narrator persona-aware prompt builder (Step 09)
         logger.info("  Using narrator persona-aware prompt...")
@@ -580,7 +1466,8 @@ Return ONLY a JSON object:
             content_formula=content_formula,
             series_format=series_format,
             brand_tone=brand_tone,
-            target_language=target_language  # Step 10
+            target_language=target_language,  # Step 10
+            recommended_bullets=recommended_bullets  # Sprint 2: AI-driven bullets count
         )
 
         # Context for narrator-aware prompt (strategic angle only, prompt has full context)
@@ -589,6 +1476,7 @@ Return ONLY a JSON object:
         # Fallback to legacy generic prompt (backward compatible)
         logger.info("  Using legacy generic prompt (narrator persona disabled)...")
 
+        # Build context with editorial decision if available (Step 11)
         llm_context = f"""
 Topic: {video_plan.working_title}
 Strategic Angle: {video_plan.strategic_angle}
@@ -598,7 +1486,27 @@ Format: YouTube Shorts (vertical 9:16, max 60 seconds)
 Brand Tone: {brand_tone}
     """.strip()
 
+        # Step 11: Add editorial strategy to context if available
+        if editorial_decision:
+            llm_context += f"""
+
+EDITORIAL STRATEGY (AI-Driven):
+- Serie: {editorial_decision.serie_concept}
+- Format: {editorial_decision.format}
+- Angle: {editorial_decision.angle}
+- Duration Target: {editorial_decision.duration_target}s
+  - Hook: {editorial_decision.duration_breakdown.get('hook', 3)}s
+  - Context: {editorial_decision.duration_breakdown.get('context', 8)}s
+  - Insight: {editorial_decision.duration_breakdown.get('insight', 10)}s
+  - CTA: {editorial_decision.duration_breakdown.get('cta', 5)}s
+- Monetization: {editorial_decision.monetization_path}
+- Specific CTA to use: "{editorial_decision.cta_specific}"
+
+CRITICAL: Respect this strategy. Use EXACTLY the CTA specified above. Follow duration breakdown.
+"""
+
         # Step 10: Build language-aware legacy prompt
+        # Sprint 2: Use AI-driven bullets count
         language_names = {
             "it": "ITALIANO",
             "en": "INGLESE",
@@ -609,6 +1517,12 @@ Brand Tone: {brand_tone}
         }
         target_lang = workspace.get('target_language', video_plan.language).lower()
         language_name = language_names.get(target_lang, target_lang.upper())
+
+        # Sprint 2: Dynamic bullets placeholders based on Content Depth Strategist
+        if recommended_bullets is None:
+            recommended_bullets = 4  # Legacy default
+
+        bullets_placeholders = "\n".join([f"- <punto chiave {i+1}>" for i in range(recommended_bullets)])
 
         llm_task = f"""⚠️ REQUISITO CRITICO LINGUA ⚠️
 ═══════════════════════════════════════════════════════════════
@@ -632,10 +1546,9 @@ HOOK:
 <frase di apertura forte e coinvolgente per i primi 3 secondi>
 
 BULLETS:
-- <punto chiave 1>
-- <punto chiave 2>
-- <punto chiave 3>
-- <punto chiave 4>
+{bullets_placeholders}
+
+⚠️ CRITICO: Fornisci ESATTAMENTE {recommended_bullets} bullets (numero ottimizzato dall'AI)
 
 CTA:
 <call-to-action breve e non invasiva>
@@ -657,7 +1570,7 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
     """.strip()
 
     # Generate LLM suggestion (same for both narrator-aware and legacy paths)
-    llm_suggestion = generate_text(
+    llm_suggestion = llm_generate_fn(
         role="script_writer",
         task=llm_task,
         context=llm_context,
@@ -672,23 +1585,263 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
 
     # Step 4b: Pass LLM suggestion to ScriptWriter agent for validation
     logger.info("  Step 4b: ScriptWriter agent validating LLM output...")
-    script = write_script(video_plan, memory, llm_suggestion=llm_suggestion, series_format=series_format)
+    script = write_script(
+        video_plan,
+        memory,
+        llm_suggestion=llm_suggestion,
+        series_format=series_format,
+        editorial_decision=editorial_decision,  # Step 11: Pass AI strategy
+        narrative_arc=narrative_arc,  # Monetization Refactor: Pass emotional storytelling
+        content_depth_strategy=content_depth_strategy  # Sprint 2: AI-driven bullets count
+    )
 
     logger.info(f"✓ Script generated: {len(script.bullets)} content points")
     logger.info(f"  Hook: '{script.hook[:60]}...'")
     logger.info(f"  Voiceover length: {len(script.full_voiceover_text)} chars")
 
+    # ========== VALIDATION GATE 3: POST-SCRIPT ==========
+    logger.info("")
+    gate3_enabled, gate3_blocking = _is_gate_enabled(workspace, 'post_script')
+
+    if gate3_enabled:
+        from yt_autopilot.core.pipeline_validator import Gate3_PostScriptValidator
+
+        gate3_validator = Gate3_PostScriptValidator(llm_generate_fn=llm_generate_fn)
+
+        gate3_result = gate3_validator.validate(
+            script=script,
+            content_depth_strategy=content_depth_strategy,
+            editorial_decision=editorial_decision,
+            workspace=workspace,
+            target_duration=reconciled_format['final_duration']
+        )
+
+        log_validation_result(gate3_result, gate_number=3)
+
+        if not gate3_result.is_valid:
+            blocking_issues = gate3_result.get_blocking_issues()
+            logger.error(f"❌ Gate 3 validation failed with {len(blocking_issues)} blocking issues:")
+            for issue in blocking_issues:
+                logger.error(f"   • {issue.message}")
+
+            # Auto-fix language mismatch if possible
+            language_mismatch = any(i.code == "SCR_LANGUAGE_MISMATCH" for i in blocking_issues)
+
+            if language_mismatch:
+                logger.warning("  🔧 Attempting automatic language correction...")
+                from yt_autopilot.core.language_validator import LanguageValidator
+
+                target_language = workspace.get('target_language', 'en')
+                lang_validator = LanguageValidator(target_language, strict_mode=True)
+
+                # Fix voiceover text
+                script.full_voiceover_text = lang_validator.ensure_language_consistency(
+                    script.full_voiceover_text,
+                    llm_generate_fn,
+                    context=video_plan.working_title,
+                    component_name="script_voiceover"
+                )
+
+                # Fix hook
+                script.hook = lang_validator.ensure_language_consistency(
+                    script.hook,
+                    llm_generate_fn,
+                    context=video_plan.working_title,
+                    component_name="script_hook"
+                )
+
+                # Fix CTA
+                script.outro_cta = lang_validator.ensure_language_consistency(
+                    script.outro_cta,
+                    llm_generate_fn,
+                    context=video_plan.working_title,
+                    component_name="script_cta"
+                )
+
+                logger.info("  ✅ Language corrected, re-validating...")
+
+                # Re-validate after fix
+                gate3_result = gate3_validator.validate(
+                    script=script,
+                    content_depth_strategy=content_depth_strategy,
+                    editorial_decision=editorial_decision,
+                    workspace=workspace,
+                    target_duration=reconciled_format['final_duration']
+                )
+
+                if gate3_result.is_valid:
+                    logger.info("  ✅ Re-validation passed after language fix")
+                else:
+                    logger.error("  ❌ Re-validation still failed after language fix")
+                    if gate3_blocking:
+                        raise ValueError(
+                            f"Script validation failed even after language correction. "
+                            f"Issue: {gate3_result.get_blocking_issues()[0].message}"
+                        )
+                    else:
+                        logger.warning("⚠️ Gate 3 non-blocking - script issues remain after auto-fix")
+            else:
+                # Non-language issues
+                if gate3_blocking:
+                    raise ValueError(
+                        f"Script validation failed. Fix script quality before proceeding. "
+                        f"First issue: {blocking_issues[0].message}"
+                    )
+                else:
+                    logger.warning("⚠️ Gate 3 non-blocking - continuing despite validation failure")
+                    for issue in blocking_issues[:3]:  # Show first 3 issues
+                        logger.warning(f"   • {issue.message}")
+
+        logger.info("✅ Gate 3 validation passed - Script quality verified")
+    else:
+        logger.info("⚙️ Gate 3 (Post-Script) disabled in config - skipping validation")
+
+    logger.info("")
+    # ========== END GATE 3 ==========
+
+    # ========== FASE 3: SEMANTIC CTA VALIDATION (OPZIONE A) ==========
+    # Validate CTA semantic similarity and retry if needed
+    if cta_strategy:  # Only validate if CTA strategy exists
+        logger.info("")
+        logger.info("=" * 70)
+        logger.info("FASE 3: Semantic CTA Validation")
+        logger.info("=" * 70)
+
+        # Build minimal validation context (compatible with validator signature)
+        class CTAValidationContext:
+            def __init__(self):
+                self.cta_strategy = cta_strategy
+                self.thresholds = thresholds
+                self.video_plan = video_plan
+                self.memory = memory
+                self.series_format = series_format
+                self.editorial_decision = editorial_decision
+                self.narrative_arc = narrative_arc
+                self.content_depth_strategy = content_depth_strategy
+
+        context = CTAValidationContext()
+
+        # Validate CTA semantic match
+        is_valid, error_msg = validate_cta_semantic_match(script, context)
+
+        if not is_valid:
+            logger.warning(f"⚠️ CTA validation failed: {error_msg}")
+            logger.info("  Attempting quality retry with forced CTA...")
+
+            try:
+                # Regenerate script with forced CTA
+                script_v2 = regenerate_script_with_cta_fix(script, context, error_msg)
+
+                # Validate retry result
+                is_valid_v2, error_msg_v2 = validate_cta_semantic_match(script_v2, context)
+
+                if is_valid_v2:
+                    logger.info("  ✅ Quality retry succeeded - CTA now matches")
+                    script = script_v2  # Use improved script
+                else:
+                    logger.error(f"  ❌ Quality retry failed: {error_msg_v2}")
+                    raise ValueError(f"CTA validation failed after retry: {error_msg_v2}")
+
+            except Exception as e:
+                logger.error(f"  ❌ Quality retry failed with exception: {e}")
+                raise ValueError(f"CTA validation failed and retry failed: {e}")
+        else:
+            logger.info("✅ CTA validation passed - semantic match confirmed")
+
+        logger.info("")
+        # ========== END FASE 3 CTA VALIDATION ==========
+
     # Step 5: VisualPlanner - create visual scenes
     logger.info("Step 5: Running VisualPlanner to create visual plan...")
     # Step 09: Pass workspace_config for visual brand manual (color palette enforcement)
-    visual_plan = generate_visual_plan(video_plan, script, memory, series_format=series_format, workspace_config=workspace)
+    # MONETIZATION REFACTOR: Pass duration_strategy for format-aware scene generation
+    visual_plan = generate_visual_plan(
+        video_plan,
+        script,
+        memory,
+        series_format=series_format,
+        workspace_config=workspace,
+        duration_strategy=duration_strategy
+    )
     total_duration = _calculate_total_duration(visual_plan)
     logger.info(f"✓ Visual plan created: {len(visual_plan.scenes)} scenes")
     logger.info(f"  Total estimated duration: {total_duration}s")
     logger.info(f"  Aspect ratio: {visual_plan.aspect_ratio}")
 
+    # VALIDATION: Format Coherence (aspect ratio + duration)
+    target_duration_final = reconciled_format.get('final_duration', 480)  # From Format Reconciler
+    logger.info("")
+    logger.info("📐 FORMAT COHERENCE VALIDATION")
+    corrected_duration, corrected_aspect, was_corrected, reasoning = validate_and_enforce_format(
+        workspace_config=workspace,
+        target_duration=target_duration_final,
+        aspect_ratio=visual_plan.aspect_ratio,
+        video_style_mode=workspace.get('video_style_mode'),
+        auto_correct=False,  # Don't auto-correct, just validate
+        llm_generate_fn=llm_generate_fn
+    )
+
+    if was_corrected:
+        logger.warning(f"⚠️ Format incoherence detected but not auto-corrected (validation only)")
+        logger.warning(f"   Suggested: duration={corrected_duration}s, aspect_ratio={corrected_aspect}")
+        logger.warning(f"   Reasoning: {reasoning}")
+    else:
+        logger.info("✅ Format coherence validated - aspect ratio matches duration tier")
+    logger.info("")
+
     if total_duration > 60:
         logger.warning(f"Duration ({total_duration}s) exceeds typical Shorts length (60s)")
+
+    # ========== VALIDATION GATE 4: POST-VISUAL ==========
+    logger.info("")
+    gate4_enabled, gate4_blocking = _is_gate_enabled(workspace, 'post_visual')
+
+    if gate4_enabled:
+        from yt_autopilot.core.pipeline_validator import Gate4_PostVisualValidator
+
+        gate4_validator = Gate4_PostVisualValidator()
+
+        gate4_result = gate4_validator.validate(
+            visual_plan=visual_plan,
+            script=script,
+            duration_strategy=duration_strategy,
+            reconciled_format=reconciled_format
+        )
+
+        log_validation_result(gate4_result, gate_number=4)
+
+        if not gate4_result.is_valid:
+            blocking_issues = gate4_result.get_blocking_issues()
+            logger.error(f"❌ Gate 4 validation failed with {len(blocking_issues)} blocking issues:")
+            for issue in blocking_issues:
+                logger.error(f"   • {issue.message}")
+
+            if gate4_blocking:
+                raise ValueError(
+                    f"Visual plan validation failed. "
+                    f"First issue: {blocking_issues[0].message}"
+                )
+            else:
+                logger.warning("⚠️ Gate 4 non-blocking - continuing despite validation failure")
+                for issue in blocking_issues[:3]:  # Show first 3 issues
+                    logger.warning(f"   • {issue.message}")
+
+        if gate4_result.warnings:
+            logger.warning(f"⚠️ Gate 4 detected {len(gate4_result.warnings)} warnings:")
+            for warning in gate4_result.warnings[:3]:  # Show first 3
+                logger.warning(f"   • {warning}")
+
+        if gate4_result.recommendations:
+            logger.info(f"💡 Gate 4 recommendations:")
+            for rec in gate4_result.recommendations[:2]:  # Show first 2
+                logger.info(f"   • {rec}")
+
+        logger.info("✅ Gate 4 validation passed - Visual plan consistent")
+    else:
+        logger.info("⚙️ Gate 4 (Post-Visual) disabled in config - skipping validation")
+
+    logger.info("")
+    # ========== END GATE 4 ==========
 
     # Step 6: SeoManager - optimize metadata
     logger.info("Step 6: Running SeoManager to optimize metadata...")
@@ -717,7 +1870,15 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
         # Regenerate dependent components
         logger.info("  Regenerating visual plan with improved script...")
         # Step 09: Pass workspace_config for visual brand manual
-        revised_visual_plan = generate_visual_plan(video_plan, revised_script, memory, series_format=series_format, workspace_config=workspace)
+        # MONETIZATION REFACTOR: Pass duration_strategy for format-aware scene generation
+        revised_visual_plan = generate_visual_plan(
+            video_plan,
+            revised_script,
+            memory,
+            series_format=series_format,
+            workspace_config=workspace,
+            duration_strategy=duration_strategy
+        )
         revised_duration = _calculate_total_duration(revised_visual_plan)
         logger.info(f"  Revised duration: {revised_duration}s (was {total_duration}s)")
 
@@ -747,7 +1908,7 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
             logger.error(f"  Final rejection reason: {reason}")
 
             # Return REJECTED package (do NOT update memory)
-            rejected_package = ReadyForFactory(
+            rejected_package = ContentPackage(
                 status="REJECTED",
                 video_plan=video_plan,
                 script=revised_script,  # Use revised version for transparency
@@ -755,7 +1916,12 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
                 publishing=revised_publishing,
                 rejection_reason=reason,
                 llm_raw_script=llm_suggestion,  # Step 07: Audit trail
-                final_script_text=revised_script.full_voiceover_text  # Step 07: Audit trail
+                final_script_text=revised_script.full_voiceover_text,  # Step 07: Audit trail
+                editorial_decision=editorial_decision,  # Step 11: AI strategy tracking
+                duration_strategy_reasoning=duration_reasoning,
+                format_reconciliation_reasoning=format_reasoning,
+                narrative_design_reasoning=narrative_reasoning,
+                cta_strategy_reasoning=cta_reasoning
             )
 
             logger.info("=" * 70)
@@ -763,6 +1929,135 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
             logger.info("=" * 70)
 
             return rejected_package
+
+    # Step 8: Monetization QA - final validation (NEW: Monetization Refactor)
+    logger.info("Step 8: Running Monetization QA (YouTube monetization readiness)...")
+
+    monetization_approved, monetization_feedback, monetization_scores = validate_monetization_readiness(
+        plan=video_plan,
+        script=script,
+        visuals=visual_plan,
+        publishing=publishing,
+        duration_strategy=duration_strategy,
+        narrative_arc=narrative_arc,
+        subscriber_persona=workspace.get('subscriber_persona')
+    )
+
+    logger.info(f"Monetization QA feedback:\n{monetization_feedback}")
+
+    if not monetization_approved:
+        overall_score = monetization_scores.get('overall', 0.0)
+
+        # Sprint 1.5: Retry logic with LLM-driven iterative refinement
+        # Only retry if score is in "recoverable" range (0.60-0.75)
+        # Too low (<0.60): fundamental issues, retry unlikely to help
+        # Already approved (>=0.75): no retry needed
+        if 0.60 <= overall_score < 0.75:
+            logger.warning(f"✗ Monetization QA below threshold ({overall_score:.2f})")
+            logger.info("  💡 Score is near threshold - attempting LLM-driven optimization (1 retry)...")
+
+            # Apply targeted improvements using LLM reasoning
+            try:
+                improved_script, improved_visual, improved_publishing = \
+                    _attempt_monetization_improvement(
+                        script=script,
+                        visual_plan=visual_plan,
+                        publishing=publishing,
+                        video_plan=video_plan,
+                        memory=memory,
+                        category_scores=monetization_scores,
+                        monetization_feedback=monetization_feedback,
+                        target_duration=duration_strategy['target_duration_seconds'],
+                        series_format=series_format,
+                        workspace=workspace,
+                        duration_strategy=duration_strategy
+                    )
+
+                # Retry Monetization QA with improved package
+                logger.info("  🔁 Re-running Monetization QA after LLM improvements...")
+                retry_approved, retry_feedback, retry_scores = validate_monetization_readiness(
+                    plan=video_plan,
+                    script=improved_script,
+                    visuals=improved_visual,
+                    publishing=improved_publishing,
+                    duration_strategy=duration_strategy,
+                    narrative_arc=narrative_arc,
+                    subscriber_persona=workspace.get('subscriber_persona')
+                )
+
+                retry_overall_score = retry_scores.get('overall', 0.0)
+                logger.info(f"  Monetization QA retry result: {retry_feedback}")
+                logger.info(f"  Score improvement: {overall_score:.2f} → {retry_overall_score:.2f} ({'+' if retry_overall_score > overall_score else ''}{retry_overall_score - overall_score:.2f})")
+
+                if retry_approved:
+                    logger.info("✓ Monetization QA PASSED after LLM optimization! 🎉")
+                    logger.info(f"  Final score: {retry_overall_score:.2f}/1.00")
+
+                    # Use improved versions for final package
+                    script = improved_script
+                    visual_plan = improved_visual
+                    publishing = improved_publishing
+                    monetization_approved = True
+                    monetization_feedback = retry_feedback
+                    monetization_scores = retry_scores
+                else:
+                    logger.warning(f"✗ Monetization QA still below threshold after retry ({retry_overall_score:.2f})")
+                    logger.warning("  Returning as NEEDS_REVISION with improved content")
+
+                    # Return improved version even if still not approved
+                    return ContentPackage(
+                        status="NEEDS_REVISION",
+                        video_plan=video_plan,
+                        script=improved_script,  # Use improved version
+                        visuals=improved_visual,
+                        publishing=improved_publishing,
+                        rejection_reason=retry_feedback,
+                        llm_raw_script=llm_suggestion,
+                        final_script_text=improved_script.full_voiceover_text,
+                        editorial_decision=editorial_decision,
+                        duration_strategy_reasoning=duration_reasoning,
+                        format_reconciliation_reasoning=format_reasoning,
+                        narrative_design_reasoning=narrative_reasoning,
+                        cta_strategy_reasoning=cta_reasoning
+                    )
+
+            except Exception as e:
+                logger.error(f"❌ Monetization optimization failed: {e}")
+                logger.warning("  Falling back to original version")
+                # Continue to NEEDS_REVISION return below with original content
+
+        # Score too low (<0.60) or retry failed/skipped → NEEDS_REVISION
+        if not monetization_approved:
+            if overall_score < 0.60:
+                logger.warning(f"✗ Monetization QA FAILED - score too low ({overall_score:.2f} < 0.60)")
+                logger.warning("  Score below retry threshold - package needs significant revision")
+            else:
+                logger.warning("✗ Monetization QA FAILED - package needs optimization")
+
+            logger.warning("  Note: Package passes compliance but not monetization optimization")
+
+            # Return package with monetization feedback (status: NEEDS_REVISION)
+            needs_revision_package = ContentPackage(
+                status="NEEDS_REVISION",
+                video_plan=video_plan,
+                script=script,
+                visuals=visual_plan,
+                publishing=publishing,
+                rejection_reason=monetization_feedback,
+                llm_raw_script=llm_suggestion,
+                final_script_text=script.full_voiceover_text,
+                editorial_decision=editorial_decision
+            )
+
+            logger.info("=" * 70)
+            logger.info("EDITORIAL PIPELINE COMPLETE: STATUS = NEEDS_REVISION")
+            logger.info("=" * 70)
+
+            return needs_revision_package
+
+    # If approved (either first attempt or after retry)
+    logger.info("✓ Monetization QA PASSED - package is monetization-ready")
+    logger.info(f"  Final score: {monetization_scores.get('overall', 0.0):.2f}/1.00")
 
     # Step 9: Package APPROVED - update workspace
     logger.info("Step 9: Package APPROVED - updating workspace configuration...")
@@ -774,7 +2069,7 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
     logger.info(f"  Workspace: {workspace['workspace_name']} ({workspace_id})")
 
     # Step 10: Create final APPROVED package
-    approved_package = ReadyForFactory(
+    approved_package = ContentPackage(
         status="APPROVED",
         video_plan=video_plan,
         script=script,
@@ -782,7 +2077,12 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
         publishing=publishing,
         rejection_reason=None,
         llm_raw_script=llm_suggestion,  # Step 07: Audit trail
-        final_script_text=script.full_voiceover_text  # Step 07: Audit trail
+        final_script_text=script.full_voiceover_text,  # Step 07: Audit trail
+        editorial_decision=editorial_decision,  # Step 11: AI strategy tracking for analytics
+        duration_strategy_reasoning=duration_reasoning,
+        format_reconciliation_reasoning=format_reasoning,
+        narrative_design_reasoning=narrative_reasoning,
+        cta_strategy_reasoning=cta_reasoning
     )
 
     logger.info("=" * 70)

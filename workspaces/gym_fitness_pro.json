@@ -13,11 +13,7 @@
     "consigli medici non qualificati",
     "uso di musica protetta da copyright"
   ],
-  "recent_titles": [
-    "LA NUOVA CASA DI MIKE - Tutti Ne Parlano!",
-    "6 days out first NPC show. - Tutti Ne Parlano!",
-    "LEG DAY CON SAMSON DAUDA | MR. OLYMPIA 2024 - RAW SERIES - Tutti Ne Parlano!"
-  ],
+  "recent_titles": [],
   "narrator_persona": {
     "enabled": true,
     "name": "Coach Marco",
@@ -27,7 +23,10 @@
     "signature_phrases": [
       "Iniziamo subito!",
       "Ricorda: la costanza batte il talento",
-      "Ci vediamo al prossimo allenamento!"
+      "Ci vediamo al prossimo allenamento!",
+      "Questo è il momento di dare il massimo!",
+      "Non mollare, ci sei quasi!",
+      "La differenza la fai tu, ogni singolo giorno"
     ],
     "credibility_markers": [
       "Certificazione ISSA",
@@ -41,10 +40,55 @@
     "speed": 1.1,
     "emotional_tone": "energetic"
   },
+  "subscriber_persona": {
+    "why_subscribed": "Supportive fitness coaching with practical workout guidance and motivation without body shaming",
+    "content_expectations": {
+      "depth": "medium",
+      "unique_angle": "preferred",
+      "actionability": "very_high",
+      "motivational_value": "high"
+    },
+    "tone_expectation": "Motivational, energetic, supportive, results-driven",
+    "value_proposition": "Achieve fitness goals with clear guidance, proper technique, and consistent motivation",
+    "series_preferences": [
+      "workout_tutorials",
+      "nutrition_guides",
+      "transformation_stories",
+      "common_mistakes"
+    ],
+    "avoid_patterns": [
+      "Body shaming or judgmental language",
+      "Unrealistic promises or quick fixes",
+      "Dangerous exercises without safety warnings",
+      "Generic motivation without practical content"
+    ]
+  },
+  "validation_gates": {
+    "enabled": true,
+    "gates": {
+      "post_editorial": {
+        "enabled": true,
+        "blocking": true
+      },
+      "post_duration": {
+        "enabled": true,
+        "blocking": true
+      },
+      "post_script": {
+        "enabled": true,
+        "blocking": true
+      },
+      "post_visual": {
+        "enabled": true,
+        "blocking": false
+      }
+    },
+    "auto_retry_on_blocking": false,
+    "max_retries_per_gate": 1
+  },
   "content_formula": {
     "hook_pattern": "energetic_question",
     "cta_style": "direct_action",
-    "target_duration_seconds": 60,
     "pacing": "fast"
   },
   "visual_brand_manual": {
@@ -77,7 +121,7 @@
           "demonstration"
         ],
         "veo_prompt_prefix": "Modern home gym with professional equipment, natural lighting from large windows, motivational posters on walls, clean minimalist aesthetic, warm inviting atmosphere",
-        "use_frequency": 0.7
+        "use_frequency": 0.5
       },
       {
         "context_id": "outdoor_training",
@@ -89,6 +133,17 @@
         ],
         "veo_prompt_prefix": "Outdoor training environment, urban park setting with greenery, golden hour sunrise lighting, energetic inspiring atmosphere, natural backdrop",
         "use_frequency": 0.3
+      },
+      {
+        "context_id": "nutrition_kitchen",
+        "name": "Nutrition & Kitchen Setting",
+        "applicable_formats": [
+          "nutrition_tips",
+          "meal_prep",
+          "diet_guide"
+        ],
+        "veo_prompt_prefix": "Modern bright kitchen with marble countertop, fresh healthy ingredients displayed, natural daylight from windows, clean professional cooking space, motivational health-focused atmosphere",
+        "use_frequency": 0.2
       }
     ]
   },
@@ -104,11 +159,28 @@
         "home_gym",
         "outdoor_training"
       ]
-    }
+    },
+    "secondary_characters": [
+      {
+        "character_id": "beginner_student",
+        "persona": "Beginner fitness enthusiast, mid-20s, learning proper technique",
+        "physical_traits": "Average build, short light brown hair, enthusiastic expression",
+        "typical_clothing": "Gray comfortable workout t-shirt, black training shorts",
+        "distinctive_features": "Focused learning expression, energetic but careful movements",
+        "use_in_formats": [
+          "beginner_tutorial",
+          "common_mistakes",
+          "form_check"
+        ],
+        "context_matching": [
+          "home_gym",
+          "outdoor_training"
+        ]
+      }
+    ]
   },
   "video_style_mode": {
     "type": "character_based",
-    "use_single_long_video": true,
     "ai_style_preferences": {
       "vertical_aesthetic": "energetic_fitness",
       "brand_vibe": "motivational, supportive, results-driven",
@@ -118,5 +190,40 @@
         "transformation_montage"
       ]
     }
+  },
+  "_ai_authority_notice": {
+    "version": "2.0",
+    "note": "Format, duration, bullets count are decided by AI agents. Config contains only strategic brand parameters.",
+    "ai_agents": [
+      "Editorial Strategist",
+      "Duration Strategist + Format Reconciler",
+      "Format Validator (derived from duration)",
+      "Content Depth Strategist",
+      "CTA Strategist",
+      "Editorial Strategist",
+      "Format Validator + Duration Strategist"
+    ],
+    "decisions": {
+      "format": "Editorial Strategist",
+      "duration": "Duration Strategist + Format Reconciler",
+      "aspect_ratio": "Format Validator (derived from duration)",
+      "bullets_count": "Content Depth Strategist",
+      "cta_type": "CTA Strategist",
+      "serie_concept": "Editorial Strategist",
+      "video_style_mode": "Format Validator + Duration Strategist"
+    }
+  },
+  "_migration_hints": {
+    "duration_preference_range": {
+      "min": 30,
+      "max": 120,
+      "legacy_value": 60,
+      "note": "AI should decide optimal within this flexible range"
+    },
+    "video_style_preference": {
+      "legacy_use_single_long": true,
+      "note": "Format Validator decides based on AI-determined duration"
+    },
+    "notice": "These are HINTS from legacy config, not constraints. AI can override."
   }
 }

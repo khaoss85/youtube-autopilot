@@ -22,10 +22,31 @@
     "voice_model": "echo",
     "speed": 1.0
   },
+  "subscriber_persona": {
+    "why_subscribed": "Deep contrarian market analysis and educational finance content without get-rich-quick schemes",
+    "content_expectations": {
+      "depth": "high",
+      "unique_angle": "required",
+      "actionability": "medium-high",
+      "data_driven": "required"
+    },
+    "tone_expectation": "Professional, transparent, trustworthy",
+    "value_proposition": "Understand market dynamics with data-driven insights and clear disclaimers",
+    "series_preferences": [
+      "market_analysis",
+      "investment_education",
+      "financial_literacy"
+    ],
+    "avoid_patterns": [
+      "Get-rich-quick promises",
+      "Surface-level market commentary without analysis",
+      "Pump-and-dump or speculative hype",
+      "Financial advice without proper disclaimers"
+    ]
+  },
   "content_formula": {
     "hook_pattern": "stat_shock",
     "cta_style": "soft_ask",
-    "target_duration_seconds": 60,
     "pacing": "medium"
   },
   "visual_brand_manual": {
@@ -63,5 +84,36 @@
         "cinematic_broll"
       ]
     }
+  },
+  "_ai_authority_notice": {
+    "version": "2.0",
+    "note": "Format, duration, bullets count are decided by AI agents. Config contains only strategic brand parameters.",
+    "ai_agents": [
+      "Editorial Strategist",
+      "Duration Strategist + Format Reconciler",
+      "Format Validator (derived from duration)",
+      "Content Depth Strategist",
+      "CTA Strategist",
+      "Editorial Strategist",
+      "Format Validator + Duration Strategist"
+    ],
+    "decisions": {
+      "format": "Editorial Strategist",
+      "duration": "Duration Strategist + Format Reconciler",
+      "aspect_ratio": "Format Validator (derived from duration)",
+      "bullets_count": "Content Depth Strategist",
+      "cta_type": "CTA Strategist",
+      "serie_concept": "Editorial Strategist",
+      "video_style_mode": "Format Validator + Duration Strategist"
+    }
+  },
+  "_migration_hints": {
+    "duration_preference_range": {
+      "min": 30,
+      "max": 120,
+      "legacy_value": 60,
+      "note": "AI should decide optimal within this flexible range"
+    },
+    "notice": "These are HINTS from legacy config, not constraints. AI can override."
   }
 }

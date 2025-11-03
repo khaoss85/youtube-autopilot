@@ -35,10 +35,32 @@
     "voice_model": "fable",
     "speed": 1.15
   },
+  "subscriber_persona": {
+    "why_subscribed": "Exciting gameplay content and pro tips from a skilled competitive player in a positive community",
+    "content_expectations": {
+      "depth": "medium",
+      "unique_angle": "preferred",
+      "actionability": "high",
+      "entertainment_value": "high"
+    },
+    "tone_expectation": "Energetic, fun, inclusive, passionate",
+    "value_proposition": "Improve gaming skills while being entertained and part of a positive community",
+    "series_preferences": [
+      "pro_tips",
+      "gameplay_highlights",
+      "meta_updates",
+      "challenge_runs"
+    ],
+    "avoid_patterns": [
+      "Toxic behavior or negativity",
+      "Generic gameplay without commentary or insight",
+      "Repetitive content without variety",
+      "Elitist gatekeeping attitude"
+    ]
+  },
   "content_formula": {
     "hook_pattern": "energetic_question",
     "cta_style": "direct_action",
-    "target_duration_seconds": 60,
     "pacing": "fast"
   },
   "visual_brand_manual": {
@@ -111,5 +133,36 @@
         "kinetic_typography"
       ]
     }
+  },
+  "_ai_authority_notice": {
+    "version": "2.0",
+    "note": "Format, duration, bullets count are decided by AI agents. Config contains only strategic brand parameters.",
+    "ai_agents": [
+      "Editorial Strategist",
+      "Duration Strategist + Format Reconciler",
+      "Format Validator (derived from duration)",
+      "Content Depth Strategist",
+      "CTA Strategist",
+      "Editorial Strategist",
+      "Format Validator + Duration Strategist"
+    ],
+    "decisions": {
+      "format": "Editorial Strategist",
+      "duration": "Duration Strategist + Format Reconciler",
+      "aspect_ratio": "Format Validator (derived from duration)",
+      "bullets_count": "Content Depth Strategist",
+      "cta_type": "CTA Strategist",
+      "serie_concept": "Editorial Strategist",
+      "video_style_mode": "Format Validator + Duration Strategist"
+    }
+  },
+  "_migration_hints": {
+    "duration_preference_range": {
+      "min": 30,
+      "max": 120,
+      "legacy_value": 60,
+      "note": "AI should decide optimal within this flexible range"
+    },
+    "notice": "These are HINTS from legacy config, not constraints. AI can override."
   }
 }
