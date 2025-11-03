@@ -735,17 +735,68 @@ class Gate3_PostScriptValidator:
                 fix_suggestion="Populate scene_voiceover_map with script-to-scene mappings"
             ))
 
-        # Check 6: Voiceover length appropriateness
-        voiceover_length = len(script.full_voiceover_text)
-        duration_minutes = target_duration / 60
-        min_expected = duration_minutes * 100  # 100 chars/min
-        max_expected = duration_minutes * 200  # 200 chars/min
+        # =============================================================================
+        # Check 6: Script Length vs Target Duration (PHASE C - P1)
+        # =============================================================================
+        # PROBLEM: Script may be significantly shorter/longer than target duration
+        # Example: Target 540s (9min) but script only ~120s (2min) of speech → 78% divergence
+        #
+        # SOLUTION: Estimate speech duration using word count and speaking rate
+        # - Average speaking rate: 140-160 words/min (Italian), 120-150 words/min (English)
+        # - Use 150 words/min as conservative estimate
+        #
+        # THRESHOLDS:
+        # - <10% divergence: OK
+        # - 10-20% divergence: WARNING (minor pacing adjustment)
+        # - >20% divergence: BLOCKING (content inadequate for target duration)
+        # =============================================================================
 
-        if not (min_expected <= voiceover_length <= max_expected):
-            warnings.append(
-                f"Voiceover length ({voiceover_length} chars) may not match target duration "
-                f"({target_duration}s). Expected: {min_expected:.0f}-{max_expected:.0f} chars."
-            )
+        voiceover_text = script.full_voiceover_text
+        word_count = len(voiceover_text.split())
+
+        # Estimate speech duration (150 words/min = 2.5 words/sec)
+        estimated_speech_duration = word_count / 2.5  # seconds
+        divergence_seconds = abs(estimated_speech_duration - target_duration)
+        divergence_pct = (divergence_seconds / target_duration) * 100 if target_duration > 0 else 0
+
+        # Load threshold from config (default: 20%)
+        script_length_threshold = thresholds.get('script_length_divergence_pct', 20.0)
+        script_length_warning_threshold = thresholds.get('script_length_warning_pct', 10.0)
+
+        if divergence_pct > script_length_threshold:
+            # BLOCKING: Script significantly too short/long
+            issues.append(ValidationIssue(
+                gate=ValidationGate.POST_SCRIPT,
+                code="SCRIPT_DURATION_MISMATCH",
+                severity=ValidationSeverity.BLOCKING,
+                message=(
+                    f"Script duration mismatch: {estimated_speech_duration:.0f}s estimated "
+                    f"vs {target_duration}s target ({divergence_pct:.1f}% divergence). "
+                    f"Script has {word_count} words (threshold: {script_length_threshold}%)."
+                ),
+                field="script.full_voiceover_text",
+                expected=f"{target_duration}s speech",
+                actual=f"{estimated_speech_duration:.0f}s speech ({word_count} words)",
+                fix_suggestion=(
+                    f"Regenerate script with {'more' if estimated_speech_duration < target_duration else 'less'} content. "
+                    f"Target: {int(target_duration * 2.5)} words for {target_duration}s duration."
+                )
+            ))
+        elif divergence_pct > script_length_warning_threshold:
+            # WARNING: Minor divergence
+            issues.append(ValidationIssue(
+                gate=ValidationGate.POST_SCRIPT,
+                code="SCRIPT_DURATION_MINOR_MISMATCH",
+                severity=ValidationSeverity.WARNING,
+                message=(
+                    f"Minor script duration mismatch: {estimated_speech_duration:.0f}s estimated "
+                    f"vs {target_duration}s target ({divergence_pct:.1f}% divergence)."
+                ),
+                field="script.full_voiceover_text",
+                expected=f"{target_duration}s speech",
+                actual=f"{estimated_speech_duration:.0f}s speech ({word_count} words)",
+                fix_suggestion="Consider adjusting script length for better pacing."
+            ))
 
         # Calculate score
         blocking_count = sum(1 for i in issues if i.severity == ValidationSeverity.BLOCKING)
