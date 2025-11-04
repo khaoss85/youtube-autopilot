@@ -1052,7 +1052,8 @@ def generate_visual_plan(
     memory: Dict,
     series_format: Optional[SeriesFormat] = None,
     workspace_config: Optional[Dict] = None,
-    duration_strategy: Optional[Dict] = None
+    duration_strategy: Optional[Dict] = None,
+    timeline: Optional['Timeline'] = None  # Phase C - P2.2: Single source of truth
 ) -> VisualPlan:
     """
     Generates a complete visual plan with scene-by-scene prompts for Veo.
@@ -1079,13 +1080,17 @@ def generate_visual_plan(
     - Mid-form (60s-8min): 16:9 horizontal or mixed
     - Long-form (8+min): 16:9 horizontal with more scenes
 
+    Phase C - P2.2: Now uses Timeline.reconciled_duration as single source of truth.
+    If timeline provided, uses timeline.reconciled_duration (overrides duration_strategy).
+
     Args:
         plan: Video plan with topic and context
         script: Complete video script (with scene_voiceover_map in Step 07.3+)
         memory: Channel memory dict containing visual_style
         series_format: Optional series format template for intro/outro (Step 07.5)
         workspace_config: Optional workspace configuration with visual_brand_manual (Step 09)
-        duration_strategy: Optional duration strategy from Duration Strategist (NEW)
+        duration_strategy: Optional duration strategy from Duration Strategist (DEPRECATED if timeline provided)
+        timeline: Phase C - P2.2 - Timeline object with reconciled_duration (single source of truth)
 
     Returns:
         VisualPlan with scene list and style notes (includes intro/outro if series_format)
@@ -1133,13 +1138,23 @@ def generate_visual_plan(
                 logger.debug(f"    Identity anchor: {character_description}")
 
     # MONETIZATION REFACTOR: Determine aspect ratio and scaling from duration strategy
+    # Phase C - P2.2: Use Timeline.reconciled_duration as single source of truth
     format_type = "short"  # Default fallback
     target_duration_seconds = 60  # Default fallback
     aspect_ratio = "9:16"  # Default Shorts format
+    duration_source = "default_fallback"
 
-    if duration_strategy:
+    if timeline:
+        # Phase C - P2.2: Timeline takes precedence
+        target_duration_seconds = timeline.reconciled_duration
+        format_type = timeline.format_type
+        aspect_ratio = timeline.aspect_ratio
+        duration_source = "Timeline.reconciled_duration"
+        logger.info(f"  Using Timeline: {target_duration_seconds}s, format={format_type}, aspect={aspect_ratio}")
+    elif duration_strategy:
         format_type = duration_strategy.get('format_type', 'short')
         target_duration_seconds = duration_strategy.get('target_duration_seconds', 60)
+        duration_source = "duration_strategy (fallback)"
 
         # Aspect ratio based on format type
         if format_type == 'long':

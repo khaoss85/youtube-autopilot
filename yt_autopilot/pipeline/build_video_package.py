@@ -445,12 +445,15 @@ RESPOND WITH VALID JSON ONLY:
     if not improved_script.scene_voiceover_map or len(improved_script.scene_voiceover_map) == 0:
         logger.info("  Scene mapping missing - regenerating visual plan")
 
+        # NOTE: This call has incorrect signature (missing video_plan parameter)
+        # Phase C - P2.2: Adding timeline=None for compatibility
         improved_visual = generate_visual_plan(
             improved_script,
             memory,
             series_format=series_format,
             workspace_config=workspace,
-            duration_strategy=duration_strategy
+            duration_strategy=duration_strategy,
+            timeline=None  # Phase C - P2.2: No timeline available in this context
         )
         logger.info("    ✓ Visual plan regenerated with scene mapping")
 
@@ -1767,13 +1770,15 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
     logger.info("Step 5: Running VisualPlanner to create visual plan...")
     # Step 09: Pass workspace_config for visual brand manual (color palette enforcement)
     # MONETIZATION REFACTOR: Pass duration_strategy for format-aware scene generation
+    # Phase C - P2.2: Pass Timeline object for duration enforcement
     visual_plan = generate_visual_plan(
         video_plan,
         script,
         memory,
         series_format=series_format,
         workspace_config=workspace,
-        duration_strategy=duration_strategy
+        duration_strategy=duration_strategy,
+        timeline=timeline  # Phase C - P2.2: Single source of truth for duration
     )
     total_duration = _calculate_total_duration(visual_plan)
     logger.info(f"✓ Visual plan created: {len(visual_plan.scenes)} scenes")
@@ -1885,13 +1890,15 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
         logger.info("  Regenerating visual plan with improved script...")
         # Step 09: Pass workspace_config for visual brand manual
         # MONETIZATION REFACTOR: Pass duration_strategy for format-aware scene generation
+        # Phase C - P2.2: Pass Timeline object for duration enforcement
         revised_visual_plan = generate_visual_plan(
             video_plan,
             revised_script,
             memory,
             series_format=series_format,
             workspace_config=workspace,
-            duration_strategy=duration_strategy
+            duration_strategy=duration_strategy,
+            timeline=timeline  # Phase C - P2.2: Single source of truth for duration
         )
         revised_duration = _calculate_total_duration(revised_visual_plan)
         logger.info(f"  Revised duration: {revised_duration}s (was {total_duration}s)")
