@@ -26,6 +26,7 @@ from yt_autopilot.core.schemas import TrendCandidate, EditorialDecision
 from yt_autopilot.core.logger import logger, truncate_for_log, log_fallback
 from yt_autopilot.core.config import LOG_TRUNCATE_REASONING
 from yt_autopilot.core.language_validator import validate_and_fix_enum_fields
+from yt_autopilot.core.series_manager import list_available_series
 
 
 def _format_performance_insights(performance_history: Optional[List[Dict]]) -> str:
@@ -163,6 +164,13 @@ def decide_editorial_strategy(
     if 'editorial_strategy' in workspace and 'cpm_baseline' in workspace['editorial_strategy']:
         cpm_baseline = workspace['editorial_strategy']['cpm_baseline']
 
+    # Get available series formats (Layer 1: Prevention for serie hallucination)
+    available_series = list_available_series()
+    series_list_formatted = "\n".join([
+        f"   ✓ \"{serie_id}\"  →  {name}"
+        for serie_id, name in available_series.items()
+    ])
+
     # Build Chain-of-Thought reasoning prompt
     prompt = f"""You are an editorial strategist for a YouTube finance channel with CPM ${cpm_baseline}.
 
@@ -208,6 +216,31 @@ MUST use EXACT English values. DO NOT TRANSLATE THESE ENUM VALUES.
 - DO NOT translate enum values to workspace language
 - Other fields (serie_concept, cta_specific, reasoning_summary) can be in workspace language
 - If unsure, default to: format="analysis", angle="education", monetization_path="playlist"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚠️ CRITICAL: AVAILABLE SERIES (NO HALLUCINATION!) ⚠️
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+4. "serie_concept" field - MUST be ONE of these EXACT serie_ids:
+
+{series_list_formatted}
+
+⚠️ CRITICAL CONSTRAINT:
+- You MUST choose ONE existing serie_id from the list above
+- DO NOT invent new series names (e.g., "Fitness e Finanza: Investi nel tuo Benessere" is INVALID)
+- COPY the exact serie_id (e.g., "market_watch", NOT "Market Watch" or "market-watch")
+- If unsure which serie fits best, default to "tutorial"
+
+**EXAMPLES:**
+❌ WRONG: "serie_concept": "Fitness e Finanza: Investi nel tuo Benessere"  (hallucinated - doesn't exist!)
+✅ CORRECT: "serie_concept": "how_to"  (exists in list above)
+
+❌ WRONG: "serie_concept": "Market Watch"  (wrong format - has space and capitals)
+✅ CORRECT: "serie_concept": "market_watch"  (exact serie_id)
+
+**WHY THIS MATTERS:**
+If you suggest a non-existent serie, the system will fallback to "tutorial", losing the strategic value of proper serie categorization.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -298,7 +331,7 @@ Explain WHY this duration maximizes revenue for THIS specific video.
 
 OUTPUT (valid JSON only, no markdown formatting):
 {{
-  "serie_concept": "<name of serie - can be new if performance data suggests it>",
+  "serie_concept": "<MUST BE ONE OF: {', '.join(available_series.keys())} - EXACT serie_id>",
   "format": "<MUST BE ONE OF: tutorial, analysis, alert, comparison - EXACT ENGLISH VALUE>",
   "angle": "<MUST BE ONE OF: risk, opportunity, education, history - EXACT ENGLISH VALUE>",
   "duration_target": <total seconds>,
@@ -315,10 +348,11 @@ OUTPUT (valid JSON only, no markdown formatting):
 }}
 
 CRITICAL VALIDATION BEFORE RESPONDING:
+✓ Check "serie_concept" field: Is it EXACTLY one of: {', '.join(available_series.keys())}? (NO hallucination!)
 ✓ Check "format" field: Is it EXACTLY one of: tutorial, analysis, alert, comparison?
 ✓ Check "angle" field: Is it EXACTLY one of: risk, opportunity, education, history?
 ✓ Check "monetization_path" field: Is it EXACTLY one of: lead_magnet, playlist, comment_trigger, external?
-✓ All three enum fields MUST be in English (NOT translated to {workspace.get('target_language', 'en')})
+✓ All four enum fields MUST be in English (NOT translated to {workspace.get('target_language', 'en')})
 
 IMPORTANT:
 - Think step-by-step through each section
