@@ -42,7 +42,7 @@ from typing import Dict, List, Tuple, Optional
 import random
 from yt_autopilot.core.schemas import VideoPlan, VideoScript, VisualPlan, VisualScene, SceneVoiceover, SeriesFormat
 from yt_autopilot.core.memory_store import get_visual_style
-from yt_autopilot.core.logger import logger
+from yt_autopilot.core.logger import logger, log_fallback  # Phase C - P4: Add fallback logging
 from yt_autopilot.agents.cinematographer import get_cinematic_specs
 
 
@@ -1470,11 +1470,37 @@ def generate_visual_plan(
     # Create VisualPlan
     # Step 09: Include visual context tracking for analytics
     # MONETIZATION REFACTOR: Scale scene durations to match target if needed
+    # Phase C - P4: Enhanced duration constraint validation with Timeline priority
     actual_duration = sum(scene.est_duration_seconds for scene in scenes)
-    if duration_strategy and abs(actual_duration - target_duration_seconds) > target_duration_seconds * 0.2:
-        # Duration mismatch > 20%, scale proportionally
-        scale_factor = target_duration_seconds / actual_duration
-        logger.info(f"  Scaling scene durations: {actual_duration}s → {target_duration_seconds}s (factor: {scale_factor:.2f})")
+
+    # Phase C - P4: Use Timeline.reconciled_duration as single source of truth
+    validation_target = timeline.reconciled_duration if timeline else target_duration_seconds
+    validation_source = "Timeline.reconciled_duration" if timeline else "target_duration_seconds"
+
+    duration_mismatch_pct = abs(actual_duration - validation_target) / validation_target if validation_target > 0 else 0
+
+    # Phase C - P4: Strict validation threshold (10% instead of 20%)
+    DURATION_MISMATCH_THRESHOLD = 0.10  # 10% tolerance
+    CRITICAL_MISMATCH_THRESHOLD = 0.30  # 30% = critical issue
+
+    if duration_mismatch_pct > CRITICAL_MISMATCH_THRESHOLD:
+        # Phase C - P4: Log critical mismatch as fallback (quality issue)
+        logger.error(f"  ⚠️ CRITICAL duration mismatch: {actual_duration}s vs {validation_target}s ({duration_mismatch_pct*100:.1f}% difference)")
+        logger.error(f"     Source: {validation_source}")
+
+        log_fallback(
+            component="VISUAL_PLANNER_DURATION_VALIDATION",
+            fallback_type="CRITICAL_DURATION_MISMATCH",
+            reason=f"Scene durations ({actual_duration}s) differ from {validation_source} ({validation_target}s) by {duration_mismatch_pct*100:.1f}%",
+            impact="HIGH"
+        )
+
+    if duration_mismatch_pct > DURATION_MISMATCH_THRESHOLD:
+        # Duration mismatch > 10%, scale proportionally
+        scale_factor = validation_target / actual_duration
+        logger.warning(f"  ⚠️ Duration mismatch detected: {actual_duration}s vs {validation_target}s ({duration_mismatch_pct*100:.1f}%)")
+        logger.info(f"  Scaling scene durations: {actual_duration}s → {validation_target}s (factor: {scale_factor:.2f})")
+        logger.info(f"  Validation source: {validation_source}")
 
         for scene in scenes:
             original_duration = scene.est_duration_seconds
@@ -1483,7 +1509,9 @@ def generate_visual_plan(
             logger.debug(f"    Scene {scene.scene_id}: {original_duration}s → {scaled_duration}s")
 
         actual_duration_after = sum(scene.est_duration_seconds for scene in scenes)
-        logger.info(f"  ✓ Scenes scaled to {actual_duration_after}s (target: {target_duration_seconds}s)")
+        logger.info(f"  ✓ Scenes scaled to {actual_duration_after}s (target: {validation_target}s from {validation_source})")
+    else:
+        logger.info(f"  ✓ Duration validation passed: {actual_duration}s matches {validation_target}s (±{duration_mismatch_pct*100:.1f}%)")
 
     # Step 09.6: Include video_style_mode tracking
     # Step 09.7: Include AI-selected format tracking for faceless videos
