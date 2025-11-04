@@ -34,7 +34,7 @@ from yt_autopilot.core.logger import logger, truncate_for_log, log_fallback
 from yt_autopilot.agents.editorial_strategist import decide_editorial_strategy
 from yt_autopilot.agents.duration_strategist import analyze_duration_strategy  # NEW: monetization-first
 from yt_autopilot.agents.format_reconciler import reconcile_format_strategies  # Fase 2 Sprint 1: duration arbitration
-from yt_autopilot.agents.narrative_architect import design_narrative_arc  # NEW: emotional storytelling
+from yt_autopilot.agents.narrative_architect import design_narrative_arc, expand_narrative_voiceovers  # NEW: emotional storytelling + Layer 2 expansion
 from yt_autopilot.agents.cta_strategist import design_cta_strategy  # Fase 2 Sprint 1: CTA placement
 from yt_autopilot.agents.content_depth_strategist import analyze_content_depth  # NEW: AI-driven bullets count
 from yt_autopilot.agents.trend_hunter import generate_video_plan
@@ -1204,6 +1204,14 @@ Return ONLY a JSON object:
         )
 
         logger.info(f"✓ Narrative arc created with {len(narrative_arc['narrative_structure'])} acts")
+
+        # Layer 2: AI-driven expansion if narrative is too short
+        narrative_arc = expand_narrative_voiceovers(
+            narrative_arc=narrative_arc,
+            target_duration=timeline.reconciled_duration if timeline else duration_strategy['target_duration_seconds'],
+            target_language=workspace.get('target_language', 'en'),
+            llm_generate_fn=llm_generate_fn
+        )
     else:
         logger.warning("Skipping Narrative Architect (no editorial/duration strategy)")
         narrative_arc = None

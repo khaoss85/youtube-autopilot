@@ -116,6 +116,11 @@ def design_narrative_arc(
     }
     language_instruction = language_names.get(target_language.lower(), target_language.upper())
 
+    # Calculate word count targets (Layer 1: Prevention)
+    target_words_total = int(actual_duration * 2.5)  # 2.5 words/second average speaking rate
+    num_acts = (bullet_count_constraint + 2) if bullet_count_constraint else 7  # Hook + content + CTA
+    words_per_act = target_words_total // num_acts
+
     prompt = f"""You are a master storytelling architect for YouTube video retention.
 
 ⚠️ CRITICAL LANGUAGE REQUIREMENT ⚠️
@@ -124,6 +129,30 @@ DO NOT mix languages. If you see examples in other languages below, IGNORE their
 
 TOPIC: "{topic}"
 TARGET DURATION: {actual_duration}s ({actual_duration // 60}min {actual_duration % 60}s) [PHASE C - P2: From Timeline.reconciled_duration - MUST RESPECT]
+
+⚠️ CRITICAL WORD COUNT REQUIREMENT (Layer 1: Duration Prevention) ⚠️
+═══════════════════════════════════════════════════════════════════════════
+TARGET WORD COUNT: {target_words_total} words total (~2.5 words/second speaking rate)
+
+This is MANDATORY to match the {actual_duration}s duration target.
+
+WORD COUNT DISTRIBUTION:
+- Total acts: {num_acts} (Hook + {num_acts-2} content acts + CTA)
+- Words per act: ~{words_per_act} words minimum
+- Hook: ~{words_per_act} words
+- Each Content act: ~{words_per_act} words
+- CTA: ~{words_per_act} words
+
+VERIFICATION CHECKLIST (REQUIRED BEFORE RESPONDING):
+✓ 1. Count words in EACH act's voiceover field
+✓ 2. Sum total words across ALL acts
+✓ 3. Ensure total is {target_words_total} words ±10% ({int(target_words_total * 0.9)}-{int(target_words_total * 1.1)} words)
+✓ 4. If too short → ADD more detail/examples/stories/explanations
+✓ 5. If too long → BE CONCISE but don't sacrifice clarity
+
+⚠️ FAILURE TO MEET WORD COUNT = SCRIPT VALIDATION FAILURE ⚠️
+═══════════════════════════════════════════════════════════════════════════
+
 FORMAT: {format_type} (short/mid/long)
 CONTENT DEPTH: {content_depth_score:.2f} (0=thin, 1=deep)
 
@@ -242,6 +271,7 @@ CRITICAL:
 - NO filler words ("um", "like", "you know")
 - Specific examples > abstract concepts
 - ⚠️ Duration must sum to approximately {actual_duration}s (±10%) - TIMELINE CONSTRAINT MUST BE RESPECTED ⚠️
+- ⚠️ WORD COUNT MUST BE {target_words_total} words ±10% ({int(target_words_total * 0.9)}-{int(target_words_total * 1.1)} words) - COUNT BEFORE RESPONDING ⚠️
 {f'''
 ⚠️ SELF-VERIFICATION (REQUIRED BEFORE RESPONDING):
 1. Count your content acts (acts that are NOT Hook or Payoff_CTA)
@@ -382,3 +412,204 @@ RESPOND WITH RAW JSON ONLY.
                 {'timestamp': actual_duration - 3, 'act': 'CTA', 'emotion': 'community'}
             ]
         }
+
+
+def expand_narrative_voiceovers(
+    narrative_arc: Dict[str, Any],
+    target_duration: int,
+    target_language: str,
+    llm_generate_fn: callable,
+    max_attempts: int = 2
+) -> Dict[str, Any]:
+    """
+    Layer 2: AI-driven narrative expansion for duration matching.
+
+    If narrative voiceovers are too short (>20% divergence from target),
+    uses LLM to intelligently expand content while preserving emotional arc.
+
+    This is NOT simple padding - it's semantic content enrichment:
+    - Adds concrete examples and stories
+    - Includes relevant statistics/data
+    - Expands with relatable scenarios
+    - Adds pattern interrupts for retention
+    - Preserves voice personality and emotional beats
+
+    Args:
+        narrative_arc: Output from design_narrative_arc() with narrative_structure
+        target_duration: Target duration in seconds
+        target_language: Target language code (e.g., "it", "en")
+        llm_generate_fn: LLM function for expansion
+        max_attempts: Maximum expansion attempts (default: 2)
+
+    Returns:
+        Expanded narrative_arc with enriched voiceovers
+
+    Example:
+        >>> arc = design_narrative_arc(...)  # Returns 82s worth of text
+        >>> expanded = expand_narrative_voiceovers(arc, 300, "it", generate_text)
+        >>> # Returns 300s worth of enriched text
+    """
+    # Calculate current word count
+    full_voiceover = narrative_arc.get('full_voiceover', '')
+    current_words = len(full_voiceover.split())
+    target_words = int(target_duration * 2.5)  # 2.5 words/second
+    words_needed = target_words - current_words
+    divergence_pct = abs(target_words - current_words) / target_words * 100 if target_words > 0 else 0
+
+    # Only expand if divergence > 20% (Layer 2 threshold)
+    if divergence_pct < 20:
+        logger.info(f"  ✓ Narrative word count acceptable: {current_words} words vs {target_words} target ({divergence_pct:.1f}% divergence)")
+        return narrative_arc
+
+    logger.warning(f"  ⚠️ Narrative too short: {current_words} words vs {target_words} target ({divergence_pct:.1f}% divergence)")
+    logger.info(f"  🔄 Layer 2: Triggering AI-driven content expansion (need +{words_needed} words)")
+
+    from yt_autopilot.core.language_validator import LANGUAGE_NAMES
+
+    for attempt in range(1, max_attempts + 1):
+        logger.info(f"     Expansion attempt {attempt}/{max_attempts}...")
+
+        # Build acts list (outside f-string to avoid backslash error)
+        acts_list = "\n".join([
+            f"- {act['act_name']}: \"{act['voiceover']}\" ({len(act['voiceover'].split())} words)"
+            for act in narrative_arc['narrative_structure']
+        ])
+
+        # Build expansion prompt
+        expansion_prompt = f"""You are a content enrichment specialist for YouTube video scripts.
+
+TASK: Expand each act's voiceover from {current_words} words total to ~{target_words} words total.
+
+CURRENT NARRATIVE ARC:
+Voice Personality: {narrative_arc.get('voice_personality', 'Unknown')}
+Emotional Journey: {narrative_arc.get('emotional_journey', 'Unknown')}
+
+CURRENT ACTS (TOO SHORT):
+{acts_list}
+
+EXPANSION REQUIREMENTS:
+1. ✅ Preserve emotional arc and voice personality
+2. ✅ Expand EACH act proportionally (not just one act)
+3. ✅ Add depth through:
+   - Concrete examples and relatable stories
+   - Relevant statistics or data points (if appropriate)
+   - Vivid descriptions and scenarios
+   - Pattern interrupts for retention ("But here's the thing...")
+   - Direct address to viewer ("You might be thinking...")
+4. ✅ Maintain retention tactics (cliffhangers, open loops, etc.)
+5. ✅ Keep proper punctuation and pacing for spoken delivery
+6. ❌ DO NOT just repeat existing content or add filler
+
+TARGET WORD COUNT PER ACT:
+- Total target: {target_words} words
+- Words per act: ~{target_words // len(narrative_arc['narrative_structure'])} words minimum
+
+OUTPUT FORMAT (JSON):
+{{
+  "narrative_structure": [
+    {{
+      "act_name": "Hook",
+      "duration_seconds": <int>,
+      "emotional_beat": "<same as before>",
+      "voiceover": "<EXPANDED voiceover with ~{target_words // len(narrative_arc['narrative_structure'])} words>",
+      "retention_tactic": "<same or enhanced>"
+    }},
+    // ... repeat for ALL acts
+  ]
+}}
+
+⚠️ CRITICAL VERIFICATION BEFORE RESPONDING:
+1. Count words in EACH expanded voiceover
+2. Sum total words
+3. Ensure total is {target_words} ±10% ({int(target_words * 0.9)}-{int(target_words * 1.1)} words)
+4. If still too short, add MORE detail/examples/stories
+
+LANGUAGE: ALL voiceovers must be in {LANGUAGE_NAMES.get(target_language, target_language.upper())}
+
+OUTPUT ONLY VALID JSON:
+"""
+
+        try:
+            # Call LLM for expansion
+            expanded_response = llm_generate_fn(
+                role="narrative_expansion_specialist",
+                task=expansion_prompt,
+                context="",
+                style_hints={"temperature": 0.3, "language": target_language}  # Low temp for consistency
+            )
+
+            # Parse JSON response
+            import json
+            import re
+
+            # Try direct JSON parse
+            try:
+                expanded_data = json.loads(expanded_response)
+            except json.JSONDecodeError:
+                # Extract from markdown code block
+                json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', expanded_response, re.DOTALL)
+                if json_match:
+                    expanded_data = json.loads(json_match.group(1))
+                else:
+                    # Try to find JSON object
+                    json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', expanded_response, re.DOTALL)
+                    if json_match:
+                        expanded_data = json.loads(json_match.group(0))
+                    else:
+                        raise ValueError("Could not extract JSON from LLM response")
+
+            # Validate expansion
+            if 'narrative_structure' not in expanded_data:
+                raise ValueError("Missing narrative_structure in LLM response")
+
+            # Rebuild full voiceover and calculate new word count
+            expanded_voiceover = " ".join([
+                act['voiceover'] for act in expanded_data['narrative_structure']
+            ])
+            expanded_words = len(expanded_voiceover.split())
+            new_divergence = abs(target_words - expanded_words) / target_words * 100
+
+            logger.info(f"     ✓ Expansion completed: {current_words} → {expanded_words} words")
+            logger.info(f"       Divergence: {divergence_pct:.1f}% → {new_divergence:.1f}%")
+
+            # Check if improvement
+            if new_divergence < divergence_pct or new_divergence < 20:
+                # Success! Update narrative_arc
+                narrative_arc['narrative_structure'] = expanded_data['narrative_structure']
+                narrative_arc['full_voiceover'] = expanded_voiceover
+
+                # Rebuild emotional beats timeline
+                emotional_beats = []
+                cumulative_time = 0
+                for act in narrative_arc['narrative_structure']:
+                    emotional_beats.append({
+                        'timestamp': cumulative_time,
+                        'act': act['act_name'],
+                        'emotion': act['emotional_beat']
+                    })
+                    cumulative_time += act.get('duration_seconds', 0)
+                narrative_arc['emotional_beats'] = emotional_beats
+
+                logger.info(f"  ✅ Layer 2: AI expansion SUCCESSFUL (divergence now {new_divergence:.1f}%)")
+                return narrative_arc
+            else:
+                # No improvement, try again
+                logger.warning(f"     ⚠️ Expansion attempt {attempt} insufficient (divergence {new_divergence:.1f}%)")
+                current_words = expanded_words  # Use expanded as new baseline for retry
+
+        except Exception as e:
+            logger.error(f"     ❌ Expansion attempt {attempt} failed: {e}")
+
+    # All attempts failed
+    logger.error(f"  ❌ Layer 2: AI expansion failed after {max_attempts} attempts")
+    logger.warning(f"     Falling back to Layer 3 (deterministic padding)")
+
+    log_fallback(
+        component="NARRATIVE_ARCHITECT_AI_EXPANSION",
+        fallback_type="EXPANSION_FAILED",
+        reason=f"AI expansion failed after {max_attempts} attempts. Divergence: {divergence_pct:.1f}%",
+        impact="MEDIUM"
+    )
+
+    # Return original (Layer 3 will handle it)
+    return narrative_arc
