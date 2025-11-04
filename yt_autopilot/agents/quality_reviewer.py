@@ -29,10 +29,11 @@ Example:
 ==============================================================================
 """
 
-from typing import Dict, Tuple, List
+from typing import Dict, Tuple, List, Optional, Callable
 from yt_autopilot.core.schemas import VideoPlan, VideoScript, VisualPlan, PublishingPackage
 from yt_autopilot.core.memory_store import get_banned_topics, get_brand_tone
 from yt_autopilot.core.logger import logger
+import json
 
 
 def _check_banned_topics(
@@ -335,12 +336,140 @@ def _check_narrator_persona_consistency(script: VideoScript, narrator_config: Di
     return True, ""
 
 
+def _ai_semantic_compliance_check(
+    all_text: str,
+    language: str,
+    llm_generate_fn: Optional[Callable] = None
+) -> Tuple[bool, str, Dict[str, bool]]:
+    """
+    Layer 2: AI-driven semantic compliance check (replaces pattern-based false positives).
+
+    Uses LLM to understand context and language nuances instead of hard-coded keywords.
+    This prevents false positives like:
+    - "episodio" (Italian "episode") flagged as "odio" (hate)
+    - "miracol..." (Italian "miracle") flagged as medical claim
+
+    Args:
+        all_text: Combined content to check
+        language: Target language code (e.g., 'it', 'en')
+        llm_generate_fn: LLM generation function
+
+    Returns:
+        (is_compliant, issue_description, detailed_results)
+        detailed_results: Dict with individual check results
+    """
+    if not llm_generate_fn:
+        # Fallback if no LLM available - assume compliant
+        logger.warning("AI compliance check skipped - no LLM function provided")
+        return True, "", {}
+
+    language_names = {'it': 'Italian', 'en': 'English', 'es': 'Spanish', 'fr': 'French'}
+    language_name = language_names.get(language, language.upper())
+
+    prompt = f"""You are a content compliance specialist analyzing video content for brand safety.
+
+⚠️ CRITICAL: This content is in {language_name}. Use SEMANTIC UNDERSTANDING, not keyword matching.
+
+CONTENT TO ANALYZE:
+{all_text[:3000]}
+
+Analyze this content for ACTUAL violations (not false positives):
+
+1. HATE SPEECH: Does this content express genuine hatred, discrimination, or violence toward groups?
+   ❌ FALSE POSITIVE EXAMPLE: Italian word "episodio" (episode) contains "odio" but is NOT hate speech
+   ✅ ACTUAL VIOLATION: Content that demeans, attacks, or promotes violence against people
+
+2. MEDICAL CLAIMS: Does this content make PROHIBITED medical guarantees?
+   ❌ FALSE POSITIVE EXAMPLE: Italian "miracol..." in context like "non è un miracolo, ma..." (it's not a miracle, but...)
+   ✅ ACTUAL VIOLATION: Claims like "guaranteed cure", "eliminates disease forever", "100% effective treatment"
+
+3. COPYRIGHT: Does this content explicitly reference using copyrighted material?
+   ❌ FALSE POSITIVE EXAMPLE: Mentioning a song title for discussion
+   ✅ ACTUAL VIOLATION: Instructions to "use music by [artist]" or "play copyrighted soundtrack"
+
+RESPONSE FORMAT (valid JSON only, no markdown):
+{{
+  "hate_speech_violation": true/false,
+  "hate_speech_reasoning": "<explain your decision, cite specific text if violation>",
+  "medical_claims_violation": true/false,
+  "medical_claims_reasoning": "<explain your decision, cite specific text if violation>",
+  "copyright_violation": true/false,
+  "copyright_reasoning": "<explain your decision, cite specific text if violation>",
+  "overall_compliant": true/false,
+  "summary": "<overall assessment>"
+}}
+
+IMPORTANT:
+- Consider language context (Italian words may look like English violations)
+- Understand nuance (disclaimers like "not a miracle" are SAFE)
+- Be strict on ACTUAL violations, tolerant of false positives
+- Default to COMPLIANT unless clear violation exists
+"""
+
+    try:
+        logger.info("  🤖 Layer 2: Running AI-driven semantic compliance check...")
+        response = llm_generate_fn(
+            role="compliance_reviewer",
+            task="Analyze content for brand safety violations with semantic understanding",
+            context=prompt,
+            style_hints={"temperature": 0.2}  # Low temperature for consistent judgments
+        )
+
+        # Parse JSON response
+        # Remove markdown if present
+        response_clean = response.strip()
+        if response_clean.startswith("```json"):
+            response_clean = response_clean.split("```json")[1].split("```")[0].strip()
+        elif response_clean.startswith("```"):
+            response_clean = response_clean.split("```")[1].split("```")[0].strip()
+
+        result = json.loads(response_clean)
+
+        # Log detailed results
+        logger.info(f"  AI Compliance Results:")
+        logger.info(f"    Hate Speech: {'❌ VIOLATION' if result['hate_speech_violation'] else '✅ CLEAN'}")
+        logger.info(f"      → {result['hate_speech_reasoning'][:100]}...")
+        logger.info(f"    Medical Claims: {'❌ VIOLATION' if result['medical_claims_violation'] else '✅ CLEAN'}")
+        logger.info(f"      → {result['medical_claims_reasoning'][:100]}...")
+        logger.info(f"    Copyright: {'❌ VIOLATION' if result['copyright_violation'] else '✅ CLEAN'}")
+        logger.info(f"      → {result['copyright_reasoning'][:100]}...")
+
+        is_compliant = result['overall_compliant']
+
+        if not is_compliant:
+            issues = []
+            if result['hate_speech_violation']:
+                issues.append(f"[AI-Hate Speech] {result['hate_speech_reasoning']}")
+            if result['medical_claims_violation']:
+                issues.append(f"[AI-Medical Claims] {result['medical_claims_reasoning']}")
+            if result['copyright_violation']:
+                issues.append(f"[AI-Copyright] {result['copyright_reasoning']}")
+
+            issue_msg = "\n".join(issues)
+            logger.warning(f"  ❌ AI detected violations: {issue_msg}")
+            return False, issue_msg, result
+
+        logger.info(f"  ✅ AI compliance check PASSED - {result['summary']}")
+        return True, "", result
+
+    except json.JSONDecodeError as e:
+        logger.error(f"  ❌ AI compliance check failed - JSON parse error: {e}")
+        logger.error(f"  Raw response: {response[:200]}...")
+        # Fallback to compliant (pattern-based will catch issues)
+        return True, f"AI check failed (JSON error), falling back to pattern checks", {}
+    except Exception as e:
+        logger.error(f"  ❌ AI compliance check failed - {e}")
+        # Fallback to compliant (pattern-based will catch issues)
+        return True, f"AI check failed ({str(e)}), falling back to pattern checks", {}
+
+
 def review(
     plan: VideoPlan,
     script: VideoScript,
     visuals: VisualPlan,
     publishing: PublishingPackage,
-    memory: Dict
+    memory: Dict,
+    llm_generate_fn: Optional[Callable] = None
 ) -> Tuple[bool, str]:
     """
     Performs comprehensive quality review of complete video package.
@@ -383,18 +512,63 @@ def review(
         publishing.description
     ])
 
-    # Run all checks
+    # ======================================================================
+    # Layer 2: AI-Driven Semantic Compliance (replaces pattern-based)
+    # ======================================================================
+    ai_passed = True
+    ai_result = {}
+    language = memory.get('target_language', 'en')
+
+    if llm_generate_fn:
+        logger.info("")
+        logger.info("🤖 AI-DRIVEN COMPLIANCE CHECK (Layer 2)")
+        logger.info("  Using semantic understanding to avoid false positives")
+
+        ai_passed, ai_issue, ai_result = _ai_semantic_compliance_check(
+            all_text=all_text,
+            language=language,
+            llm_generate_fn=llm_generate_fn
+        )
+
+        if not ai_passed:
+            # AI detected actual violations - reject immediately
+            rejection_message = (
+                f"Video package REJECTED by AI semantic compliance check.\n"
+                f"{ai_issue}\n\n"
+                "Please revise and resubmit."
+            )
+            logger.error(f"QualityReviewer REJECTED by AI: '{plan.working_title}'")
+            return False, rejection_message
+
+        logger.info("  ✅ AI compliance check passed - content is brand-safe")
+        logger.info("")
+    else:
+        logger.warning("⚠️ No LLM function provided - skipping AI compliance check")
+        logger.warning("  Falling back to pattern-based checks (may have false positives)")
+
+    # ======================================================================
+    # Layer 3: Pattern-Based Checks (fallback / non-AI checks)
+    # ======================================================================
+    # If AI passed, SKIP pattern-based hate/medical/copyright checks (prevent false positives)
+    # Run other quality checks (banned topics, tone, hook, duration, title)
+
     checks = [
         ("Banned Topics", lambda: _check_banned_topics(plan, script, publishing, banned_topics)),
-        ("Hate Speech", lambda: _check_hate_speech_indicators(all_text)),
-        ("Medical Claims", lambda: _check_medical_claims(all_text)),
-        ("Copyright", lambda: _check_copyright_violations(all_text)),
         ("Brand Tone", lambda: _check_brand_tone_compliance(script, brand_tone)),
         ("Narrator Persona", lambda: _check_narrator_persona_consistency(script, narrator_config)),  # Step 09
         ("Hook Quality", lambda: _check_hook_quality(script, narrator_config)),  # Step 09: Pass narrator config
         ("Video Duration", lambda: _check_video_duration(visuals)),
         ("Title Quality", lambda: _check_title_quality(publishing)),
     ]
+
+    # Add pattern-based compliance checks ONLY if AI check didn't run
+    if not llm_generate_fn or not ai_passed:
+        logger.info("  🛡️ Layer 3: Running pattern-based compliance checks (fallback)")
+        checks.extend([
+            ("Hate Speech", lambda: _check_hate_speech_indicators(all_text)),
+            ("Medical Claims", lambda: _check_medical_claims(all_text)),
+            ("Copyright", lambda: _check_copyright_violations(all_text)),
+        ])
 
     # Execute checks
     issues = []

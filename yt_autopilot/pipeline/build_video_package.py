@@ -1834,7 +1834,7 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
 
     # Step 7: QualityReviewer - first pass
     logger.info("Step 7: Running QualityReviewer (first pass)...")
-    approved, reason = review(video_plan, script, visual_plan, publishing, memory)
+    approved, reason = review(video_plan, script, visual_plan, publishing, memory, llm_generate_fn=llm_generate_fn)
 
     if approved:
         logger.info("✓ Quality check PASSED on first attempt")
@@ -1876,7 +1876,8 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
             revised_script,
             revised_visual_plan,
             revised_publishing,
-            memory
+            memory,
+            llm_generate_fn=llm_generate_fn
         )
 
         if approved:
