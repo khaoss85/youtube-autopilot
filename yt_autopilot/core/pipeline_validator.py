@@ -27,6 +27,7 @@ from enum import Enum
 from dataclasses import dataclass, field
 from collections import Counter
 from difflib import SequenceMatcher
+from yt_autopilot.core.logger import log_fallback
 
 from yt_autopilot.core.schemas import (
     EditorialDecision,
@@ -119,12 +120,102 @@ class Gate1_PostEditorialValidator:
     VALID_ANGLES = ['risk', 'opportunity', 'education', 'history', 'trend', 'breaking']
     VALID_MONETIZATION_PATHS = ['lead_magnet', 'playlist', 'comment_trigger', 'external']
 
+    # Language Bug Fix: Bilingual enum mappings for LLM output tolerance
+    # When workspace target_language='it', LLM may output Italian enum values
+    # This mapping allows validator to normalize Italian → English before validation
+    ENUM_TRANSLATIONS = {
+        'format': {
+            'it': {
+                'tutorial': 'tutorial',  # Same in both languages
+                'analisi': 'analysis',
+                'avviso': 'alert',
+                'confronto': 'comparison',
+                'lista': 'listicle',
+                'storia': 'story'
+            }
+        },
+        'angle': {
+            'it': {
+                'rischio': 'risk',
+                'opportunità': 'opportunity',
+                'educazione': 'education',
+                'storia': 'history',
+                'tendenza': 'trend',
+                'rottura': 'breaking'
+            }
+        },
+        'monetization_path': {
+            'it': {
+                'risorsa_scaricabile': 'lead_magnet',
+                'lead_magnet': 'lead_magnet',  # Allow English pass-through
+                'playlist': 'playlist',  # Same in both
+                'commento_trigger': 'comment_trigger',
+                'esterno': 'external'
+            }
+        }
+    }
+
     CTA_KEYWORDS = {
         'lead_magnet': ['scarica', 'download', 'checklist', 'guida', 'pdf', 'risorsa', 'guide', 'ebook'],
         'playlist': ['prossimo', 'serie', 'playlist', 'episodio', 'continua', 'next', 'episode'],
         'comment_trigger': ['scrivi', 'commenta', 'keyword', 'parola', 'rispondo', 'comment', 'write'],
         'external': ['link', 'clicca', 'scopri', 'visita', 'vai', 'click', 'visit']
     }
+
+    def _normalize_enum_field(
+        self,
+        field_name: str,
+        value: str,
+        workspace_language: str
+    ) -> str:
+        """
+        Normalize enum field value from workspace language to English.
+
+        Language Bug Fix: Tolerates Italian enum values from LLM and auto-converts
+        to English before validation. This allows Italian workspaces to function
+        while we enforce English enum outputs in LLM prompts.
+
+        Args:
+            field_name: Name of enum field (e.g., 'angle', 'format')
+            value: Current value (may be in Italian)
+            workspace_language: Workspace target_language (e.g., 'it')
+
+        Returns:
+            Normalized English value
+
+        Example:
+            >>> self._normalize_enum_field('angle', 'educazione', 'it')
+            'education'
+
+            >>> self._normalize_enum_field('angle', 'education', 'en')
+            'education'  # Pass-through for English
+        """
+        # English workspace or field not in translation map: no normalization needed
+        if workspace_language == 'en' or field_name not in self.ENUM_TRANSLATIONS:
+            return value
+
+        # Check if language has translations for this field
+        if workspace_language not in self.ENUM_TRANSLATIONS.get(field_name, {}):
+            return value  # No translation available for this language
+
+        # Get translation map for this field + language
+        translation_map = self.ENUM_TRANSLATIONS[field_name][workspace_language]
+        normalized = translation_map.get(value, value)  # Fallback to original if not found
+
+        # Log translation events for monitoring
+        if normalized != value:
+            logger.info(f"  🌐 Normalized {field_name}: '{value}' ({workspace_language}) → '{normalized}' (en)")
+
+            # Log fallback for analytics (detect LLM prompt compliance issues)
+            from yt_autopilot.core.logger import log_fallback
+            log_fallback(
+                component="GATE1_VALIDATOR_ENUM_TRANSLATION",
+                fallback_type="LANGUAGE_NORMALIZATION",
+                reason=f"LLM outputted {workspace_language} enum value '{value}' instead of English '{normalized}' for field '{field_name}'",
+                impact="LOW"
+            )
+
+        return normalized
 
     def validate(
         self,
@@ -150,6 +241,27 @@ class Gate1_PostEditorialValidator:
         issues = []
         warnings = []
         recommendations = []
+
+        # Layer 3: Hard-coded enum normalization (fallback safety net)
+        workspace_language = workspace.get('target_language', 'en')
+        logger.info("  🛡️ Layer 3: Applying hard-coded enum normalization (fallback)")
+
+        # Normalize enum fields from workspace language to English
+        # This catches any cases that Layer 1 (prompts) and Layer 2 (AI correction) missed
+        normalized_format = self._normalize_enum_field('format', editorial_decision.format, workspace_language)
+        normalized_angle = self._normalize_enum_field('angle', editorial_decision.angle, workspace_language)
+        normalized_monetization = self._normalize_enum_field('monetization_path', editorial_decision.monetization_path, workspace_language)
+
+        # Update editorial_decision with normalized values
+        # (we'll use normalized values in validation checks)
+        from copy import copy
+        editorial_decision = copy(editorial_decision)
+        if normalized_format != editorial_decision.format:
+            object.__setattr__(editorial_decision, 'format', normalized_format)
+        if normalized_angle != editorial_decision.angle:
+            object.__setattr__(editorial_decision, 'angle', normalized_angle)
+        if normalized_monetization != editorial_decision.monetization_path:
+            object.__setattr__(editorial_decision, 'monetization_path', normalized_monetization)
 
         # Check 1: Serie concept validation
         serie_id = editorial_decision.serie_concept.lower().replace(' ', '_')
@@ -825,7 +937,14 @@ class Gate3_PostScriptValidator:
             detections = detect_langs(text)
             if detections:
                 return detections[0].lang, detections[0].prob
-        except Exception:
+        except Exception as e:
+            # 🚨 Log language detection failure fallback (returns unknown)
+            log_fallback(
+                component="PIPELINE_VALIDATOR_LANG_DETECT",
+                fallback_type="LANG_DETECTION_FAILED",
+                reason=f"Language detection failed: {e}",
+                impact="LOW"
+            )
             pass
         return "unknown", 0.0
 

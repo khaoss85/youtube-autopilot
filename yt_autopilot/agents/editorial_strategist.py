@@ -25,6 +25,7 @@ import json
 from yt_autopilot.core.schemas import TrendCandidate, EditorialDecision
 from yt_autopilot.core.logger import logger, truncate_for_log, log_fallback
 from yt_autopilot.core.config import LOG_TRUNCATE_REASONING
+from yt_autopilot.core.language_validator import validate_and_fix_enum_fields
 
 
 def _format_performance_insights(performance_history: Optional[List[Dict]]) -> str:
@@ -91,6 +92,13 @@ def _extract_json_from_llm_response(llm_text: str) -> Optional[Dict]:
     try:
         return json.loads(json_str)
     except json.JSONDecodeError as e:
+        # 🚨 Log JSON parsing failure fallback (returns None)
+        log_fallback(
+            component="EDITORIAL_STRATEGIST_JSON_PARSE",
+            fallback_type="JSON_PARSE_ERROR",
+            reason=f"Failed to parse JSON from LLM response: {e}",
+            impact="MEDIUM"
+        )
         logger.error(f"Failed to parse JSON from LLM response: {e}")
         logger.debug(f"Attempted to parse: {json_str[:200]}")
         return None
@@ -157,6 +165,51 @@ def decide_editorial_strategy(
 
     # Build Chain-of-Thought reasoning prompt
     prompt = f"""You are an editorial strategist for a YouTube finance channel with CPM ${cpm_baseline}.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️ CRITICAL: ENUM FIELD REQUIREMENTS ⚠️
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+You MUST respond in the workspace language ({workspace.get('target_language', 'en')}), BUT enum fields below
+MUST use EXACT English values. DO NOT TRANSLATE THESE ENUM VALUES.
+
+**REQUIRED ENUM VALUES (copy exactly, case-sensitive):**
+
+1. "format" field - ONE of these EXACT strings:
+   ✓ "tutorial"      (step-by-step actionable guide)
+   ✓ "analysis"      (context + insight + implication)
+   ✓ "alert"         (risk identification + defense)
+   ✓ "comparison"    (options breakdown + recommendation)
+
+2. "angle" field - ONE of these EXACT strings:
+   ✓ "risk"          (threat identification)
+   ✓ "opportunity"   (actionable upside)
+   ✓ "education"     (learning layer)
+   ✓ "history"       (past context)
+
+3. "monetization_path" field - ONE of these EXACT strings:
+   ✓ "lead_magnet"      (downloadable resource)
+   ✓ "playlist"         (serie continuation)
+   ✓ "comment_trigger"  (engagement keyword)
+   ✓ "external"         (tool/partner link)
+
+**EXAMPLES:**
+❌ WRONG: "format": "analisi"           (translated to Italian)
+✅ CORRECT: "format": "analysis"        (English, copied exactly)
+
+❌ WRONG: "angle": "educazione"         (translated to Italian)
+✅ CORRECT: "angle": "education"        (English, copied exactly)
+
+❌ WRONG: "monetization_path": "risorsa_scaricabile"
+✅ CORRECT: "monetization_path": "lead_magnet"
+
+**INSTRUCTIONS:**
+- COPY the enum values EXACTLY as shown above (case-sensitive)
+- DO NOT translate enum values to workspace language
+- Other fields (serie_concept, cta_specific, reasoning_summary) can be in workspace language
+- If unsure, default to: format="analysis", angle="education", monetization_path="playlist"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 CHANNEL CONTEXT:
 - Vertical: {workspace.get('vertical_id', 'finance')}
@@ -246,8 +299,8 @@ Explain WHY this duration maximizes revenue for THIS specific video.
 OUTPUT (valid JSON only, no markdown formatting):
 {{
   "serie_concept": "<name of serie - can be new if performance data suggests it>",
-  "format": "tutorial|analysis|alert|comparison",
-  "angle": "risk|opportunity|education|history",
+  "format": "<MUST BE ONE OF: tutorial, analysis, alert, comparison - EXACT ENGLISH VALUE>",
+  "angle": "<MUST BE ONE OF: risk, opportunity, education, history - EXACT ENGLISH VALUE>",
   "duration_target": <total seconds>,
   "duration_breakdown": {{
     "hook": <seconds>,
@@ -255,17 +308,24 @@ OUTPUT (valid JSON only, no markdown formatting):
     "insight": <seconds>,
     "cta": <seconds>
   }},
-  "monetization_path": "lead_magnet|playlist|comment_trigger|external",
+  "monetization_path": "<MUST BE ONE OF: lead_magnet, playlist, comment_trigger, external - EXACT ENGLISH VALUE>",
   "cta_specific": "<exact CTA text to use - be specific, not template>",
   "reasoning_summary": "<2-3 sentences explaining the key strategic choices>",
   "performance_context": "<optional: insights from performance history that influenced decisions>"
 }}
+
+CRITICAL VALIDATION BEFORE RESPONDING:
+✓ Check "format" field: Is it EXACTLY one of: tutorial, analysis, alert, comparison?
+✓ Check "angle" field: Is it EXACTLY one of: risk, opportunity, education, history?
+✓ Check "monetization_path" field: Is it EXACTLY one of: lead_magnet, playlist, comment_trigger, external?
+✓ All three enum fields MUST be in English (NOT translated to {workspace.get('target_language', 'en')})
 
 IMPORTANT:
 - Think step-by-step through each section
 - Base decisions on data (performance history + CPM economics)
 - Be specific in CTA (not "like and subscribe" generic)
 - Duration breakdown must sum to duration_target
+- ⚠️ ENUM FIELDS MUST USE EXACT ENGLISH VALUES FROM LIST ABOVE ⚠️
 - Output ONLY valid JSON, no extra text or markdown
 """
 
@@ -288,6 +348,21 @@ IMPORTANT:
 
         if not decision_data:
             raise ValueError("Failed to extract valid JSON from LLM response")
+
+        # Layer 2: AI-driven enum validation and correction
+        enum_specs = {
+            "format": ["tutorial", "analysis", "alert", "comparison"],
+            "angle": ["risk", "opportunity", "education", "history"],
+            "monetization_path": ["lead_magnet", "playlist", "comment_trigger", "external"]
+        }
+
+        decision_data = validate_and_fix_enum_fields(
+            json_output=decision_data,
+            llm_generate_fn=llm_generate_fn,
+            target_language=workspace.get('target_language', 'en'),
+            enum_specs=enum_specs,
+            component_name="editorial_strategist"
+        )
 
         # Create EditorialDecision from parsed data
         decision = EditorialDecision(**decision_data)

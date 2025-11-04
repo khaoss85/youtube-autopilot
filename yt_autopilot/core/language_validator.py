@@ -17,6 +17,7 @@ Version: 2.0 (AI-Driven Language Enforcement)
 from typing import Dict, Tuple, Optional, Callable
 import logging
 from enum import Enum
+from yt_autopilot.core.logger import log_fallback
 
 logger = logging.getLogger(__name__)
 
@@ -102,12 +103,26 @@ class LanguageValidator:
                 logger.warning("langdetect returned empty list, defaulting to 'en'")
                 return "en", 0.5
 
-        except ImportError:
+        except ImportError as e:
+            # 🚨 Log langdetect import failure fallback (assumes target language)
+            log_fallback(
+                component="LANGUAGE_VALIDATOR_DETECT",
+                fallback_type="LANGDETECT_NOT_INSTALLED",
+                reason=f"langdetect not installed: {e}",
+                impact="MEDIUM"
+            )
             logger.error("langdetect not installed! Install with: pip install langdetect")
             logger.warning("Skipping language detection (assuming target language)")
             return self.target_language, 1.0  # Assume target language
 
         except Exception as e:
+            # 🚨 Log language detection failure fallback (returns unknown)
+            log_fallback(
+                component="LANGUAGE_VALIDATOR_DETECT",
+                fallback_type="DETECTION_FAILED",
+                reason=f"Language detection failed: {e}",
+                impact="MEDIUM"
+            )
             logger.error(f"Language detection failed: {e}")
             return "unknown", 0.0
 
@@ -320,6 +335,13 @@ TRANSLATED CONTENT:
                     attempt=attempt + 1
                 )
             else:
+                # 🚨 Log language correction failure fallback (returns original output)
+                log_fallback(
+                    component="LANGUAGE_VALIDATOR_CORRECTION",
+                    fallback_type="LLM_CORRECTION_FAILED",
+                    reason=f"LLM correction failed after {self.max_retries} retries: {e}",
+                    impact="HIGH"
+                )
                 logger.error("  Returning original output (correction failed)")
                 return wrong_output
 
@@ -451,6 +473,170 @@ def wrap_llm_with_language_enforcement(
         return validated_output
 
     return wrapped_llm_fn
+
+
+def validate_and_fix_enum_fields(
+    json_output: Dict,
+    llm_generate_fn: Callable,
+    target_language: str,
+    enum_specs: Dict[str, list],
+    component_name: str = "unknown"
+) -> Dict:
+    """
+    Validate and fix enum fields in JSON output using AI correction (Layer 2).
+
+    This function checks if enum fields contain correct English values,
+    even when the workspace language is different. If wrong values detected,
+    uses LLM to intelligently map them to correct enum values.
+
+    Args:
+        json_output: Parsed JSON dict from LLM
+        llm_generate_fn: LLM function for correction
+        target_language: Workspace language (e.g., "it", "en")
+        enum_specs: Dict mapping field name → list of valid values
+                   Example: {"format": ["tutorial", "analysis", "alert"]}
+        component_name: Component name for logging
+
+    Returns:
+        Corrected JSON dict with valid enum values
+
+    Example:
+        >>> json_output = {"format": "analisi", "angle": "educazione"}
+        >>> enum_specs = {
+        ...     "format": ["tutorial", "analysis", "alert", "comparison"],
+        ...     "angle": ["risk", "opportunity", "education", "history"]
+        ... }
+        >>> corrected = validate_and_fix_enum_fields(
+        ...     json_output, llm_fn, "it", enum_specs, "editorial_strategist"
+        ... )
+        >>> print(corrected)
+        {"format": "analysis", "angle": "education"}  # Fixed!
+    """
+    logger.info(f"=" * 70)
+    logger.info(f"ENUM VALIDATION (Layer 2): {component_name}")
+    logger.info(f"=" * 70)
+
+    # Check each enum field
+    invalid_fields = {}
+    for field_name, allowed_values in enum_specs.items():
+        if field_name in json_output:
+            actual_value = json_output[field_name]
+
+            # Check if value is in allowed list (case-insensitive)
+            if actual_value.lower() not in [v.lower() for v in allowed_values]:
+                invalid_fields[field_name] = {
+                    "current": actual_value,
+                    "allowed": allowed_values
+                }
+                logger.warning(f"  ❌ Invalid enum: {field_name} = '{actual_value}'")
+                logger.warning(f"     Allowed: {', '.join(allowed_values)}")
+
+    # If all valid, return as-is
+    if not invalid_fields:
+        logger.info(f"  ✅ All enum fields valid!")
+        return json_output
+
+    # Attempt AI-driven enum correction
+    logger.info(f"  🔄 Attempting AI-driven enum correction...")
+    logger.info(f"     Found {len(invalid_fields)} invalid enum field(s)")
+
+    # Build correction prompt
+    correction_prompt = f"""
+You are a data validator. The following JSON output has INCORRECT enum field values.
+
+WORKSPACE LANGUAGE: {LANGUAGE_NAMES.get(target_language, target_language)}
+
+CURRENT JSON OUTPUT (with errors):
+{json.dumps(json_output, indent=2, ensure_ascii=False)}
+
+VALIDATION ERRORS:
+{chr(10).join([
+    f"- Field '{field}': Current value '{info['current']}' is INVALID. Must be ONE of: {', '.join(info['allowed'])}"
+    for field, info in invalid_fields.items()
+])}
+
+YOUR TASK:
+Fix ONLY the enum fields with correct English values from the allowed lists above.
+
+CORRECTION RULES:
+1. ✅ Map semantic meaning to correct English enum value
+   Example: "educazione" (Italian) → "education" (English enum)
+   Example: "analisi" (Italian) → "analysis" (English enum)
+
+2. ✅ Preserve ALL other fields unchanged (especially text fields in workspace language)
+
+3. ✅ Output format: Valid JSON object (same structure as input)
+
+4. ❌ DO NOT translate text fields (serie_concept, cta_specific, reasoning_summary)
+   These SHOULD remain in {LANGUAGE_NAMES.get(target_language, target_language)}!
+
+5. ✅ ONLY fix the enum fields: {', '.join(invalid_fields.keys())}
+
+CORRECTED JSON OUTPUT (copy all fields, fix enums only):
+"""
+
+    try:
+        # Call LLM for intelligent enum correction
+        corrected_json_str = llm_generate_fn(
+            role="enum_validator",
+            task=correction_prompt,
+            context="",
+            style_hints={"temperature": 0.1}  # Very low temp for deterministic correction
+        )
+
+        # Parse corrected JSON
+        import json
+        import re
+
+        # Try direct JSON parse
+        try:
+            corrected_json = json.loads(corrected_json_str)
+        except json.JSONDecodeError:
+            # Extract from markdown code block
+            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', corrected_json_str, re.DOTALL)
+            if json_match:
+                corrected_json = json.loads(json_match.group(1))
+            else:
+                # Try to find JSON object
+                json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', corrected_json_str, re.DOTALL)
+                if json_match:
+                    corrected_json = json.loads(json_match.group(0))
+                else:
+                    raise ValueError("Could not extract JSON from LLM response")
+
+        # Validate correction
+        all_valid = True
+        for field_name, allowed_values in enum_specs.items():
+            if field_name in corrected_json:
+                new_value = corrected_json[field_name]
+                if new_value.lower() not in [v.lower() for v in allowed_values]:
+                    all_valid = False
+                    logger.warning(f"  ⚠️ Correction failed for {field_name}: still invalid '{new_value}'")
+                else:
+                    if field_name in invalid_fields:
+                        logger.info(f"  ✓ Fixed: {field_name} = '{invalid_fields[field_name]['current']}' → '{new_value}'")
+
+        if all_valid:
+            logger.info(f"  ✅ Enum correction SUCCESSFUL")
+            return corrected_json
+        else:
+            logger.warning(f"  ⚠️ Enum correction incomplete, using best effort result")
+            return corrected_json
+
+    except Exception as e:
+        logger.error(f"  ❌ AI-driven enum correction failed: {e}")
+        logger.warning(f"     Falling back to Layer 3 (hard-coded normalization)")
+
+        # Log fallback
+        log_fallback(
+            component=f"LANGUAGE_VALIDATOR_ENUM_CORRECTION_{component_name.upper()}",
+            fallback_type="AI_ENUM_CORRECTION_FAILED",
+            reason=f"AI-driven enum correction failed: {e}. Will fallback to Layer 3.",
+            impact="MEDIUM"
+        )
+
+        # Return original (Layer 3 will handle it)
+        return json_output
 
 
 # Example usage
