@@ -32,7 +32,8 @@ from yt_autopilot.core.schemas import (
     EditorialDecision,
     VideoScript,
     VisualPlan,
-    TrendCandidate
+    TrendCandidate,
+    Timeline
 )
 from yt_autopilot.core.logger import logger
 
@@ -289,7 +290,7 @@ class Gate2_PostDurationValidator:
         self,
         editorial_decision: EditorialDecision,
         duration_strategy: Dict,
-        reconciled_format: Dict,
+        reconciled_format: Timeline,  # Phase C - P0: Now Timeline object, not Dict
         visual_plan_aspect_ratio: Optional[str] = None
     ) -> ValidationResult:
         """
@@ -298,7 +299,7 @@ class Gate2_PostDurationValidator:
         Args:
             editorial_decision: Editorial Strategist output
             duration_strategy: Duration Strategist output
-            reconciled_format: Format Reconciler output
+            reconciled_format: Format Reconciler output (Timeline object)
             visual_plan_aspect_ratio: Aspect ratio from visual plan (if available)
 
         Returns:
@@ -311,8 +312,9 @@ class Gate2_PostDurationValidator:
 
         editorial_duration = editorial_decision.duration_target
         duration_duration = duration_strategy['target_duration_seconds']
-        final_duration = reconciled_format['final_duration']
-        format_type = reconciled_format['format_type']
+        # Phase C - P0: Access Timeline object attributes, not dict keys
+        final_duration = reconciled_format.reconciled_duration
+        format_type = reconciled_format.format_type
 
         # Check 1: Divergence between Editorial and Duration
         max_duration = max(editorial_duration, duration_duration)
@@ -398,8 +400,9 @@ class Gate2_PostDurationValidator:
                     ))
 
         # Check 4: Weight balance
-        editorial_weight = reconciled_format.get('editorial_weight', 0.5)
-        duration_weight = reconciled_format.get('duration_weight', 0.5)
+        # Phase C - P0: Access Timeline object attributes directly
+        editorial_weight = reconciled_format.editorial_weight
+        duration_weight = reconciled_format.duration_weight
         weight_sum = editorial_weight + duration_weight
 
         if not (0.85 <= weight_sum <= 1.15):
@@ -839,7 +842,7 @@ class Gate4_PostVisualValidator:
         visual_plan: VisualPlan,
         script: VideoScript,
         duration_strategy: Dict,
-        reconciled_format: Dict
+        reconciled_format: Timeline  # Phase C - P0: Now Timeline object, not Dict
     ) -> ValidationResult:
         """
         Validates visual plan consistency with script and duration.
@@ -848,7 +851,7 @@ class Gate4_PostVisualValidator:
             visual_plan: Generated VisualPlan
             script: VideoScript
             duration_strategy: Duration strategy
-            reconciled_format: Reconciled format
+            reconciled_format: Reconciled format (Timeline object)
 
         Returns:
             ValidationResult
@@ -880,8 +883,9 @@ class Gate4_PostVisualValidator:
 
         # Check 2: Aspect ratio vs duration
         aspect_ratio = visual_plan.aspect_ratio
-        format_type = reconciled_format.get('format_type', 'mid')
-        final_duration = reconciled_format.get('final_duration', 180)
+        # Phase C - P0: Access Timeline object attributes directly
+        format_type = reconciled_format.format_type
+        final_duration = reconciled_format.reconciled_duration
 
         aspect_mismatch = False
         expected_aspect = aspect_ratio

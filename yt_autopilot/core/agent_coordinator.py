@@ -37,7 +37,8 @@ from yt_autopilot.core.schemas import (
     VideoPlan,
     TrendCandidate,
     VideoScript,
-    EditorialDecision
+    EditorialDecision,
+    Timeline
 )
 from yt_autopilot.core.logger import logger
 
@@ -181,7 +182,7 @@ class AgentContext:
     # ============ Agent Outputs (Populated as Pipeline Progresses) ============
     editorial_decision: Optional[EditorialDecision] = None
     duration_strategy: Optional[Dict] = None
-    reconciled_format: Optional[Dict] = None
+    reconciled_format: Optional[Timeline] = None  # Phase C - P0: Now Timeline object
     narrative_arc: Optional[Dict] = None
     cta_strategy: Optional[Dict] = None
     content_depth_strategy: Optional[Dict] = None
@@ -944,7 +945,8 @@ class AgentCoordinator:
         elif spec.name == "content_depth_strategist":
             return spec.function(
                 topic=context.video_plan.working_title,
-                target_duration=context.reconciled_format.get('final_duration', 60) if context.reconciled_format else 60,
+                # Phase C - P0: Access Timeline.reconciled_duration instead of dict['final_duration']
+                target_duration=context.reconciled_format.reconciled_duration if context.reconciled_format else 60,
                 narrative_arc=context.narrative_arc or {},
                 editorial_decision=context.editorial_decision,
                 workspace=context.workspace,
@@ -1197,7 +1199,8 @@ class AgentCoordinator:
 
         # Extract reasoning strings from agent outputs
         duration_reasoning = context.duration_strategy.get('reasoning', '') if context.duration_strategy else ''
-        format_reasoning = context.reconciled_format.get('reasoning', '') if context.reconciled_format else ''
+        # Phase C - P0: Access Timeline.arbitration_reasoning instead of dict['reasoning']
+        format_reasoning = context.reconciled_format.arbitration_reasoning if context.reconciled_format else ''
         narrative_reasoning = context.narrative_arc.get('reasoning', '') if context.narrative_arc else ''
         cta_reasoning = context.cta_strategy.get('reasoning', '') if context.cta_strategy else ''
 

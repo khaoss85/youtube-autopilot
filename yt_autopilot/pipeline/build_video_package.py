@@ -445,9 +445,10 @@ RESPOND WITH VALID JSON ONLY:
     if not improved_script.scene_voiceover_map or len(improved_script.scene_voiceover_map) == 0:
         logger.info("  Scene mapping missing - regenerating visual plan")
 
-        # NOTE: This call has incorrect signature (missing video_plan parameter)
+        # FIX 3: Corrected signature - added missing video_plan parameter
         # Phase C - P2.2: Adding timeline=None for compatibility
         improved_visual = generate_visual_plan(
+            video_plan,      # FIX 3: Added missing first parameter
             improved_script,
             memory,
             series_format=series_format,
@@ -614,6 +615,13 @@ def build_video_package(
             logger.info(f"✓ LLM curation complete: {len(trends)} → {len(curated_trends)} trends")
             trends = curated_trends
         except Exception as e:
+            # 🚨 Log LLM curation failure fallback
+            log_fallback(
+                component="PIPELINE_LLM_CURATION",
+                fallback_type="PHASE_A_FILTERING_ONLY",
+                reason=f"LLM curation failed: {e}",
+                impact="MEDIUM"
+            )
             logger.warning(f"LLM curation failed: {e}")
             logger.warning("Falling back to Phase A filtering only (no LLM)")
             # Continue with Phase A filtered trends (already quality-checked)
@@ -851,6 +859,13 @@ Return ONLY a JSON object:
                 logger.warning(f"  AI returned invalid index {ai_index}, keeping deterministic selection")
 
         except Exception as e:
+            # 🚨 Log AI selection failure fallback
+            log_fallback(
+                component="PIPELINE_AI_SELECTION",
+                fallback_type="DETERMINISTIC_SELECTION",
+                reason=f"AI selection failed: {e}",
+                impact="MEDIUM"
+            )
             logger.warning(f"AI selection failed: {e}")
             logger.warning("Falling back to deterministic selection")
     elif use_ai_selection:
@@ -893,6 +908,13 @@ Return ONLY a JSON object:
             if 'final_title' in v
         ]
     except Exception as e:
+        # 🚨 Log performance history loading failure fallback (low impact - uses empty list)
+        log_fallback(
+            component="PIPELINE_PERFORMANCE_HISTORY",
+            fallback_type="EMPTY_HISTORY",
+            reason=f"Failed to load performance history: {e}",
+            impact="LOW"
+        )
         logger.warning(f"Failed to load performance history: {e}")
         performance_history = []
 
