@@ -248,21 +248,22 @@ def _attempt_monetization_improvement(
     target_duration: int,
     series_format,
     workspace: Dict,
-    duration_strategy: Dict
+    duration_strategy: Dict,
+    editorial_decision: Optional[EditorialDecision] = None,  # Phase C - P3
+    narrative_arc: Optional[Dict] = None,  # Phase C - P3
+    content_depth_strategy: Optional[Dict] = None  # Phase C - P3
 ) -> tuple:
     """
-    Sprint 1.5: Intelligent retry logic for Monetization QA using LLM-driven iterative refinement.
+    Phase C - P3: FULL REGENERATION retry loop (not superficial patches!).
 
-    This is NOT a simple fallback - this is an AI-powered improvement loop that:
-    1. Analyzes Monetization QA feedback with LLM reasoning
-    2. Generates targeted, contextual improvements (not generic templates!)
-    3. Applies improvements to script/visuals/publishing
-    4. Returns improved package for retry
+    Instead of appending bullets (Sprint 1.5 approach), this regenerates complete
+    artifacts with QA feedback as constraints:
+    1. Regenerates narrative_arc if narrative/engagement/coherence issues
+    2. Regenerates script using new narrative_arc
+    3. ALWAYS regenerates visual_plan with new script (not just if scene_mapping missing)
+    4. Regenerates SEO if needed
 
-    Applies targeted fixes based on category scores:
-    - content_depth < 0.70 → LLM generates substantive content improvements
-    - scene_mapping missing → Regenerate visual plan
-    - seo_discovery < 0.70 → Regenerate SEO
+    This closes the QA feedback loop properly by passing constraints to upstream agents.
 
     Args:
         script: Current VideoScript
@@ -276,197 +277,128 @@ def _attempt_monetization_improvement(
         series_format: Series format config
         workspace: Workspace config
         duration_strategy: Duration strategy dict
+        editorial_decision: EditorialDecision (Phase C - P3)
+        narrative_arc: Original narrative_arc (Phase C - P3)
+        content_depth_strategy: Content depth strategy (Phase C - P3)
 
     Returns:
         Tuple of (improved_script, improved_visual, improved_publishing)
     """
-    logger.info("🔄 Attempting monetization optimization with LLM reasoning...")
+    logger.info("🔄 Phase C - P3: Full regeneration retry loop with QA feedback constraints...")
 
-    improved_script = script
-    improved_visual = visual_plan
-    improved_publishing = publishing
+    # Identify which artifacts need regeneration based on category scores
+    narrative_quality_score = category_scores.get('narrative_quality', 1.0)
+    engagement_score = category_scores.get('engagement_optimization', 1.0)
+    coherence_score = category_scores.get('content_duration_coherence', 1.0)
+    seo_score = category_scores.get('seo_discovery', 1.0)
 
-    # Fix 1: Content Depth - LLM-DRIVEN IMPROVEMENT (not pattern-based!)
-    content_score = category_scores.get('Content Depth', 1.0)
-    if content_score < 0.70:
-        logger.info(f"  Content Depth low ({content_score:.2f}) - calling LLM for contextual improvements...")
+    needs_narrative_regen = (
+        narrative_quality_score < 0.70 or
+        engagement_score < 0.70 or
+        coherence_score < 0.70
+    )
+    needs_seo_regen = seo_score < 0.70
 
-        # Build improvement prompt with Monetization QA feedback
-        improvement_prompt = f"""You are a content optimization expert. Analyze this Monetization QA feedback and improve the video package.
+    logger.info(f"  Category scores: narrative={narrative_quality_score:.2f}, engagement={engagement_score:.2f}, coherence={coherence_score:.2f}, seo={seo_score:.2f}")
+    logger.info(f"  Regeneration plan: narrative_arc={needs_narrative_regen}, seo={needs_seo_regen}")
 
-**MONETIZATION QA FEEDBACK:**
-{monetization_feedback}
+    # Phase C - P3: FULL REGENERATION PATH
+    if needs_narrative_regen:
+        logger.info("  ↻ Regenerating narrative arc with QA feedback constraints...")
 
-**CATEGORY SCORES:**
-{', '.join([f'{k}: {v:.2f}' for k, v in category_scores.items()])}
+        # Create LLM wrapper that injects QA feedback as constraints
+        def qa_aware_llm(role, task, context, style_hints):
+            # Inject QA feedback into the prompt
+            qa_constraint_injection = f"""
+⚠️ MONETIZATION QA RETRY - CRITICAL CONSTRAINTS ⚠️
+This is a RETRY after Monetization QA feedback. You MUST address these issues:
 
-**CURRENT PACKAGE:**
-- Topic: {video_plan.working_title}
-- Duration: {target_duration}s ({target_duration // 60}min {target_duration % 60}s)
-- Script bullets: {len(script.bullets)}
-- Current hook: "{script.hook[:100]}..."
+QA FEEDBACK SUMMARY:
+{monetization_feedback[:500]}...
 
-**YOUR TASK:**
-Analyze the low-scoring categories and generate SPECIFIC improvements:
+LOW-SCORING CATEGORIES (fix these!):
+- Narrative Quality: {narrative_quality_score:.2f}/1.00 {'← FIX THIS' if narrative_quality_score < 0.70 else ''}
+- Engagement Optimization: {engagement_score:.2f}/1.00 {'← FIX THIS' if engagement_score < 0.70 else ''}
+- Content-Duration Coherence: {coherence_score:.2f}/1.00 {'← FIX THIS' if coherence_score < 0.70 else ''}
 
-1. If Content Depth < 0.70:
-   - Identify what depth is missing (context? examples? data?)
-   - Generate {max(3, int(target_duration/120))} substantive content bullets
-   - Ensure bullets add REAL insight (not generic filler)
-   - Focus on: statistics, expert quotes, case studies, contrarian takes
+REQUIRED IMPROVEMENTS:
+- If narrative_quality low: Strengthen emotional arc, improve voice personality consistency
+- If engagement low: Add more retention hooks, pattern interrupts, cliffhangers
+- If coherence low: Ensure content depth justifies duration, avoid padding
 
-2. If Scene Mapping issues:
-   - Suggest how to improve visual-script synchronization
-   - Identify narrative beats that need visual emphasis
+⚠️ THIS IS YOUR SECOND CHANCE - MAKE IT COUNT ⚠️
 
-3. If SEO Discovery < 0.70:
-   - Suggest keyword opportunities based on topic
-   - Recommend title improvements for discoverability
-
-**CRITICAL**: Be SPECIFIC and ACTIONABLE. No generic advice like "add more detail".
-
-RESPOND WITH VALID JSON ONLY:
-{{
-  "content_improvements": ["<specific bullet 1>", "<specific bullet 2>", ...],
-  "visual_suggestions": "<specific advice for scene mapping>",
-  "seo_keywords": ["<keyword1>", "<keyword2>", ...],
-  "reasoning": "<2-3 sentences explaining WHY these improvements address the QA issues>"
-}}
+ORIGINAL TASK:
 """
+            constrained_task = qa_constraint_injection + task
+            return generate_text(role, constrained_task, context, style_hints)
 
-        # Call LLM for intelligent improvement analysis
         try:
-            improvement_response = llm_generate_fn(
-                role="monetization_optimizer",
-                task=improvement_prompt,
-                context="",
-                style_hints={"response_format": "json", "temperature": 0.4}
+            # Regenerate narrative_arc with QA-aware LLM
+            new_narrative_arc = design_narrative_arc(
+                topic=video_plan.working_title,
+                target_duration_seconds=target_duration,
+                workspace_config=workspace,
+                duration_strategy=duration_strategy,
+                editorial_decision=editorial_decision,
+                bullet_count_constraint=content_depth_strategy.get('target_bullets_count') if content_depth_strategy else None,
+                llm_generate_fn=qa_aware_llm,  # Phase C - P3: Inject QA constraints
+                timeline=None  # No timeline in retry context
             )
+            logger.info("    ✓ Narrative arc regenerated with QA constraints")
 
-            # Parse LLM improvement suggestions
-            import json
-            import re
+            # Regenerate script with new narrative_arc
+            logger.info("  ↻ Regenerating script with new narrative arc...")
+            improved_script = write_script(
+                plan=video_plan,
+                memory=memory,
+                series_format=series_format,
+                editorial_decision=editorial_decision,
+                narrative_arc=new_narrative_arc,  # Use regenerated arc!
+                content_depth_strategy=content_depth_strategy
+            )
+            logger.info("    ✓ Script regenerated")
 
-            try:
-                improvements = json.loads(improvement_response)
-            except json.JSONDecodeError:
-                # Extract JSON if wrapped in markdown or text
-                logger.warning("  Direct JSON parse failed, attempting extraction...")
-
-                if "```json" in improvement_response:
-                    start = improvement_response.find("```json") + 7
-                    end = improvement_response.find("```", start)
-                    json_str = improvement_response[start:end].strip()
-                elif "```" in improvement_response:
-                    start = improvement_response.find("```") + 3
-                    end = improvement_response.find("```", start)
-                    json_str = improvement_response[start:end].strip()
-                else:
-                    # Find JSON object with brace matching
-                    start = improvement_response.find("{")
-                    if start == -1:
-                        raise ValueError("No JSON object found in LLM response")
-
-                    brace_count = 0
-                    end = start
-                    for i in range(start, len(improvement_response)):
-                        if improvement_response[i] == '{':
-                            brace_count += 1
-                        elif improvement_response[i] == '}':
-                            brace_count -= 1
-                            if brace_count == 0:
-                                end = i + 1
-                                break
-
-                    if brace_count != 0:
-                        raise ValueError("Unmatched braces in JSON response")
-
-                    json_str = improvement_response[start:end]
-
-                try:
-                    improvements = json.loads(json_str)
-                    logger.info("  ✓ Extracted JSON from LLM response")
-                except json.JSONDecodeError as e:
-                    logger.error(f"  Failed to parse extracted JSON: {e}")
-                    raise ValueError("Could not extract valid JSON from LLM response")
-
-            # Apply LLM-suggested improvements
-            content_improvements = improvements.get('content_improvements', [])
-            if content_improvements:
-                logger.info(f"  ✓ Applying {len(content_improvements)} LLM-suggested content improvements")
-                logger.info(f"  Reasoning: {truncate_for_log(improvements.get('reasoning', 'No reasoning provided'), LOG_TRUNCATE_REASONING)}")
-
-                # Merge LLM suggestions with existing bullets
-                improved_bullets = script.bullets.copy() + content_improvements
-
-                # Rebuild voiceover with LLM improvements
-                improved_voiceover = script.full_voiceover_text + " " + " ".join(content_improvements)
-
-                improved_script = VideoScript(
-                    hook=script.hook,
-                    bullets=improved_bullets,
-                    outro_cta=script.outro_cta,
-                    full_voiceover_text=improved_voiceover,
-                    scene_voiceover_map=script.scene_voiceover_map
-                )
-                logger.info("    ✓ Script enriched with LLM-generated insights")
+            # ALWAYS regenerate visual plan (not just if scene_mapping missing)
+            logger.info("  ↻ Regenerating visual plan with new script...")
+            improved_visual = generate_visual_plan(
+                video_plan,
+                improved_script,
+                memory,
+                series_format=series_format,
+                workspace_config=workspace,
+                duration_strategy=duration_strategy,
+                timeline=None
+            )
+            logger.info("    ✓ Visual plan regenerated")
 
         except Exception as e:
-            logger.warning(f"  LLM improvement failed: {e}")
-            logger.warning("  Falling back to pattern-based expansion...")
+            logger.error(f"  Full regeneration failed: {e}")
+            logger.warning("  Falling back to original artifacts")
 
             log_fallback(
-                component="PIPELINE_MONETIZATION_OPTIMIZER",
-                fallback_type="PATTERN_BASED_EXPANSION",
-                reason=f"LLM call failed: {e}",
-                impact="MEDIUM"
+                component="PIPELINE_MONETIZATION_QA_RETRY",
+                fallback_type="NO_REGENERATION",
+                reason=f"Regeneration failed: {e}",
+                impact="HIGH"
             )
 
-            # Fallback: Simple content expansion if LLM fails
-            if len(script.bullets) < 3:
-                generic_bullets = [
-                    f"Approfondendo il tema {video_plan.working_title}, emergono dettagli importanti.",
-                    f"Gli esperti confermano l'importanza di questo aspetto.",
-                    f"I dati recenti mostrano trend interessanti su questo argomento."
-                ]
-                improved_bullets = script.bullets.copy() + generic_bullets[:3 - len(script.bullets)]
-                improved_voiceover = script.full_voiceover_text + " " + " ".join(generic_bullets[:3 - len(script.bullets)])
+            improved_script = script
+            improved_visual = visual_plan
+    else:
+        # No narrative regeneration needed - use originals
+        improved_script = script
+        improved_visual = visual_plan
 
-                improved_script = VideoScript(
-                    hook=script.hook,
-                    bullets=improved_bullets,
-                    outro_cta=script.outro_cta,
-                    full_voiceover_text=improved_voiceover,
-                    scene_voiceover_map=script.scene_voiceover_map
-                )
-                logger.info("    ✓ Script expanded with fallback content (LLM unavailable)")
-
-    # Fix 2: Scene Mapping (visual-script sync)
-    if not improved_script.scene_voiceover_map or len(improved_script.scene_voiceover_map) == 0:
-        logger.info("  Scene mapping missing - regenerating visual plan")
-
-        # FIX 3: Corrected signature - added missing video_plan parameter
-        # Phase C - P2.2: Adding timeline=None for compatibility
-        improved_visual = generate_visual_plan(
-            video_plan,      # FIX 3: Added missing first parameter
-            improved_script,
-            memory,
-            series_format=series_format,
-            workspace_config=workspace,
-            duration_strategy=duration_strategy,
-            timeline=None  # Phase C - P2.2: No timeline available in this context
-        )
-        logger.info("    ✓ Visual plan regenerated with scene mapping")
-
-    # Fix 3: SEO Discovery (keywords/title optimization)
-    seo_score = category_scores.get('Seo Discovery', 1.0)
-    if seo_score < 0.70:
-        logger.info(f"  SEO Discovery low ({seo_score:.2f}) - regenerating metadata")
-
+    # SEO regeneration (independent of narrative path)
+    if needs_seo_regen:
+        logger.info(f"  ↻ Regenerating SEO metadata (score: {seo_score:.2f})...")
         improved_publishing = generate_publishing_package(video_plan, improved_script)
-        logger.info(f"    ✓ SEO metadata regenerated for better discoverability")
+        logger.info("    ✓ SEO metadata regenerated")
+    else:
+        improved_publishing = publishing
 
-    logger.info("✓ Monetization optimization complete")
+    logger.info("✓ Phase C - P3: Monetization optimization complete")
     return improved_script, improved_visual, improved_publishing
 
 
@@ -1999,7 +1931,7 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
             logger.warning(f"✗ Monetization QA below threshold ({overall_score:.2f})")
             logger.info("  💡 Score is near threshold - attempting LLM-driven optimization (1 retry)...")
 
-            # Apply targeted improvements using LLM reasoning
+            # Phase C - P3: Apply full regeneration with QA feedback constraints
             try:
                 improved_script, improved_visual, improved_publishing = \
                     _attempt_monetization_improvement(
@@ -2013,7 +1945,10 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
                         target_duration=duration_strategy['target_duration_seconds'],
                         series_format=series_format,
                         workspace=workspace,
-                        duration_strategy=duration_strategy
+                        duration_strategy=duration_strategy,
+                        editorial_decision=editorial_decision,  # Phase C - P3
+                        narrative_arc=narrative_arc,  # Phase C - P3
+                        content_depth_strategy=content_depth_strategy  # Phase C - P3
                     )
 
                 # Retry Monetization QA with improved package
