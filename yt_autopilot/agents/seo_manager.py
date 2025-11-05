@@ -12,7 +12,7 @@ MONETIZATION REFACTOR:
 
 from typing import List
 from yt_autopilot.core.schemas import VideoPlan, VideoScript, PublishingPackage
-from yt_autopilot.core.logger import logger
+from yt_autopilot.core.logger import logger, log_fallback
 from yt_autopilot.services.llm_router import generate_text
 
 
@@ -118,6 +118,13 @@ Respond with ONLY the title, no explanations."""
         return generated_title
 
     except Exception as e:
+        # 🚨 Log LLM title generation failure fallback (CRITICAL for CTR)
+        log_fallback(
+            component="SEO_MANAGER_TITLE",
+            fallback_type="LLM_TITLE_GENERATION_FAILED",
+            reason=f"LLM title generation failed: {e}",
+            impact="HIGH"
+        )
         logger.error(f"  LLM title generation failed: {e}")
         logger.warning("  Falling back to working title")
 
@@ -193,60 +200,230 @@ Verifica sempre le informazioni presso fonti ufficiali.
     return description.strip()
 
 
-def _extract_tags(plan: VideoPlan, script: VideoScript) -> List[str]:
+def _filter_invalid_tags_deterministic(tags: List[str]) -> List[str]:
     """
-    Extracts relevant YouTube tags for discoverability.
+    Layer 3: Deterministic tag filtering and cleaning.
+
+    Removes invalid tags:
+    - Emoji-only tags
+    - Tags with hashtags (#)
+    - Very short tags (<3 chars)
+    - Duplicate tags
 
     Args:
-        plan: Video plan with topic
-        script: Video script for additional keywords
+        tags: Raw tag list
 
     Returns:
-        List of tags (max 500 chars total per YouTube limits)
+        Cleaned tag list
     """
-    tags = []
+    import re
 
-    # Primary keyword (topic)
-    topic_tag = plan.working_title.lower()
-    tags.append(topic_tag)
+    filtered = []
+    seen = set()
 
-    # Add word variations
-    topic_words = topic_tag.split()
-    if len(topic_words) > 1:
-        tags.extend(topic_words)
-
-    # Language tag
-    if plan.language == "it":
-        tags.extend(["italiano", "italy", "italian"])
-    else:
-        tags.extend(["english", "global"])
-
-    # Format tags
-    tags.extend(["shorts", "short video", "vertical video", "trending"])
-
-    # Audience-based tags
-    if "tecnologia" in plan.target_audience.lower():
-        tags.extend(["tech", "technology", "innovation"])
-    elif "fitness" in plan.target_audience.lower():
-        tags.extend(["fitness", "health", "workout"])
-    elif "finanza" in plan.target_audience.lower():
-        tags.extend(["finance", "money", "investing"])
-
-    # Generic engagement tags
-    tags.extend(["explained", "tutorial", "guide", "tips"])
-
-    # Deduplicate and ensure max 500 chars total
-    unique_tags = []
-    total_length = 0
     for tag in tags:
-        if tag not in unique_tags:
+        # Remove emoji-only tags (Unicode range for common emojis)
+        if re.match(r'^[\U0001F300-\U0001F9FF\u2600-\u26FF\u2700-\u27BF]+$', tag):
+            logger.debug(f"  Layer 3: Removing emoji-only tag: {tag}")
+            continue
+
+        # Remove tags with hashtags
+        if '#' in tag:
+            logger.debug(f"  Layer 3: Removing hashtag tag: {tag}")
+            continue
+
+        # Remove very short tags
+        clean_tag = tag.strip().lower()
+        if len(clean_tag) < 3:
+            continue
+
+        # Deduplicate
+        if clean_tag not in seen:
+            filtered.append(clean_tag)
+            seen.add(clean_tag)
+
+    return filtered
+
+
+def _generate_tags_with_llm(
+    plan: VideoPlan,
+    script: VideoScript,
+    language: str = 'en'
+) -> List[str]:
+    """
+    Layer 1: AI-driven SEO tag generation.
+
+    Uses LLM to generate contextually relevant, SEO-optimized tags
+    based on video content, topic, and target audience.
+
+    Args:
+        plan: Video plan with topic and audience
+        script: Video script for content analysis
+        language: Target language for tags
+
+    Returns:
+        List of SEO-optimized tags
+    """
+    try:
+        # Extract content summary
+        hook_preview = script.hook[:100] if script.hook else plan.working_title
+        content_preview = ' '.join(script.bullets[:2]) if script.bullets else plan.topic
+
+        prompt = f"""You are a YouTube SEO expert specializing in video discoverability and tag optimization.
+
+TASK: Generate 10-15 highly relevant YouTube tags for maximum discoverability.
+
+VIDEO INFORMATION:
+- Topic: {plan.topic}
+- Title: {plan.working_title}
+- Hook: "{hook_preview}"
+- Content: "{content_preview[:150]}..."
+- Target Audience: {plan.target_audience}
+- Language: {language}
+
+TAG REQUIREMENTS:
+1. Mix of broad (1-2 words) and specific (3-4 words) tags
+2. Focus on search intent and discoverability
+3. Include:
+   - Primary keyword variations
+   - Related topics and niches
+   - Long-tail search phrases
+   - Trending relevant terms
+4. NO emoji-only tags
+5. NO hashtags (# symbol)
+6. Keep each tag under 30 characters
+7. Total must be under 500 characters combined
+
+TAG TYPES TO INCLUDE:
+- Primary keyword (exact topic)
+- Keyword variations (synonyms, related terms)
+- Niche-specific tags (audience interests)
+- Long-tail phrases (3-4 word searches)
+- Trending terms (if relevant to topic)
+
+AVOID:
+- Generic tags ("video", "content", "youtube")
+- Clickbait tags unrelated to content
+- Overly competitive single words
+- Language tags (handled separately)
+
+RESPOND WITH TAGS AS JSON ARRAY:
+{{
+  "tags": ["tag1", "tag2", "tag3", ...]
+}}
+
+DO NOT include markdown code blocks. Return raw JSON only.
+"""
+
+        logger.debug("  Layer 1: Calling LLM for tag generation...")
+        response = generate_text(
+            role="seo_manager_tag_generator",
+            task=prompt,
+            context="",
+            style_hints={"response_format": "json", "max_tokens": 500}
+        )
+
+        # Parse LLM response
+        import json
+        import re
+
+        # Clean response (remove markdown if present)
+        cleaned_response = response.strip()
+        if cleaned_response.startswith("```"):
+            cleaned_response = re.sub(r'^```(?:json)?\n', '', cleaned_response)
+            cleaned_response = re.sub(r'\n```$', '', cleaned_response)
+
+        result = json.loads(cleaned_response)
+        tags = result.get('tags', [])
+
+        if not tags or len(tags) < 5:
+            raise ValueError(f"LLM returned insufficient tags: {len(tags)}")
+
+        logger.info(f"  ✅ Layer 1: Generated {len(tags)} AI-driven tags")
+        return tags
+
+    except Exception as e:
+        logger.error(f"  ❌ Layer 1: AI tag generation failed: {e}")
+        raise  # Re-raise to trigger Layer 2
+
+
+def _extract_tags(plan: VideoPlan, script: VideoScript) -> List[str]:
+    """
+    Generates SEO-optimized YouTube tags using 3-layer AI-driven pattern.
+
+    Layer 1: LLM generates contextually relevant tags
+    Layer 2: (Not needed - validation is Layer 3)
+    Layer 3: Deterministic filtering (remove emojis, hashtags, dedupe)
+
+    Args:
+        plan: Video plan with topic and audience
+        script: Video script for content analysis
+
+    Returns:
+        List of SEO-optimized tags (max 500 chars total per YouTube limits)
+    """
+    # Detect language
+    language = _detect_language_from_voiceover(script.full_voiceover_text)
+    logger.info(f"SEO tag generation for language: {language}")
+
+    try:
+        # Layer 1: AI-driven tag generation
+        tags = _generate_tags_with_llm(plan, script, language)
+
+        # Layer 3: Deterministic filtering and cleaning
+        logger.info("  Layer 3: Applying deterministic tag filtering...")
+        tags = _filter_invalid_tags_deterministic(tags)
+
+        # Enforce 500 char total limit
+        unique_tags = []
+        total_length = 0
+        for tag in tags:
             tag_length = len(tag) + 1  # +1 for comma separator
             if total_length + tag_length <= 500:
                 unique_tags.append(tag)
                 total_length += tag_length
+            else:
+                break
 
-    logger.debug(f"Generated {len(unique_tags)} tags ({total_length} chars)")
-    return unique_tags
+        logger.info(f"✓ Generated {len(unique_tags)} SEO tags ({total_length}/500 chars)")
+        return unique_tags
+
+    except Exception as e:
+        logger.error(f"AI tag generation failed: {e}")
+        logger.warning("Falling back to deterministic tag extraction (Layer 3 fallback)")
+
+        # Layer 3 Fallback: Simple deterministic extraction
+        log_fallback(
+            component="SEO_MANAGER_TAG_GENERATION",
+            fallback_type="DETERMINISTIC_TAGS",
+            reason=f"AI tag generation failed: {e}",
+            impact="MEDIUM"
+        )
+
+        # Basic fallback tags
+        tags = []
+        topic_tag = plan.working_title.lower()
+        tags.append(topic_tag)
+
+        # Add topic word variations
+        topic_words = [w for w in topic_tag.split() if len(w) > 3]
+        tags.extend(topic_words[:5])
+
+        # Add generic tags based on audience
+        audience_lower = plan.target_audience.lower()
+        if "tech" in audience_lower or "tecnologia" in audience_lower:
+            tags.extend(["tech", "technology"])
+        elif "fitness" in audience_lower:
+            tags.extend(["fitness", "health"])
+        elif "finance" in audience_lower or "finanza" in audience_lower:
+            tags.extend(["finance", "investing"])
+
+        # Clean and limit
+        tags = _filter_invalid_tags_deterministic(tags)
+        unique_tags = list(dict.fromkeys(tags))[:15]  # Max 15 tags
+
+        logger.info(f"✓ Fallback generated {len(unique_tags)} tags")
+        return unique_tags
 
 
 def _generate_thumbnail_concept(plan: VideoPlan, final_title: str) -> str:
