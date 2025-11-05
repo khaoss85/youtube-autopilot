@@ -63,6 +63,174 @@ def _estimate_duration_from_text(text: str) -> int:
     return duration
 
 
+def _validate_and_fix_scene_durations(
+    scene_voiceovers: List[SceneVoiceover],
+    target_duration: int,
+    llm_generate_fn: Optional[callable] = None
+) -> List[SceneVoiceover]:
+    """
+    Layer 2: AI-driven scene duration validation and correction.
+
+    Validates that scene durations sum to target. If >10% divergence,
+    uses LLM to intelligently redistribute durations based on content
+    complexity and voiceover length.
+
+    Args:
+        scene_voiceovers: List of SceneVoiceover objects with durations
+        target_duration: Expected total duration in seconds
+        llm_generate_fn: Optional LLM function for AI correction
+
+    Returns:
+        Corrected list of SceneVoiceover objects
+    """
+    if not scene_voiceovers or target_duration <= 0:
+        return scene_voiceovers
+
+    # Calculate current total duration
+    actual_duration = sum(scene.est_duration_seconds for scene in scene_voiceovers)
+    divergence_pct = abs(actual_duration - target_duration) / target_duration
+
+    # Layer 2 threshold: 10% divergence triggers AI correction
+    if divergence_pct <= 0.10:
+        logger.info(f"  ✓ Scene durations validated: {actual_duration}s matches target {target_duration}s (±{divergence_pct*100:.1f}%)")
+        return scene_voiceovers
+
+    logger.warning(f"  ⚠️ Scene duration mismatch: {actual_duration}s vs {target_duration}s target ({divergence_pct*100:.1f}% divergence)")
+    logger.info(f"  🔄 Layer 2: Triggering AI-driven duration redistribution...")
+
+    # If LLM is not available, skip Layer 2 (will fall to Layer 3 proportional scaling)
+    if not llm_generate_fn:
+        logger.warning("  ⚠️ Layer 2: No LLM available, skipping AI correction (will use Layer 3 scaling)")
+        return scene_voiceovers
+
+    try:
+        # Build scene summary for LLM
+        scene_summaries = []
+        for scene in scene_voiceovers:
+            word_count = len(scene.voiceover_text.split())
+            scene_summaries.append({
+                "scene_id": scene.scene_id,
+                "segment_type": scene.segment_type,
+                "word_count": word_count,
+                "current_duration": scene.est_duration_seconds,
+                "voiceover_preview": scene.voiceover_text[:100] + "..." if len(scene.voiceover_text) > 100 else scene.voiceover_text
+            })
+
+        import json
+        scenes_json = json.dumps(scene_summaries, indent=2)
+
+        prompt = f"""You are a video production expert specializing in scene duration optimization.
+
+TASK: Redistribute scene durations to match target duration while maintaining natural pacing.
+
+CURRENT STATE:
+- Total scenes: {len(scene_voiceovers)}
+- Current total duration: {actual_duration}s
+- Target total duration: {target_duration}s
+- Divergence: {divergence_pct*100:.1f}%
+- Adjustment needed: {target_duration - actual_duration:+d}s
+
+SCENES:
+{scenes_json}
+
+REQUIREMENTS:
+1. Redistribute durations intelligently based on:
+   - Voiceover word count (use ~2.5 words/second as baseline)
+   - Scene complexity (Hook and CTA typically shorter, content scenes longer)
+   - Segment type importance (don't over-compress critical content)
+
+2. New durations must:
+   - Sum to EXACTLY {target_duration}s (±2s acceptable)
+   - Be at least 3s per scene (minimum viable duration)
+   - Match voiceover length (word_count ÷ 2.5 ≈ duration_seconds)
+
+3. Prioritize:
+   - Accurate word-to-duration mapping
+   - Natural pacing (avoid rushing or dragging)
+   - Content completeness (don't cut off important scenes)
+
+RESPOND WITH VALID JSON ONLY:
+{{
+  "redistributed_durations": [
+    {{"scene_id": 1, "new_duration_seconds": <int>}},
+    {{"scene_id": 2, "new_duration_seconds": <int>}},
+    ...
+  ],
+  "rationale": "<brief explanation of redistribution logic>"
+}}
+
+DO NOT include markdown code blocks. Return raw JSON only.
+"""
+
+        logger.debug(f"  Calling LLM for duration redistribution...")
+        response = llm_generate_fn(
+            role="visual_planner_duration_validator",
+            task=prompt,
+            context="",
+            style_hints={"response_format": "json", "max_tokens": 1000}
+        )
+
+        # Parse LLM response
+        import json
+        import re
+
+        # Clean response (remove markdown code blocks if present)
+        cleaned_response = response.strip()
+        if cleaned_response.startswith("```"):
+            cleaned_response = re.sub(r'^```(?:json)?\n', '', cleaned_response)
+            cleaned_response = re.sub(r'\n```$', '', cleaned_response)
+
+        result = json.loads(cleaned_response)
+        redistributed = result.get('redistributed_durations', [])
+        rationale = result.get('rationale', 'No rationale provided')
+
+        if not redistributed or len(redistributed) != len(scene_voiceovers):
+            raise ValueError(f"LLM returned {len(redistributed)} durations, expected {len(scene_voiceovers)}")
+
+        # Apply new durations
+        corrected_scenes = []
+        for scene_vo in scene_voiceovers:
+            # Find matching duration from LLM response
+            new_duration = next(
+                (item['new_duration_seconds'] for item in redistributed if item['scene_id'] == scene_vo.scene_id),
+                scene_vo.est_duration_seconds  # Fallback to original
+            )
+
+            # Ensure minimum duration
+            new_duration = max(3, int(new_duration))
+
+            # Create corrected scene with new duration
+            corrected_scene = SceneVoiceover(
+                scene_id=scene_vo.scene_id,
+                voiceover_text=scene_vo.voiceover_text,
+                est_duration_seconds=new_duration,
+                segment_type=scene_vo.segment_type,
+                emotional_beat=scene_vo.emotional_beat
+            )
+            corrected_scenes.append(corrected_scene)
+
+        # Validate correction
+        new_total = sum(scene.est_duration_seconds for scene in corrected_scenes)
+        new_divergence = abs(new_total - target_duration) / target_duration
+
+        logger.info(f"  ✅ Layer 2: AI redistribution complete")
+        logger.info(f"     Original: {actual_duration}s ({divergence_pct*100:.1f}% divergence)")
+        logger.info(f"     Corrected: {new_total}s ({new_divergence*100:.1f}% divergence)")
+        logger.info(f"     Rationale: {rationale[:100]}...")
+
+        # If correction is worse, return original (Layer 3 will handle it)
+        if new_divergence > divergence_pct:
+            logger.warning(f"  ⚠️ Layer 2: Correction worse than original, reverting (Layer 3 will apply scaling)")
+            return scene_voiceovers
+
+        return corrected_scenes
+
+    except Exception as e:
+        logger.error(f"  ❌ Layer 2: AI correction failed: {e}")
+        logger.warning(f"     Returning original durations (Layer 3 will apply proportional scaling)")
+        return scene_voiceovers
+
+
 def _select_visual_context(series_format: Optional[SeriesFormat], visual_contexts_config: Dict) -> Optional[Dict]:
     """
     Selects a visual context for content scenes based on format and frequency.
@@ -272,6 +440,13 @@ CTA: {script.outro_cta}"""
         return format_id, rationale
 
     except Exception as e:
+        # 🚨 Log AI format selection failure fallback
+        log_fallback(
+            component="VISUAL_PLANNER_FORMAT_SELECTION",
+            fallback_type="AI_FORMAT_SELECTION_FAILED",
+            reason=f"AI format selection failed: {e}",
+            impact="MEDIUM"
+        )
         logger.error(f"  ✗ AI format selection failed: {e}, using fallback")
         return "cinematic_broll", "Fallback due to AI selection error"
 
@@ -589,6 +764,13 @@ OUTPUT FORMAT (JSON):
                             purpose=overlay_data['purpose']
                         ))
                     except Exception as e:
+                        # 🚨 Log invalid overlay skip fallback
+                        log_fallback(
+                            component="VISUAL_PLANNER_OVERLAY_PARSE",
+                            fallback_type="INVALID_OVERLAY_SKIPPED",
+                            reason=f"Skipping invalid overlay data: {e}",
+                            impact="LOW"
+                        )
                         logger.debug(f"    Skipping invalid overlay: {e}")
 
             # Parse B-roll notes (AI-generated)
@@ -605,12 +787,26 @@ OUTPUT FORMAT (JSON):
                             purpose=broll_data['purpose']
                         ))
                     except Exception as e:
+                        # 🚨 Log invalid B-roll note skip fallback
+                        log_fallback(
+                            component="VISUAL_PLANNER_BROLL_PARSE",
+                            fallback_type="INVALID_BROLL_SKIPPED",
+                            reason=f"Skipping invalid B-roll note: {e}",
+                            impact="LOW"
+                        )
                         logger.debug(f"    Skipping invalid B-roll note: {e}")
 
             logger.info(f"  ✓ AI-enhanced prompt generated for scene {scene_index + 1} ({len(prompt)} chars)")
             logger.info(f"    AI planned: {len(text_overlays)} text overlays, {len(broll_notes)} B-roll insertions")
 
         except json.JSONDecodeError as e:
+            # 🚨 Log JSON parsing failure fallback (uses raw response as prompt)
+            log_fallback(
+                component="VISUAL_PLANNER_JSON_PARSE",
+                fallback_type="JSON_PARSE_ERROR",
+                reason=f"Could not parse JSON from LLM: {e}",
+                impact="MEDIUM"
+            )
             logger.warning(f"  ⚠️ Could not parse JSON from LLM (using response as prompt): {e}")
             prompt = response_clean
             text_overlays = []
@@ -1053,7 +1249,8 @@ def generate_visual_plan(
     series_format: Optional[SeriesFormat] = None,
     workspace_config: Optional[Dict] = None,
     duration_strategy: Optional[Dict] = None,
-    timeline: Optional['Timeline'] = None  # Phase C - P2.2: Single source of truth
+    timeline: Optional['Timeline'] = None,  # Phase C - P2.2: Single source of truth
+    llm_generate_fn: Optional[callable] = None  # Layer 2: AI-driven duration validation
 ) -> VisualPlan:
     """
     Generates a complete visual plan with scene-by-scene prompts for Veo.
@@ -1216,6 +1413,20 @@ def generate_visual_plan(
         logger.info(f"  Using scene_voiceover_map ({len(script.scene_voiceover_map)} content scenes)")
         logger.info(f"  🎬 AI-Enhanced Cinematic Prompt Engine activated")
         logger.info(f"  🤖 LLM will generate creative prompts with full workspace context")
+
+        # Layer 2: AI-driven duration validation and correction (Phase C - Complete Fix)
+        # Validate scene durations match target before creating visual scenes
+        validation_target = timeline.reconciled_duration if timeline else target_duration_seconds
+        logger.info(f"  Layer 2: Validating scene durations against target {validation_target}s...")
+
+        corrected_scene_voiceover_map = _validate_and_fix_scene_durations(
+            scene_voiceovers=script.scene_voiceover_map,
+            target_duration=validation_target,
+            llm_generate_fn=llm_generate_fn
+        )
+
+        # Update script's scene_voiceover_map with corrected durations
+        script.scene_voiceover_map = corrected_scene_voiceover_map
 
         # Extract parameters for cinematic system
         series_format_name = series_format.name if series_format else "tutorial"

@@ -205,6 +205,25 @@ RETENTION TACTICS:
 - Direct address: "You might be thinking..."
 - Specific examples (not abstractions)
 
+⚠️ DURATION ALLOCATION REQUIREMENT (Layer 1: AI-Driven Duration Prevention) ⚠️
+═══════════════════════════════════════════════════════════════════════════
+YOU MUST distribute {actual_duration}s across ALL acts intelligently:
+- Each act's "duration_seconds" field = estimated speaking time for that voiceover
+- Use word count of voiceover ÷ 2.5 = duration_seconds
+- Acts should be proportional: longer content = more seconds
+- Hook: typically {int(words_per_act / 2.5)}s (~{words_per_act} words)
+- Each Content act: typically {int(words_per_act / 2.5)}s (~{words_per_act} words)
+- CTA: typically {int(words_per_act / 2.5)}s (~{words_per_act} words)
+
+DURATION VERIFICATION (REQUIRED):
+✓ Calculate: sum of ALL duration_seconds fields must = {actual_duration}s ±10% ({int(actual_duration * 0.9)}-{int(actual_duration * 1.1)}s)
+✓ Each act: duration_seconds = len(voiceover.split()) ÷ 2.5 (rounded to int)
+✓ If sum is too low → ADD more voiceover content to acts
+✓ If sum is too high → CONDENSE voiceover content
+
+⚠️ FAILURE TO MATCH DURATION = PIPELINE VALIDATION FAILURE ⚠️
+═══════════════════════════════════════════════════════════════════════════
+
 RESPOND IN THIS EXACT JSON FORMAT:
 {{
   "voice_personality": "<chosen personality with brief description>",
@@ -215,46 +234,46 @@ RESPOND IN THIS EXACT JSON FORMAT:
     ''' if bullet_count_constraint else ''}
     {{
       "act_name": "Hook",
-      "duration_seconds": <int>,
+      "duration_seconds": <int - MUST match voiceover word count ÷ 2.5>,
       "emotional_beat": "<shock|curiosity|relatability>",
-      "voiceover": "<script with proper punctuation>",
+      "voiceover": "<script with proper punctuation - {words_per_act} words target>",
       "retention_tactic": "<pattern interrupt|open loop|etc>"
     }},{f'''
     // Now add EXACTLY {bullet_count_constraint} content acts (name them Content_1, Content_2, ... Content_{bullet_count_constraint}):
     {{
       "act_name": "Content_1",
-      "duration_seconds": <int>,
+      "duration_seconds": <int - MUST match voiceover word count ÷ 2.5>,
       "emotional_beat": "<tension|curiosity|insight|etc>",
-      "voiceover": "<script>",
+      "voiceover": "<script - {words_per_act} words target>",
       "retention_tactic": "<specific tactic>"
     }},
     // ... repeat for Content_2, Content_3, ... Content_{bullet_count_constraint}
     {{
       "act_name": "Content_{bullet_count_constraint}",
-      "duration_seconds": <int>,
+      "duration_seconds": <int - MUST match voiceover word count ÷ 2.5>,
       "emotional_beat": "<emotion>",
-      "voiceover": "<script>",
+      "voiceover": "<script - {words_per_act} words target>",
       "retention_tactic": "<tactic>"
     }},''' if bullet_count_constraint else '''
     {{
       "act_name": "Agitation",
-      "duration_seconds": <int>,
+      "duration_seconds": <int - MUST match voiceover word count ÷ 2.5>,
       "emotional_beat": "<tension|empathy|concern>",
-      "voiceover": "<script>",
+      "voiceover": "<script - {words_per_act} words target>",
       "retention_tactic": "<cliffhanger|question|etc>"
     }},
     {{
       "act_name": "Solution",
-      "duration_seconds": <int>,
+      "duration_seconds": <int - MUST match voiceover word count ÷ 2.5>,
       "emotional_beat": "<relief|insight|hope>",
-      "voiceover": "<script>",
+      "voiceover": "<script - {words_per_act} words target>",
       "retention_tactic": "<revelation|contrast|etc>"
     }},'''}
     {{
       "act_name": "Payoff_CTA",
-      "duration_seconds": <int>,
+      "duration_seconds": <int - MUST match voiceover word count ÷ 2.5>,
       "emotional_beat": "<empowerment|community>",
-      "voiceover": "<script with specific CTA>",
+      "voiceover": "<script with specific CTA - {words_per_act} words target>",
       "retention_tactic": "<call to action|social proof>"
     }}
   ],

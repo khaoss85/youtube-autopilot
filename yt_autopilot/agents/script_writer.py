@@ -72,6 +72,129 @@ def _strip_quotes(text: str) -> str:
     return text
 
 
+def _truncate_hook_deterministic(hook: str, max_chars: int = 200) -> str:
+    """
+    Layer 3: Deterministic hook truncation if AI fails.
+
+    Truncates hook to max_chars while trying to preserve sentence boundaries.
+    This is a last-resort fallback when Layer 2 (LLM shortening) fails.
+
+    Args:
+        hook: Original hook text
+        max_chars: Maximum allowed characters (default 200)
+
+    Returns:
+        Truncated hook text (max max_chars)
+    """
+    if len(hook) <= max_chars:
+        return hook
+
+    logger.warning(f"  ⚠️ Hook exceeds {max_chars} chars ({len(hook)} chars), applying Layer 3 truncation...")
+
+    # Try to truncate at sentence boundary
+    truncated = hook[:max_chars-3]  # Reserve 3 chars for "..."
+
+    # Find last sentence-ending punctuation
+    last_period = truncated.rfind('.')
+    last_exclaim = truncated.rfind('!')
+    last_question = truncated.rfind('?')
+
+    boundary = max(last_period, last_exclaim, last_question)
+
+    # Only use boundary if it's >70% of max length (avoid cutting too early)
+    if boundary > max_chars * 0.7:
+        result = hook[:boundary+1]
+        logger.info(f"  ✓ Layer 3: Truncated at sentence boundary ({len(result)} chars)")
+        return result
+
+    # No good boundary, hard truncate with ellipsis
+    result = truncated + "..."
+    logger.info(f"  ✓ Layer 3: Hard truncated with ellipsis ({len(result)} chars)")
+    return result
+
+
+def _fix_overlength_hook_with_llm(
+    hook: str,
+    plan: VideoPlan,
+    llm_generate_fn: Optional[callable] = None
+) -> str:
+    """
+    Layer 2: AI-driven hook shortening.
+
+    If hook >200 chars, calls LLM to condense while preserving impact.
+    Falls back to Layer 3 (deterministic truncation) if LLM unavailable.
+
+    Args:
+        hook: Original hook text (potentially over 200 chars)
+        plan: Video plan for context
+        llm_generate_fn: Optional LLM function for AI shortening
+
+    Returns:
+        Shortened hook (≤200 chars) or original if already short enough
+    """
+    if len(hook) <= 200:
+        return hook
+
+    logger.warning(f"  ⚠️ Hook exceeds 200 chars ({len(hook)} chars), triggering Layer 2 AI shortening...")
+
+    # If LLM not available, fall to Layer 3
+    if not llm_generate_fn:
+        logger.warning("  ⚠️ Layer 2: No LLM available, falling to Layer 3 truncation")
+        return _truncate_hook_deterministic(hook, max_chars=200)
+
+    try:
+        prompt = f"""You are a copywriting expert specializing in viral video hooks.
+
+TASK: Shorten this hook to ≤200 characters while preserving maximum impact.
+
+ORIGINAL HOOK ({len(hook)} characters):
+"{hook}"
+
+VIDEO TOPIC: {plan.topic}
+TARGET AUDIENCE: {plan.target_audience if hasattr(plan, 'target_audience') else 'General'}
+
+REQUIREMENTS:
+1. Maximum 200 characters (including spaces, punctuation, emojis)
+2. Preserve the core emotional trigger (shock, curiosity, relatability)
+3. Keep the pattern interrupt or open loop if present
+4. Maintain urgency and impact
+5. Remove filler words but don't sacrifice clarity
+6. Optimize for mobile display (short, punchy)
+
+TECHNIQUES TO USE:
+- Replace long phrases with power words
+- Use contractions (it's vs it is, you're vs you are)
+- Remove redundant qualifiers ("really", "actually", "basically")
+- Tighten sentence structure
+
+RESPOND WITH THE SHORTENED HOOK ONLY (no explanations, no quotes):
+"""
+
+        logger.debug("  Calling LLM for hook shortening...")
+        shortened_hook = llm_generate_fn(
+            role="script_writer_hook_optimizer",
+            task=prompt,
+            context="",
+            style_hints={"max_tokens": 100, "temperature": 0.7}
+        )
+
+        # Clean response
+        shortened_hook = shortened_hook.strip().strip('"').strip("'")
+
+        # Validate length
+        if len(shortened_hook) <= 200:
+            logger.info(f"  ✅ Layer 2: Hook shortened successfully ({len(hook)} → {len(shortened_hook)} chars)")
+            return shortened_hook
+        else:
+            logger.warning(f"  ⚠️ Layer 2: LLM still produced {len(shortened_hook)} chars, falling to Layer 3")
+            return _truncate_hook_deterministic(shortened_hook, max_chars=200)
+
+    except Exception as e:
+        logger.error(f"  ❌ Layer 2: AI shortening failed: {e}")
+        logger.warning("  Falling to Layer 3 deterministic truncation")
+        return _truncate_hook_deterministic(hook, max_chars=200)
+
+
 def _parse_llm_suggestion(llm_text: str) -> Optional[Dict[str, any]]:
     """
     Parse LLM-generated script suggestion into components.
@@ -756,6 +879,9 @@ OUTPUT FORMAT:
 
 HOOK:
 [Engaging opening - consider narrator introduction if appropriate for format]
+⚠️ CRITICAL: Hook MUST be ≤200 characters (strict limit for mobile display)
+⚠️ Count characters including spaces, punctuation, and emojis BEFORE responding
+⚠️ If your hook exceeds 200 chars, SHORTEN it while preserving impact
 
 BULLETS:
 {chr(10).join([f'- [Main point {i+1}]' for i in range(recommended_bullets)])}
@@ -820,7 +946,8 @@ def write_script(
     narrative_arc: Optional[Dict] = None,
     content_depth_strategy: Optional[Dict] = None,
     cta_strategy: Optional[Dict] = None,
-    forced_cta: Optional[str] = None
+    forced_cta: Optional[str] = None,
+    llm_generate_fn: Optional[callable] = None  # Layer 2: Hook length validation
 ) -> VideoScript:
     """
     Generates a complete video script from a video plan.
@@ -1162,6 +1289,14 @@ def write_script(
         logger.info(f"    Text: '{outro_cta[:60]}...'")
 
     logger.info(f"Final CTA selected from: {cta_source}")
+
+    # Layer 2/3: Validate and fix hook length (max 200 chars for mobile display)
+    if len(hook) > 200:
+        logger.info(f"Hook validation: {len(hook)} chars exceeds 200 char limit")
+        hook = _fix_overlength_hook_with_llm(hook, plan, llm_generate_fn)
+        logger.info(f"✓ Hook adjusted to {len(hook)} chars")
+    else:
+        logger.info(f"✓ Hook length validated: {len(hook)} chars (within 200 char limit)")
 
     # Create VideoScript
     script = VideoScript(

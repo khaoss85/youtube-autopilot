@@ -355,7 +355,8 @@ ORIGINAL TASK:
                 series_format=series_format,
                 editorial_decision=editorial_decision,
                 narrative_arc=new_narrative_arc,  # Use regenerated arc!
-                content_depth_strategy=content_depth_strategy
+                content_depth_strategy=content_depth_strategy,
+                llm_generate_fn=llm_generate_fn  # Hook length validation
             )
             logger.info("    ✓ Script regenerated")
 
@@ -368,7 +369,8 @@ ORIGINAL TASK:
                 series_format=series_format,
                 workspace_config=workspace,
                 duration_strategy=duration_strategy,
-                timeline=None
+                timeline=None,
+                llm_generate_fn=llm_generate_fn  # Layer 2: AI-driven duration validation
             )
             logger.info("    ✓ Visual plan regenerated")
 
@@ -1567,7 +1569,8 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
         editorial_decision=editorial_decision,  # Step 11: Pass AI strategy
         narrative_arc=narrative_arc,  # Monetization Refactor: Pass emotional storytelling
         content_depth_strategy=content_depth_strategy,  # Sprint 2: AI-driven bullets count
-        cta_strategy=cta_strategy  # Phase B2: AI-driven CTA placement
+        cta_strategy=cta_strategy,  # Phase B2: AI-driven CTA placement
+        llm_generate_fn=llm_generate_fn  # Hook length validation
     )
 
     logger.info(f"✓ Script generated: {len(script.bullets)} content points")
@@ -1640,7 +1643,8 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
                     editorial_decision=editorial_decision,
                     narrative_arc=expanded_narrative_arc,  # Use expanded arc
                     content_depth_strategy=content_depth_strategy,
-                    cta_strategy=cta_strategy
+                    cta_strategy=cta_strategy,
+                    llm_generate_fn=llm_generate_fn  # Hook length validation
                 )
 
                 new_words = len(script.full_voiceover_text.split())
@@ -1809,7 +1813,8 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
         series_format=series_format,
         workspace_config=workspace,
         duration_strategy=duration_strategy,
-        timeline=timeline  # Phase C - P2.2: Single source of truth for duration
+        timeline=timeline,  # Phase C - P2.2: Single source of truth for duration
+        llm_generate_fn=llm_generate_fn  # Layer 2: AI-driven duration validation
     )
     total_duration = _calculate_total_duration(visual_plan)
     logger.info(f"✓ Visual plan created: {len(visual_plan.scenes)} scenes")
@@ -1929,7 +1934,8 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
             series_format=series_format,
             workspace_config=workspace,
             duration_strategy=duration_strategy,
-            timeline=timeline  # Phase C - P2.2: Single source of truth for duration
+            timeline=timeline,  # Phase C - P2.2: Single source of truth for duration
+            llm_generate_fn=llm_generate_fn  # Layer 2: AI-driven duration validation
         )
         revised_duration = _calculate_total_duration(revised_visual_plan)
         logger.info(f"  Revised duration: {revised_duration}s (was {total_duration}s)")
