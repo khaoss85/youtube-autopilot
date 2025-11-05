@@ -419,12 +419,12 @@ def expand_narrative_voiceovers(
     target_duration: int,
     target_language: str,
     llm_generate_fn: callable,
-    max_attempts: int = 2
+    max_attempts: int = 3
 ) -> Dict[str, Any]:
     """
     Layer 2: AI-driven narrative expansion for duration matching.
 
-    If narrative voiceovers are too short (>20% divergence from target),
+    If narrative voiceovers are too short (>15% divergence from target),
     uses LLM to intelligently expand content while preserving emotional arc.
 
     This is NOT simple padding - it's semantic content enrichment:
@@ -456,15 +456,20 @@ def expand_narrative_voiceovers(
     words_needed = target_words - current_words
     divergence_pct = abs(target_words - current_words) / target_words * 100 if target_words > 0 else 0
 
-    # Only expand if divergence > 20% (Layer 2 threshold)
-    if divergence_pct < 20:
+    # Only expand if divergence > 15% (Layer 2 threshold - stricter for better Gate 3 passage)
+    if divergence_pct < 15:
         logger.info(f"  ✓ Narrative word count acceptable: {current_words} words vs {target_words} target ({divergence_pct:.1f}% divergence)")
         return narrative_arc
 
     logger.warning(f"  ⚠️ Narrative too short: {current_words} words vs {target_words} target ({divergence_pct:.1f}% divergence)")
-    logger.info(f"  🔄 Layer 2: Triggering AI-driven content expansion (need +{words_needed} words)")
+    logger.info(f"  🔄 Layer 2: Triggering AI-driven content expansion (need +{words_needed} words, target <15% divergence)")
 
     from yt_autopilot.core.language_validator import LANGUAGE_NAMES
+
+    # Track best attempt across all retries
+    best_narrative_arc = narrative_arc
+    best_divergence = divergence_pct
+    best_words = current_words
 
     for attempt in range(1, max_attempts + 1):
         logger.info(f"     Expansion attempt {attempt}/{max_attempts}...")
@@ -572,9 +577,35 @@ OUTPUT ONLY VALID JSON:
             logger.info(f"     ✓ Expansion completed: {current_words} → {expanded_words} words")
             logger.info(f"       Divergence: {divergence_pct:.1f}% → {new_divergence:.1f}%")
 
-            # Check if improvement
-            if new_divergence < divergence_pct or new_divergence < 20:
-                # Success! Update narrative_arc
+            # Check if good enough or last attempt
+            is_good_enough = new_divergence < 15  # Stricter threshold (was 20%)
+            is_improved = new_divergence < divergence_pct
+            is_last_attempt = (attempt == max_attempts)
+
+            # Update best attempt if this is better
+            if new_divergence < best_divergence:
+                best_narrative_arc = {
+                    'narrative_structure': expanded_data['narrative_structure'],
+                    'full_voiceover': expanded_voiceover,
+                    'voice_personality': narrative_arc.get('voice_personality'),
+                    'emotional_journey': narrative_arc.get('emotional_journey'),
+                }
+                # Rebuild emotional beats
+                emotional_beats = []
+                cumulative_time = 0
+                for act in expanded_data['narrative_structure']:
+                    emotional_beats.append({
+                        'timestamp': cumulative_time,
+                        'act': act['act_name'],
+                        'emotion': act['emotional_beat']
+                    })
+                    cumulative_time += act.get('duration_seconds', 0)
+                best_narrative_arc['emotional_beats'] = emotional_beats
+                best_divergence = new_divergence
+                best_words = expanded_words
+
+            if is_good_enough or (is_improved and is_last_attempt):
+                # Success! Either hit target OR best effort on last attempt
                 narrative_arc['narrative_structure'] = expanded_data['narrative_structure']
                 narrative_arc['full_voiceover'] = expanded_voiceover
 
@@ -590,26 +621,30 @@ OUTPUT ONLY VALID JSON:
                     cumulative_time += act.get('duration_seconds', 0)
                 narrative_arc['emotional_beats'] = emotional_beats
 
-                logger.info(f"  ✅ Layer 2: AI expansion SUCCESSFUL (divergence now {new_divergence:.1f}%)")
+                if is_good_enough:
+                    logger.info(f"  ✅ Layer 2: AI expansion SUCCESSFUL (divergence now {new_divergence:.1f}%)")
+                else:
+                    logger.warning(f"  ✅ Layer 2: Accepting best attempt on final retry (divergence {new_divergence:.1f}%)")
                 return narrative_arc
             else:
-                # No improvement, try again
-                logger.warning(f"     ⚠️ Expansion attempt {attempt} insufficient (divergence {new_divergence:.1f}%)")
+                # Not good enough and not last attempt - try again
+                logger.warning(f"     ⚠️ Expansion attempt {attempt} insufficient (divergence {new_divergence:.1f}%), retrying...")
                 current_words = expanded_words  # Use expanded as new baseline for retry
+                divergence_pct = new_divergence  # Update baseline divergence
 
         except Exception as e:
             logger.error(f"     ❌ Expansion attempt {attempt} failed: {e}")
 
-    # All attempts failed
+    # All attempts failed - return best attempt instead of original
     logger.error(f"  ❌ Layer 2: AI expansion failed after {max_attempts} attempts")
-    logger.warning(f"     Falling back to Layer 3 (deterministic padding)")
+    logger.warning(f"     Returning BEST attempt: {best_words} words (divergence {best_divergence:.1f}%)")
 
     log_fallback(
         component="NARRATIVE_ARCHITECT_AI_EXPANSION",
         fallback_type="EXPANSION_FAILED",
-        reason=f"AI expansion failed after {max_attempts} attempts. Divergence: {divergence_pct:.1f}%",
+        reason=f"AI expansion failed after {max_attempts} attempts. Best: {best_words} words ({best_divergence:.1f}% divergence)",
         impact="MEDIUM"
     )
 
-    # Return original (Layer 3 will handle it)
-    return narrative_arc
+    # Return best attempt (not original) to minimize divergence
+    return best_narrative_arc

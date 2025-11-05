@@ -1603,7 +1603,76 @@ IMPORTANTE - STILE CREATOR (Step 07.2):
             # Auto-fix language mismatch if possible
             language_mismatch = any(i.code == "SCR_LANGUAGE_MISMATCH" for i in blocking_issues)
 
-            if language_mismatch:
+            # Auto-retry duration mismatch if possible (Gate 3 Retry - Phase 1)
+            duration_mismatch = any(i.code == "SCRIPT_DURATION_MISMATCH" for i in blocking_issues)
+
+            if duration_mismatch:
+                logger.warning("  🔧 Attempting script regeneration with duration constraints...")
+
+                # Extract target information
+                target_duration = timeline.reconciled_duration if timeline else duration_strategy.get('target_duration_seconds', 360)
+                target_words = int(target_duration * 2.5)  # 2.5 words/second speaking rate
+                current_words = len(script.full_voiceover_text.split())
+                divergence_pct = abs(target_words - current_words) / target_words * 100
+
+                logger.info(f"  Current: {current_words} words ({int(current_words / 2.5)}s)")
+                logger.info(f"  Target: {target_words} words ({target_duration}s)")
+                logger.info(f"  Divergence: {divergence_pct:.1f}%")
+
+                # Attempt narrative expansion with more aggressive retry (max_attempts=3)
+                # Note: expand_narrative_voiceovers already imported at module level (line 37)
+                logger.info("  Layer 2 Retry: Expanding narrative arc with stricter target...")
+                expanded_narrative_arc = expand_narrative_voiceovers(
+                    narrative_arc=narrative_arc,
+                    target_duration=target_duration,
+                    target_language=workspace.get('target_language', 'en'),
+                    llm_generate_fn=llm_generate_fn,
+                    max_attempts=3  # More attempts than initial expansion (was 2)
+                )
+
+                # Regenerate script with expanded narrative
+                logger.info("  Regenerating script with expanded narrative...")
+                script = write_script(
+                    video_plan,
+                    memory,
+                    llm_suggestion=llm_suggestion,  # Reuse same LLM suggestion
+                    series_format=series_format,
+                    editorial_decision=editorial_decision,
+                    narrative_arc=expanded_narrative_arc,  # Use expanded arc
+                    content_depth_strategy=content_depth_strategy,
+                    cta_strategy=cta_strategy
+                )
+
+                new_words = len(script.full_voiceover_text.split())
+                new_divergence = abs(target_words - new_words) / target_words * 100
+                logger.info(f"  ✅ Script regenerated: {new_words} words ({int(new_words / 2.5)}s, {new_divergence:.1f}% divergence)")
+
+                # Re-validate after expansion
+                logger.info("  Re-validating Gate 3 after duration fix...")
+                gate3_result = gate3_validator.validate(
+                    script=script,
+                    content_depth_strategy=content_depth_strategy,
+                    editorial_decision=editorial_decision,
+                    workspace=workspace,
+                    target_duration=target_duration
+                )
+
+                if gate3_result.is_valid:
+                    logger.info("  ✅ Re-validation passed after duration fix")
+                    # Update narrative_arc for downstream use
+                    narrative_arc = expanded_narrative_arc
+                else:
+                    logger.error("  ❌ Re-validation still failed after duration fix")
+                    if gate3_blocking:
+                        raise ValueError(
+                            f"Script validation failed even after expansion retry. "
+                            f"Final divergence: {new_divergence:.1f}%. "
+                            f"Issue: {gate3_result.get_blocking_issues()[0].message}"
+                        )
+                    else:
+                        logger.warning("⚠️ Gate 3 non-blocking - script duration issues remain after retry")
+
+            elif language_mismatch:
                 logger.warning("  🔧 Attempting automatic language correction...")
                 from yt_autopilot.core.language_validator import LanguageValidator
 
