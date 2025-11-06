@@ -22,7 +22,7 @@ Example enhancement:
     llm_script = generate_text(
         role="script_writer",
         task="Write viral hook and bullets for YouTube Short",
-        context=f"Topic: {plan.topic}, Target: {plan.target_cta}",
+        context=f"Topic: {plan.working_title}, Target: {plan.target_cta}",
         style_hints={"brand_tone": memory["brand_tone"]}
     )
     # Pass llm_script to agent for validation and formatting
@@ -150,7 +150,7 @@ TASK: Shorten this hook to ≤200 characters while preserving maximum impact.
 ORIGINAL HOOK ({len(hook)} characters):
 "{hook}"
 
-VIDEO TOPIC: {plan.topic}
+VIDEO TOPIC: {plan.working_title}
 TARGET AUDIENCE: {plan.target_audience if hasattr(plan, 'target_audience') else 'General'}
 
 REQUIREMENTS:

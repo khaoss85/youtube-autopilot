@@ -267,14 +267,14 @@ def _generate_tags_with_llm(
     try:
         # Extract content summary
         hook_preview = script.hook[:100] if script.hook else plan.working_title
-        content_preview = ' '.join(script.bullets[:2]) if script.bullets else plan.topic
+        content_preview = ' '.join(script.bullets[:2]) if script.bullets else plan.working_title
 
         prompt = f"""You are a YouTube SEO expert specializing in video discoverability and tag optimization.
 
 TASK: Generate 10-15 highly relevant YouTube tags for maximum discoverability.
 
 VIDEO INFORMATION:
-- Topic: {plan.topic}
+- Topic: {plan.working_title}
 - Title: {plan.working_title}
 - Hook: "{hook_preview}"
 - Content: "{content_preview[:150]}..."
