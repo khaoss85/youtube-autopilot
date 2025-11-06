@@ -179,20 +179,33 @@ Examples:
 
 RESPOND ONLY WITH VALID JSON:
 {{
-  "main_cta": "<end-of-video call-to-action, specific and actionable>",
+  "main_cta": "<end-of-video call-to-action, specific and actionable in workspace language>
+    Examples:
+    - English: \"Download the complete checklist in the description below\"
+    - Italian: \"Scarica la checklist completa nella descrizione qui sotto\"",
   "mid_roll_ctas": [
     {{
       "timestamp": <seconds from start, integer>,
-      "cta": "<specific CTA text, max 80 chars>",
+      "cta": "<specific CTA text in workspace language, max 80 chars>
+    Examples:
+    - English: \"Pause here and think about YOUR biggest challenge\"
+    - Italian: \"Fermati qui e pensa alla TUA sfida più grande\"",
       "type": "pause_and_reflect|lead_magnet|engagement|external"
     }}
   ],
-  "funnel_path": "<step1 → step2 → step3>",
-  "reasoning": "<2-3 sentences explaining placement strategy and expected impact>",
+  "funnel_path": "<step1 → step2 → step3 in workspace language>
+    Examples:
+    - English: \"video → checklist → community\"
+    - Italian: \"video → checklist → community\"",
+  "reasoning": "<2-3 sentences in workspace language explaining placement strategy and expected impact>
+    Examples:
+    - English: \"Mid-roll at 120s placed after problem agitation to build engagement. Final CTA drives list growth.\"
+    - Italian: \"Mid-roll a 120s posizionato dopo l'agitazione del problema per costruire engagement. CTA finale guida la crescita della lista.\"",
   "cta_count": <total number of CTAs including main_cta>
 }}
 
 IMPORTANT:
+- ALL text fields (main_cta, cta, funnel_path, reasoning) MUST be in workspace language
 - Be specific in CTA text (not generic "like and subscribe")
 - Explain WHY each mid-roll is placed at its timestamp
 - Respect narrative flow (don't interrupt climax moments)

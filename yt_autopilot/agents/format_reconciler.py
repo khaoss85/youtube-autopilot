@@ -175,15 +175,21 @@ RESPOND ONLY WITH VALID JSON:
 {{
   "final_duration": <duration in seconds>,
   "format_type": "<short|mid|long>",
-  "reasoning": "<2-3 sentences explaining arbitration decision>",
+  "reasoning": "<2-3 sentences in workspace language explaining arbitration decision>
+    Examples:
+    - English: \"Chose 420s as compromise. Editorial needs 3-point breakdown, Duration wants mid-roll ad slots. This duration allows both.\"
+    - Italian: \"Scelto 420s come compromesso. Editorial necessita articolazione a 3 punti, Duration vuole slot pubblicitari mid-roll. Questa durata permette entrambi.\"",
   "arbitration_source": "<editorial_strategist|duration_strategist|compromise>",
   "editorial_weight": <0.0-1.0, how much editorial influenced decision>,
   "duration_weight": <0.0-1.0, how much duration influenced decision>
 }}
 
 IMPORTANT:
+- reasoning MUST be in workspace language (English/Italian/etc)
 - Be specific about WHY you chose this duration
-- Explain trade-offs clearly (e.g., "Sacrificing 1 mid-roll slot for narrative clarity")
+- Explain trade-offs clearly
+  * English example: \"Sacrificing 1 mid-roll slot for narrative clarity\"
+  * Italian example: \"Sacrificando 1 slot mid-roll per chiarezza narrativa\"
 - Weights should sum to 1.0
 """
 
