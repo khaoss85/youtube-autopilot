@@ -55,6 +55,7 @@ def build_curation_prompt(
     brand_tone = memory.get("brand_tone", "Direct, energetic Italian tech content creator")
     recent_titles = memory.get("recent_titles", [])
     banned_topics = memory.get("banned_topics", [])
+    target_language = memory.get("target_language", "en")
 
     # Limit trends to top N by momentum (pre-filter before LLM)
     trends_to_evaluate = sorted(trends, key=lambda t: t.momentum_score, reverse=True)[:max_trends_to_evaluate]
@@ -180,10 +181,15 @@ Respond with a JSON array containing the indices of your top 10 selected trends,
 Example response:
 {{
   "selected_trends": [5, 12, 3, 18, 7, 22, 1, 15, 9, 20],
-  "reasoning": "Brief 2-3 sentence explanation of why you picked these trends over others"
+  "reasoning": "<Brief 2-3 sentence explanation in {target_language} of why you picked these trends over others>
+    Examples:
+    - English: \"Selected high-momentum Reddit/HN trends with strong educational value. Prioritized AI tutorials and technical deep dives over YouTube entertainment content.\"
+    - Italian: \"Selezionati trend da Reddit/HN con alto momentum e forte valore educativo. Priorità data a tutorial AI e analisi tecniche approfondite rispetto a contenuti YouTube di intrattenimento.\""
 }}
 
-IMPORTANT: Return ONLY the JSON object, no other text.
+IMPORTANT:
+- reasoning MUST be in {target_language} (NOT English)
+- Return ONLY the JSON object, no other text.
 """
 
     return prompt

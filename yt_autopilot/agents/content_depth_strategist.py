@@ -132,25 +132,35 @@ CONSTRAINTS:
 - Total time across bullets should be ~80-90% of target duration (allow for hook/outro)
 - Each bullet needs at least 20s minimum
 
-OUTPUT (JSON format):
+⚠️ CRITICAL LANGUAGE REQUIREMENT ⚠️
+ALL text fields (pacing_guidance, reasoning) MUST be written in workspace language ({vertical_id} workspace).
+This is NOT optional - language compliance is strictly validated.
+
+Example outputs by language:
+
+English example:
 {{
   "recommended_bullets": 5,
   "time_per_bullet": [60, 90, 100, 80, 70],
   "depth_scores": [0.6, 0.8, 0.9, 0.7, 0.6],
-  "pacing_guidance": "Start with quick context, build to deep insight at bullet 3, wind down with actionable takeaway
-    Examples (use workspace language):
-    - English: \"Start with quick context, build to deep insight at bullet 3, wind down\"
-    - Italian: \"Inizia con un contesto rapido, costruisci fino all'insight al punto 3, concludi\"",
-  "reasoning": "Topic complexity sustains 5 bullets. 480s / 5 = 96s avg per bullet, allowing depth. Allocated more time (100s) to bullet 3 where narrative peaks. First bullet is shorter (60s) for quick engagement hook. Total: 400s (83% of 480s target), leaving 80s for hook/outro.
-    Examples (use workspace language):
-    - English: \"Topic complexity sustains 5 bullets. 480s / 5 = 96s avg per bullet, allowing depth...\"
-    - Italian: \"La complessità dell'argomento sostiene 5 punti. 480s / 5 = 96s medi per punto, consentendo profondità...\"",
+  "pacing_guidance": "Start with quick context, build to deep insight at bullet 3, then wind down with actionable takeaway",
+  "reasoning": "Topic complexity sustains 5 bullets. 480s / 5 = 96s avg per bullet, allowing depth. Allocated more time (100s) to bullet 3 where narrative peaks. First bullet is shorter (60s) for quick engagement hook. Total: 400s (83% of 480s target), leaving 80s for hook/outro.",
   "adequacy_score": 0.85
 }}
 
-IMPORTANT:
-- reasoning and pacing_guidance MUST be in workspace language (English/Italian/etc)
-- reasoning MUST explain WHY this bullets count is optimal
+Italian example:
+{{
+  "recommended_bullets": 5,
+  "time_per_bullet": [60, 90, 100, 80, 70],
+  "depth_scores": [0.6, 0.8, 0.9, 0.7, 0.6],
+  "pacing_guidance": "Inizia con un contesto rapido, costruisci fino all'insight profondo al punto 3, poi concludi con un takeaway azionabile",
+  "reasoning": "La complessità dell'argomento sostiene 5 punti. 480s / 5 = 96s medi per punto, consentendo profondità. Allocato più tempo (100s) al punto 3 dove il picco narrativo avviene. Primo punto più breve (60s) per hook di engagement rapido. Totale: 400s (83% del target 480s), lasciando 80s per hook/outro.",
+  "adequacy_score": 0.85
+}}
+
+IMPORTANT VALIDATION RULES:
+- reasoning and pacing_guidance MUST be in workspace language
+- reasoning MUST explain WHY this bullets count is optimal (not just describe numbers)
 - time_per_bullet MUST sum to 70-90% of target_duration
 - depth_scores MUST match time allocation (more time = higher depth)
 - adequacy_score: 0.8+ = excellent, 0.6-0.8 = good, <0.6 = needs revision

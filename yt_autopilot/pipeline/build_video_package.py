@@ -692,15 +692,26 @@ Analyze which trend has the BEST strategic fit considering:
 
 **Important**: Don't just pick #1. Consider strategic nuance that numbers don't capture.
 
-Return ONLY a JSON object:
+Return ONLY a JSON object with text fields in {memory.get('target_language', 'en')}:
 {{
   "selected_index": <0 to {len(top_candidates)-1}, or -1 if all are duplicates/unreproducible>,
   "title": "<exact title of selected trend>",
-  "reasoning": "<2-3 sentences explaining why this is strategically best>",
-  "duplicate_analysis": "<Assessment of semantic similarity with recent videos>",
-  "reproducibility_analysis": "<Assessment of whether we can create this content solo>",
+  "reasoning": "<2-3 sentences in {memory.get('target_language', 'en')} explaining why this is strategically best>
+    Examples:
+    - English: \"This trend shows strong momentum and aligns with our tech-focused audience. The timing is perfect as this topic is currently trending on Reddit/HN.\"
+    - Italian: \"Questo trend mostra un forte momentum e si allinea con il nostro pubblico tech. Il timing è perfetto poiché l'argomento è attualmente in tendenza su Reddit/HN.\"",
+  "duplicate_analysis": "<Assessment in {memory.get('target_language', 'en')} of semantic similarity with recent videos>
+    Examples:
+    - English: \"No semantic duplicates detected. This topic offers a different angle from our recent content.\"
+    - Italian: \"Nessun duplicato semantico rilevato. Questo argomento offre un angolo differente rispetto ai nostri contenuti recenti.\"",
+  "reproducibility_analysis": "<Assessment in {memory.get('target_language', 'en')} of whether we can create this content solo>
+    Examples:
+    - English: \"Fully reproducible solo. Tutorial format requires no specific collaborators or event access.\"
+    - Italian: \"Completamente riproducibile in autonomia. Il formato tutorial non richiede collaboratori specifici o accesso a eventi.\"",
   "skipped_candidates": [<list of candidate indices (0-{len(top_candidates)-1}) skipped for being semantic duplicates or unreproducible>]
-}}"""
+}}
+
+IMPORTANT: ALL text fields (reasoning, duplicate_analysis, reproducibility_analysis) MUST be in {memory.get('target_language', 'en')}"""
 
             # Call LLM
             ai_response_text = llm_generate_fn(
