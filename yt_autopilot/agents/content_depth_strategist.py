@@ -75,6 +75,18 @@ def analyze_content_depth(
     angle = editorial_decision.get('angle', 'educational')
     narrative_acts = narrative_arc.get('narrative_structure', [])
     vertical_id = workspace.get('vertical_id', 'general')
+    target_language = workspace.get('target_language', 'en')
+
+    # Language mapping for explicit instruction (pattern from narrative_architect)
+    language_names = {
+        "en": "ENGLISH",
+        "it": "ITALIAN",
+        "es": "SPANISH",
+        "fr": "FRENCH",
+        "de": "GERMAN",
+        "pt": "PORTUGUESE"
+    }
+    language_instruction = language_names.get(target_language.lower(), target_language.upper())
 
     # Build LLM prompt with Chain-of-Thought reasoning
     prompt = f"""
@@ -89,6 +101,10 @@ VIDEO CONTEXT:
 - Angle: {angle}
 - Vertical: {vertical_id}
 - Narrative acts: {len(narrative_acts)}
+
+⚠️ CRITICAL LANGUAGE REQUIREMENT ⚠️
+ALL TEXT FIELDS (pacing_guidance, reasoning) MUST BE IN {language_instruction}.
+DO NOT mix languages. If you see examples in other languages below, IGNORE their language and write in {language_instruction}.
 
 CHAIN-OF-THOUGHT REASONING:
 
@@ -132,13 +148,7 @@ CONSTRAINTS:
 - Total time across bullets should be ~80-90% of target duration (allow for hook/outro)
 - Each bullet needs at least 20s minimum
 
-⚠️ CRITICAL LANGUAGE REQUIREMENT ⚠️
-ALL text fields (pacing_guidance, reasoning) MUST be written in workspace language ({vertical_id} workspace).
-This is NOT optional - language compliance is strictly validated.
-
-Example outputs by language:
-
-English example:
+ENGLISH example output:
 {{
   "recommended_bullets": 5,
   "time_per_bullet": [60, 90, 100, 80, 70],
@@ -148,7 +158,7 @@ English example:
   "adequacy_score": 0.85
 }}
 
-Italian example:
+ITALIAN example output:
 {{
   "recommended_bullets": 5,
   "time_per_bullet": [60, 90, 100, 80, 70],
@@ -159,7 +169,7 @@ Italian example:
 }}
 
 IMPORTANT VALIDATION RULES:
-- reasoning and pacing_guidance MUST be in workspace language
+- reasoning and pacing_guidance MUST be in {language_instruction}
 - reasoning MUST explain WHY this bullets count is optimal (not just describe numbers)
 - time_per_bullet MUST sum to 70-90% of target_duration
 - depth_scores MUST match time allocation (more time = higher depth)

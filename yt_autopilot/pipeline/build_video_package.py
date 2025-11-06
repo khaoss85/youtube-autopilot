@@ -501,6 +501,17 @@ def build_video_package(
     target_language = workspace.get('target_language', 'en')
     logger.info(f"🌍 LANGUAGE ENFORCEMENT: Target language = {target_language}")
 
+    # Language mapping for explicit instruction (pattern from narrative_architect)
+    language_names = {
+        "en": "ENGLISH",
+        "it": "ITALIAN",
+        "es": "SPANISH",
+        "fr": "FRENCH",
+        "de": "GERMAN",
+        "pt": "PORTUGUESE"
+    }
+    language_instruction = language_names.get(target_language.lower(), target_language.upper())
+
     # Create language-enforced LLM function
     llm_generate_fn = wrap_llm_with_language_enforcement(
         generate_text,
@@ -658,6 +669,10 @@ def build_video_package(
 
 {candidates_text}
 
+⚠️ CRITICAL LANGUAGE REQUIREMENT ⚠️
+ALL TEXT FIELDS (reasoning, duplicate_analysis, reproducibility_analysis) MUST BE IN {language_instruction}.
+DO NOT mix languages. If you see examples in other languages below, IGNORE their language and write in {language_instruction}.
+
 **Your Task:**
 Analyze which trend has the BEST strategic fit considering:
 
@@ -692,26 +707,27 @@ Analyze which trend has the BEST strategic fit considering:
 
 **Important**: Don't just pick #1. Consider strategic nuance that numbers don't capture.
 
-Return ONLY a JSON object with text fields in {memory.get('target_language', 'en')}:
+ENGLISH example response:
 {{
-  "selected_index": <0 to {len(top_candidates)-1}, or -1 if all are duplicates/unreproducible>,
-  "title": "<exact title of selected trend>",
-  "reasoning": "<2-3 sentences in {memory.get('target_language', 'en')} explaining why this is strategically best>
-    Examples:
-    - English: \"This trend shows strong momentum and aligns with our tech-focused audience. The timing is perfect as this topic is currently trending on Reddit/HN.\"
-    - Italian: \"Questo trend mostra un forte momentum e si allinea con il nostro pubblico tech. Il timing è perfetto poiché l'argomento è attualmente in tendenza su Reddit/HN.\"",
-  "duplicate_analysis": "<Assessment in {memory.get('target_language', 'en')} of semantic similarity with recent videos>
-    Examples:
-    - English: \"No semantic duplicates detected. This topic offers a different angle from our recent content.\"
-    - Italian: \"Nessun duplicato semantico rilevato. Questo argomento offre un angolo differente rispetto ai nostri contenuti recenti.\"",
-  "reproducibility_analysis": "<Assessment in {memory.get('target_language', 'en')} of whether we can create this content solo>
-    Examples:
-    - English: \"Fully reproducible solo. Tutorial format requires no specific collaborators or event access.\"
-    - Italian: \"Completamente riproducibile in autonomia. Il formato tutorial non richiede collaboratori specifici o accesso a eventi.\"",
-  "skipped_candidates": [<list of candidate indices (0-{len(top_candidates)-1}) skipped for being semantic duplicates or unreproducible>]
+  "selected_index": 0,
+  "title": "Example trend title",
+  "reasoning": "This trend shows strong momentum and aligns with our tech-focused audience. The timing is perfect as this topic is currently trending on Reddit/HN.",
+  "duplicate_analysis": "No semantic duplicates detected. This topic offers a different angle from our recent content.",
+  "reproducibility_analysis": "Fully reproducible solo. Tutorial format requires no specific collaborators or event access.",
+  "skipped_candidates": [1, 3]
 }}
 
-IMPORTANT: ALL text fields (reasoning, duplicate_analysis, reproducibility_analysis) MUST be in {memory.get('target_language', 'en')}"""
+ITALIAN example response:
+{{
+  "selected_index": 0,
+  "title": "Titolo trend di esempio",
+  "reasoning": "Questo trend mostra un forte momentum e si allinea con il nostro pubblico tech. Il timing è perfetto poiché l'argomento è attualmente in tendenza su Reddit/HN.",
+  "duplicate_analysis": "Nessun duplicato semantico rilevato. Questo argomento offre un angolo differente rispetto ai nostri contenuti recenti.",
+  "reproducibility_analysis": "Completamente riproducibile in autonomia. Il formato tutorial non richiede collaboratori specifici o accesso a eventi.",
+  "skipped_candidates": [1, 3]
+}}
+
+Return ONLY a JSON object. ALL text fields MUST be in {language_instruction}."""
 
             # Call LLM
             ai_response_text = llm_generate_fn(

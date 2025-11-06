@@ -57,6 +57,17 @@ def build_curation_prompt(
     banned_topics = memory.get("banned_topics", [])
     target_language = memory.get("target_language", "en")
 
+    # Language mapping for explicit instruction (pattern from narrative_architect)
+    language_names = {
+        "en": "ENGLISH",
+        "it": "ITALIAN",
+        "es": "SPANISH",
+        "fr": "FRENCH",
+        "de": "GERMAN",
+        "pt": "PORTUGUESE"
+    }
+    language_instruction = language_names.get(target_language.lower(), target_language.upper())
+
     # Limit trends to top N by momentum (pre-filter before LLM)
     trends_to_evaluate = sorted(trends, key=lambda t: t.momentum_score, reverse=True)[:max_trends_to_evaluate]
 
@@ -132,6 +143,10 @@ CHANNEL BRAND IDENTITY:
 
 {vertical_guide.strip()}
 
+⚠️ CRITICAL LANGUAGE REQUIREMENT ⚠️
+ALL OUTPUT MUST BE IN {language_instruction}. The "reasoning" field MUST be written in {language_instruction}.
+DO NOT mix languages. If you see examples in other languages below, IGNORE their language and write in {language_instruction}.
+
 YOUR TASK:
 Evaluate the following {len(trends_to_evaluate)} trending topics and select the TOP 10 that would make the best YouTube videos for this channel.
 
@@ -178,18 +193,21 @@ TRENDING TOPICS TO EVALUATE:
 OUTPUT FORMAT:
 Respond with a JSON array containing the indices of your top 10 selected trends, ranked from best to worst.
 
-Example response:
+ENGLISH example response:
 {{
   "selected_trends": [5, 12, 3, 18, 7, 22, 1, 15, 9, 20],
-  "reasoning": "<Brief 2-3 sentence explanation in {target_language} of why you picked these trends over others>
-    Examples:
-    - English: \"Selected high-momentum Reddit/HN trends with strong educational value. Prioritized AI tutorials and technical deep dives over YouTube entertainment content.\"
-    - Italian: \"Selezionati trend da Reddit/HN con alto momentum e forte valore educativo. Priorità data a tutorial AI e analisi tecniche approfondite rispetto a contenuti YouTube di intrattenimento.\""
+  "reasoning": "Selected high-momentum Reddit/HN trends with strong educational value. Prioritized AI tutorials and technical deep dives over YouTube entertainment content."
+}}
+
+ITALIAN example response:
+{{
+  "selected_trends": [5, 12, 3, 18, 7, 22, 1, 15, 9, 20],
+  "reasoning": "Selezionati trend da Reddit/HN con alto momentum e forte valore educativo. Priorità data a tutorial AI e analisi tecniche approfondite rispetto a contenuti YouTube di intrattenimento."
 }}
 
 IMPORTANT:
-- reasoning MUST be in {target_language} (NOT English)
-- Return ONLY the JSON object, no other text.
+- "reasoning" field MUST be in {language_instruction}
+- Return ONLY the JSON object, no other text
 """
 
     return prompt
