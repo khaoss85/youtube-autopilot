@@ -883,13 +883,31 @@ HOOK:
 ⚠️ Count characters including spaces, punctuation, and emojis BEFORE responding
 ⚠️ If your hook exceeds 200 chars, SHORTEN it while preserving impact
 
+Hook Examples:
+- English: "This mistake cost $2M. Here's what happened..."
+- Italian: "Questo errore è costato 2 milioni. Ecco cosa è successo..."
+- English: "Want to lose belly fat? This changes everything."
+- Italian: "Vuoi perdere grasso addominale? Questo cambia tutto."
+
 BULLETS:
 {chr(10).join([f'- [Main point {i+1}]' for i in range(recommended_bullets)])}
 
 ⚠️ CRITICAL: Provide EXACTLY {recommended_bullets} bullets (AI-optimized count for {target_duration}s duration)
 
+Bullet Examples:
+- English: "The secret lies in timing your workouts"
+- Italian: "Il segreto sta nel timing degli allenamenti"
+- English: "Research shows this technique works 3x faster"
+- Italian: "La ricerca mostra che questa tecnica funziona 3 volte più velocemente"
+
 CTA:
 [Call to action - consider signature closing if appropriate]
+
+CTA Examples:
+- English: "Drop a comment with your biggest challenge!"
+- Italian: "Scrivi un commento con la tua sfida più grande!"
+- English: "Follow for more tips like this!"
+- Italian: "Seguimi per altri consigli come questo!"
 
 VOICEOVER:
 [Complete narration text combining all sections naturally]

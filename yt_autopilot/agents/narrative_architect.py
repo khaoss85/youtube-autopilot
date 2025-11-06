@@ -173,23 +173,27 @@ Design an EMOTIONAL STORY ARC that maximizes viewer retention through:
    - NOT generic "Ever heard of..."
    - Open loop: tease the payoff
    - Emotional trigger: shock, curiosity, relatability
-   - Example: "This trader lost $6.5M in ONE NIGHT. The mistake? Completely avoidable."
+   - Example (English): "This trader lost $6.5M in ONE NIGHT. The mistake? Completely avoidable."
+   - Example (Italian): "Incredibile! Un trader ha perso 6,5 milioni in UNA NOTTE. L'errore? Totalmente evitabile."
 
 2. **AGITATION (build tension)**: Pain points
    - Explore the problem
    - Build emotional investment
-   - "Here's what went wrong..."
-   - Pattern interrupt mid-section: "But wait, there's a twist..."
+   - Example (English): "Here's what went wrong..."
+   - Example (Italian): "Ecco cosa è andato storto... Ma attenzione, c'è un colpo di scena..."
+   - Pattern interrupt mid-section: "But wait, there's a twist..." / "Ma aspetta, c'è un colpo di scena..."
 
 3. **SOLUTION (release tension)**: Insights
    - Reveal the lesson
    - Provide value
-   - "The truth is..."
+   - Example (English): "The truth is..."
+   - Example (Italian): "La verità è che..."
 
 4. **PAYOFF + CTA**: Engagement
    - Deliver on hook promise
    - Specific CTA (NOT "follow us")
-   - Example: "Comment YOUR worst trade loss below!"
+   - Example (English): "Comment YOUR worst trade loss below!"
+   - Example (Italian): "Commenta con la TUA perdita peggiore qui sotto!"
 
 VOICE PERSONALITY:
 Based on brand tone "{brand_tone[:100]}", choose narrator personality:
@@ -518,8 +522,12 @@ EXPANSION REQUIREMENTS:
    - Concrete examples and relatable stories
    - Relevant statistics or data points (if appropriate)
    - Vivid descriptions and scenarios
-   - Pattern interrupts for retention ("But here's the thing...")
-   - Direct address to viewer ("You might be thinking...")
+   - Pattern interrupts for retention
+     * English: "But here's the thing..."
+     * Italian: "Ma ecco il punto..." / "Ma attenzione..."
+   - Direct address to viewer
+     * English: "You might be thinking..."
+     * Italian: "Potresti pensare..." / "Ti starai chiedendo..."
 4. ✅ Maintain retention tactics (cliffhangers, open loops, etc.)
 5. ✅ Keep proper punctuation and pacing for spoken delivery
 6. ❌ DO NOT just repeat existing content or add filler
