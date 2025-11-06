@@ -342,9 +342,18 @@ OUTPUT (valid JSON only, no markdown formatting):
     "cta": <seconds>
   }},
   "monetization_path": "<MUST BE ONE OF: lead_magnet, playlist, comment_trigger, external - EXACT ENGLISH VALUE>",
-  "cta_specific": "<exact CTA text to use - be specific, not template>",
-  "reasoning_summary": "<2-3 sentences explaining the key strategic choices>",
-  "performance_context": "<optional: insights from performance history that influenced decisions>"
+  "cta_specific": "<exact CTA text to use in {workspace.get('target_language', 'en')} - be specific, not template>
+    Examples:
+    - English: \"Comment BURRY and I'll send you the 3 indicators\"
+    - Italian: \"Scrivi BURRY e ti mando i 3 indicatori\"",
+  "reasoning_summary": "<2-3 sentences in {workspace.get('target_language', 'en')} explaining the key strategic choices>
+    Examples:
+    - English: \"This analysis format works best for complex topics. The 8-minute duration allows depth while maintaining retention.\"
+    - Italian: \"Il formato analisi funziona meglio per argomenti complessi. La durata di 8 minuti permette profondità mantenendo la retention.\"",
+  "performance_context": "<optional: insights in {workspace.get('target_language', 'en')} from performance history that influenced decisions>
+    Examples:
+    - English: \"Analysis format has 25% higher retention than tutorial for this vertical\"
+    - Italian: \"Il formato analisi ha una retention del 25% superiore rispetto ai tutorial per questa verticale\""
 }}
 
 CRITICAL VALIDATION BEFORE RESPONDING:
