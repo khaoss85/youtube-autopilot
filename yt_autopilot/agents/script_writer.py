@@ -143,7 +143,23 @@ def _fix_overlength_hook_with_llm(
         return _truncate_hook_deterministic(hook, max_chars=200)
 
     try:
+        # Language mapping for explicit instruction (pattern from narrative_architect)
+        target_language = plan.language if hasattr(plan, 'language') else 'en'
+        language_names = {
+            "en": "ENGLISH",
+            "it": "ITALIAN",
+            "es": "SPANISH",
+            "fr": "FRENCH",
+            "de": "GERMAN",
+            "pt": "PORTUGUESE"
+        }
+        language_instruction = language_names.get(target_language.lower(), target_language.upper())
+
         prompt = f"""You are a copywriting expert specializing in viral video hooks.
+
+⚠️ CRITICAL LANGUAGE REQUIREMENT ⚠️
+THE SHORTENED HOOK MUST BE IN {language_instruction}.
+DO NOT translate the hook. Shorten it while preserving the EXACT language of the original.
 
 TASK: Shorten this hook to ≤200 characters while preserving maximum impact.
 
@@ -160,11 +176,12 @@ REQUIREMENTS:
 4. Maintain urgency and impact
 5. Remove filler words but don't sacrifice clarity
 6. Optimize for mobile display (short, punchy)
+7. MUST be in {language_instruction} (same language as original)
 
 TECHNIQUES TO USE:
 - Replace long phrases with power words
-- Use contractions (it's vs it is, you're vs you are)
-- Remove redundant qualifiers ("really", "actually", "basically")
+- Use contractions where appropriate in {language_instruction}
+- Remove redundant qualifiers
 - Tighten sentence structure
 
 RESPOND WITH THE SHORTENED HOOK ONLY (no explanations, no quotes):
