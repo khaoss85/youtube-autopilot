@@ -20,8 +20,10 @@ Author: YT Autopilot Team
 Version: 1.0 (Phase B1)
 """
 
-from typing import List, Dict, Optional
-from yt_autopilot.core.logger import logger
+from typing import List, Dict, Optional, Callable
+import json
+import re
+from yt_autopilot.core.logger import logger, log_fallback
 
 
 # ==============================================================================
@@ -114,6 +116,95 @@ def _select_camera_movement(segment_name: str) -> str:
         return CAMERA_MOVEMENTS["outro"]
     else:
         return CAMERA_MOVEMENTS["content"]
+
+
+# ==============================================================================
+# PATTERN 4: ADAPTIVE SHOT SELECTION (AI-Driven)
+# ==============================================================================
+
+def select_adaptive_shot(
+    voiceover_text: str,
+    content_type: str,
+    scene_index: int,
+    total_scenes: int,
+    previous_shot: Optional[str],
+    llm_generate_fn: Callable
+) -> Dict:
+    """
+    AI-driven shot selection with content-aware variety (Pattern 4).
+
+    Replaces hardcoded SHOT_PROGRESSIONS with LLM reasoning per scene.
+    Adapts variety based on content type (workout needs HIGH variety).
+
+    Args:
+        voiceover_text: Scene voiceover content
+        content_type: Content type (workout, recipe, tutorial, etc.)
+        scene_index: Scene position (0-based)
+        total_scenes: Total scenes in video
+        previous_shot: Previous scene's shot type (for variety)
+        llm_generate_fn: LLM function
+
+    Returns:
+        Dict with shot_type, lens, movement, purpose, variety_score
+    """
+    prompt = f"""Select optimal camera shot for video scene.
+
+SCENE: {scene_index + 1}/{total_scenes}
+VOICEOVER: "{voiceover_text[:150]}..."
+CONTENT TYPE: {content_type}
+PREVIOUS SHOT: {previous_shot or "None (first scene)"}
+
+CONTENT VARIETY NEEDS:
+- workout/fitness → HIGH variety (avoid 2 same shots in row)
+- recipe/cooking → MEDIUM variety
+- tutorial/story → LOW variety (consistency)
+
+SHOT OPTIONS: wide (24mm), medium (50mm), close (85mm)
+
+TASK: Choose shot that MAXIMIZES variety for {content_type} while showing content effectively.
+
+RESPOND JSON:
+{{
+  "shot_type": "<wide|medium|close>",
+  "lens": "<focal length>",
+  "camera_movement": "<static|slow push in|gentle pan>",
+  "purpose": "<why this shot>",
+  "variety_score": <0.0-1.0>
+}}"""
+
+    try:
+        response = llm_generate_fn(
+            role="cinematographer_adaptive",
+            task=prompt,
+            context="",
+            style_hints={"response_format": "json", "temperature": 0.4, "max_tokens": 300}
+        )
+
+        cleaned = re.sub(r'^```(?:json)?\s*\n', '', response.strip())
+        cleaned = re.sub(r'\n```\s*$', '', cleaned)
+        shot_specs = json.loads(cleaned)
+
+        return {
+            "shot": shot_specs.get("shot_type", "medium"),
+            "lens": shot_specs.get("lens", "50mm"),
+            "camera_movement": shot_specs.get("camera_movement", "static hold"),
+            "purpose": shot_specs.get("purpose", "default shot"),
+            "variety_score": shot_specs.get("variety_score", 0.5)
+        }
+
+    except Exception as e:
+        logger.warning(f"Adaptive shot selection failed: {e}")
+        log_fallback(
+            component="CINEMATOGRAPHER_ADAPTIVE",
+            fallback_type="DETERMINISTIC_PROGRESSION",
+            reason=f"LLM failed: {e}",
+            impact="LOW"
+        )
+
+        # Fallback: cycle through variety
+        shots = ["wide", "medium", "close"]
+        shot = shots[scene_index % 3]
+        return {"shot": shot, "lens": "50mm", "camera_movement": "static hold", "purpose": "fallback", "variety_score": 0.5}
 
 
 # ==============================================================================

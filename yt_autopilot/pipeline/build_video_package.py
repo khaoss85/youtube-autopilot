@@ -34,6 +34,7 @@ from yt_autopilot.core.logger import logger, truncate_for_log, log_fallback
 from yt_autopilot.agents.editorial_strategist import decide_editorial_strategy
 from yt_autopilot.agents.duration_strategist import analyze_duration_strategy  # NEW: monetization-first
 from yt_autopilot.agents.format_reconciler import reconcile_format_strategies  # Fase 2 Sprint 1: duration arbitration
+from yt_autopilot.agents.format_consistency_validator import validate_format_consistency, auto_correct_format_inconsistencies  # Pattern 2
 from yt_autopilot.agents.narrative_architect import design_narrative_arc, expand_narrative_voiceovers  # NEW: emotional storytelling + Layer 2 expansion
 from yt_autopilot.agents.cta_strategist import design_cta_strategy  # Fase 2 Sprint 1: CTA placement
 from yt_autopilot.agents.content_depth_strategist import analyze_content_depth  # NEW: AI-driven bullets count
@@ -583,9 +584,16 @@ def build_video_package(
     logger.info("  Phase A source weighting: Reddit 4x > Channels 3x > HN 2x > YouTube 1x")
     logger.info("  Enhanced scoring: Real statistics (views, engagement, recency)")
     logger.info("  Language boost: +0.15 for content matching workspace language")
+    logger.info("  Pattern 1: AI-driven audience inference (scalable to any vertical)")
 
     # Get top 5 candidates for potential AI selection
-    video_plan, top_candidates = generate_video_plan(trends, memory, return_top_candidates=5)
+    # Pattern 1: Pass llm_generate_fn for AI-driven audience inference
+    video_plan, top_candidates = generate_video_plan(
+        trends,
+        memory,
+        return_top_candidates=5,
+        llm_generate_fn=llm_generate_fn  # Pattern 1: AI-driven audience
+    )
 
     logger.info(f"✓ TrendHunter selected: '{video_plan.working_title}'")
     logger.info(f"  Target audience: {video_plan.target_audience}")
@@ -1161,6 +1169,44 @@ Return ONLY a JSON object. ALL text fields MUST be in {language_instruction}."""
 
         logger.info("")
         # ========== END GATE 2 ==========
+
+        # ========== PATTERN 2: FORMAT CONSISTENCY VALIDATION ==========
+        logger.info("")
+        logger.info("🔍 PATTERN 2: Format Consistency Validation")
+        logger.info("  Validating title/tags vs duration, format vs aspect ratio")
+
+        if selected_trend:
+            # Convert Timeline object to dict for validator (backward compatibility)
+            timeline_dict = {
+                'reconciled_duration': timeline.reconciled_duration,
+                'format_type': timeline.format_type,
+                'aspect_ratio': timeline.aspect_ratio
+            }
+
+            validation_result = validate_format_consistency(
+                video_plan=video_plan,
+                timeline=timeline_dict,
+                trend=selected_trend,
+                llm_generate_fn=llm_generate_fn,
+                workspace=workspace
+            )
+
+            # Apply auto-corrections if inconsistencies found
+            if not validation_result['is_consistent']:
+                logger.info("  ⚠️ Inconsistencies detected - applying auto-corrections...")
+                video_plan = auto_correct_format_inconsistencies(
+                    video_plan=video_plan,
+                    validation_result=validation_result,
+                    timeline=timeline_dict
+                )
+                logger.info("  ✓ Auto-corrections applied")
+            else:
+                logger.info("  ✓ All artifacts are consistent")
+        else:
+            logger.warning("  Skipping Pattern 2 validation (no selected_trend available)")
+
+        logger.info("")
+        # ========== END PATTERN 2 ==========
 
     else:
         logger.warning("Skipping Format Reconciler (no editorial/duration strategy)")

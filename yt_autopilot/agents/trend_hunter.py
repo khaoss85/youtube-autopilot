@@ -46,11 +46,12 @@ ARCHITECTURE RULE:
 ==============================================================================
 """
 
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Callable
 import re
+import json
 from yt_autopilot.core.schemas import TrendCandidate, VideoPlan
 from yt_autopilot.core.memory_store import get_banned_topics, get_recent_titles, get_brand_tone
-from yt_autopilot.core.logger import logger
+from yt_autopilot.core.logger import logger, log_fallback
 from yt_autopilot.io.datastore import is_topic_already_produced
 
 
@@ -269,10 +270,166 @@ def _calculate_priority_score(trend: TrendCandidate, memory: Dict) -> float:
     return score
 
 
+def _infer_target_audience_with_llm(
+    trend: TrendCandidate,
+    workspace: Dict,
+    llm_generate_fn: Callable
+) -> str:
+    """
+    AI-driven audience inference using LLM reasoning (Pattern 1).
+
+    Replaces keyword heuristics with contextual understanding.
+    Scalable to ANY vertical, ANY language, ANY topic complexity.
+
+    Args:
+        trend: Trend candidate
+        workspace: Workspace configuration dict
+        llm_generate_fn: LLM function for AI reasoning
+
+    Returns:
+        Target audience description (1-2 sentences)
+
+    Raises:
+        None - Falls back to deterministic inference on LLM failure
+
+    Example:
+        >>> audience = _infer_target_audience_with_llm(
+        ...     trend=TrendCandidate(keyword="HIIT abs workout", ...),
+        ...     workspace={"vertical_id": "fitness", "brand_tone": "Motivational..."},
+        ...     llm_generate_fn=generate_text
+        ... )
+        >>> # Returns: "Pubblico italiano interessato a fitness e allenamento"
+    """
+    vertical_id = workspace.get('vertical_id', 'general')
+    vertical_description = workspace.get('vertical_description', '')
+    brand_tone = workspace.get('brand_tone', '')
+    target_language = workspace.get('target_language', 'en')
+
+    # Build LLM prompt for audience inference
+    prompt = f"""You are an audience targeting specialist analyzing content for a YouTube channel.
+
+CHANNEL CONTEXT:
+- Vertical: {vertical_id}
+- Description: {vertical_description[:150] if vertical_description else 'General content'}
+- Brand Tone: {brand_tone[:200] if brand_tone else 'Professional and engaging'}
+- Target Language: {target_language}
+
+TREND ANALYSIS:
+- Topic: "{trend.keyword}"
+- Why Hot: "{trend.why_hot[:200] if trend.why_hot else 'Trending topic'}"
+- Source: {trend.source}
+- Momentum: {trend.momentum_score:.2f}/1.0
+
+TASK: Infer the PRIMARY target audience for this content.
+
+Consider:
+1. **Topic Intent**: What is the viewer searching for when they find this video?
+2. **Vertical Alignment**: Does this align with {vertical_id} vertical's core audience?
+3. **Demographics**: Age, interests, psychographics (not just keywords!)
+4. **Language/Region**: Audience should match content language and cultural context
+
+RESPOND WITH ONLY THE AUDIENCE DESCRIPTION (1-2 sentences, in {target_language}):
+- Format: "[Region/Language] audience interested in [specific interest/problem]"
+- Examples:
+  * "Pubblico italiano interessato a fitness e allenamento per principianti"
+  * "English-speaking tech enthusiasts seeking AI productivity tools"
+  * "Pubblico italiano appassionato di finanza personale e investimenti"
+
+OUTPUT (no explanations, only audience description):"""
+
+    try:
+        logger.debug(f"  🎯 AI inferring audience for: '{trend.keyword[:50]}...'")
+
+        audience = llm_generate_fn(
+            role="audience_inference",
+            task=prompt,
+            context="",
+            style_hints={"temperature": 0.3, "max_tokens": 100}
+        ).strip()
+
+        # Validation: Ensure output is not empty and reasonable length
+        if not audience or len(audience) < 10 or len(audience) > 250:
+            raise ValueError(f"Invalid LLM audience output (length {len(audience)}): {audience[:100]}")
+
+        # Clean potential quotes or extra formatting
+        audience = audience.strip('"').strip("'").strip()
+
+        logger.info(f"  ✓ AI inferred audience: {audience[:80]}{'...' if len(audience) > 80 else ''}")
+        return audience
+
+    except Exception as e:
+        logger.warning(f"  ⚠️ AI audience inference failed: {e}")
+        log_fallback(
+            component="TREND_HUNTER_AUDIENCE",
+            fallback_type="DETERMINISTIC_HEURISTIC",
+            reason=f"LLM call failed: {e}",
+            impact="MEDIUM"
+        )
+
+        # Fallback to deterministic heuristic (existing function)
+        logger.info("  → Falling back to deterministic audience inference")
+        return _infer_target_audience(trend, workspace)
+
+
+def _infer_target_audience(trend: TrendCandidate, workspace: Optional[Dict] = None) -> str:
+    """
+    Deterministic audience inference using keyword heuristics (fallback).
+
+    This is the FALLBACK function when LLM inference fails.
+    Pattern 1 enhancement: Now accepts workspace for vertical-based fallback.
+
+    Args:
+        trend: Trend candidate
+        workspace: Optional workspace config for vertical-based inference
+
+    Returns:
+        Target audience description
+    """
+    # Base audience from region
+    if trend.region.upper() == "IT":
+        base_audience = "Pubblico italiano"
+    else:
+        base_audience = "Global audience"
+
+    # Pattern 1 Enhancement: Prioritize workspace vertical if available
+    if workspace:
+        vertical_id = workspace.get('vertical_id', '').lower()
+
+        # Vertical-to-audience mapping (deterministic fallback)
+        vertical_audiences = {
+            'fitness': f"{base_audience} interessato a fitness e benessere",
+            'tech': f"{base_audience} interessato a tecnologia e innovazione",
+            'finance': f"{base_audience} interessato a finanza personale",
+            'cooking': f"{base_audience} appassionati di cucina",
+            'education': f"{base_audience} interessato a apprendimento e cultura",
+            'gaming': f"{base_audience} appassionati di gaming e esports",
+            'business': f"{base_audience} interessato a business e imprenditoria",
+        }
+
+        if vertical_id in vertical_audiences:
+            logger.debug(f"  Fallback: Using vertical-based audience for '{vertical_id}'")
+            return vertical_audiences[vertical_id]
+
+    # Original keyword-based heuristic (last resort fallback)
+    keyword_lower = trend.keyword.lower()
+
+    if any(word in keyword_lower for word in ["tech", "ai", "software", "coding"]):
+        return f"{base_audience} interessato a tecnologia e innovazione"
+    elif any(word in keyword_lower for word in ["fitness", "workout", "health", "allenamento"]):
+        return f"{base_audience} interessato a salute e fitness"
+    elif any(word in keyword_lower for word in ["recipe", "food", "cooking", "ricetta", "cucina"]):
+        return f"{base_audience} appassionati di cucina"
+    elif any(word in keyword_lower for word in ["money", "finance", "invest"]):
+        return f"{base_audience} interessato a finanza personale"
+    else:
+        return f"{base_audience} generale"
+
+
 def generate_video_plan(
     trends: List[TrendCandidate],
     memory: Dict,
-    return_top_candidates: int = 0
+    return_top_candidates: int = 0,
+    llm_generate_fn: Optional[Callable] = None
 ):
     """
     Selects the best trending topic and generates a strategic video plan.
@@ -285,11 +442,13 @@ def generate_video_plan(
     - Strategic fit with channel goals
 
     Step 08 Phase A.3: Added support for returning top N candidates for AI-assisted selection
+    Pattern 1: Enhanced with AI-driven audience inference (scalable to any vertical)
 
     Args:
         trends: List of trend candidates to evaluate
         memory: Channel memory dict containing brand_tone, banned_topics, recent_titles
         return_top_candidates: If > 0, also return top N ranked trends (default: 0)
+        llm_generate_fn: Optional LLM function for AI-driven audience inference (Pattern 1)
 
     Returns:
         If return_top_candidates == 0: VideoPlan for the selected trend
@@ -301,6 +460,8 @@ def generate_video_plan(
     Example:
         >>> plan = generate_video_plan(trends, memory)  # Returns VideoPlan only
         >>> plan, top5 = generate_video_plan(trends, memory, return_top_candidates=5)  # Returns both
+        >>> # Pattern 1: With AI-driven audience inference
+        >>> plan = generate_video_plan(trends, memory, llm_generate_fn=generate_text)
     """
     if not trends:
         raise ValueError("Cannot generate video plan: no trends provided")
@@ -363,11 +524,23 @@ def generate_video_plan(
         "Maintain positive and direct brand tone"
     ]
 
+    # Pattern 1: AI-driven audience inference (with fallback)
+    if llm_generate_fn:
+        logger.info("  Using AI-driven audience inference (Pattern 1)")
+        target_audience = _infer_target_audience_with_llm(
+            trend=best_trend,
+            workspace=memory,
+            llm_generate_fn=llm_generate_fn
+        )
+    else:
+        logger.debug("  Using deterministic audience inference (no LLM provided)")
+        target_audience = _infer_target_audience(best_trend, workspace=memory)
+
     # Create VideoPlan
     video_plan = VideoPlan(
         working_title=best_trend.keyword,
         strategic_angle=best_trend.why_hot,
-        target_audience=_infer_target_audience(best_trend),
+        target_audience=target_audience,
         language=best_trend.language,
         compliance_notes=compliance_notes
     )
@@ -381,34 +554,3 @@ def generate_video_plan(
         return video_plan, ranked_trends[:top_n]
 
     return video_plan
-
-
-def _infer_target_audience(trend: TrendCandidate) -> str:
-    """
-    Infers target audience based on trend characteristics.
-
-    Args:
-        trend: Trend candidate
-
-    Returns:
-        Target audience description
-    """
-    # Simple heuristic - could be more sophisticated
-    if trend.region.upper() == "IT":
-        base_audience = "Pubblico italiano"
-    else:
-        base_audience = "Global audience"
-
-    # Add demographic hints based on keyword patterns
-    keyword_lower = trend.keyword.lower()
-
-    if any(word in keyword_lower for word in ["tech", "ai", "software", "coding"]):
-        return f"{base_audience} interessato a tecnologia e innovazione"
-    elif any(word in keyword_lower for word in ["fitness", "workout", "health"]):
-        return f"{base_audience} interessato a salute e fitness"
-    elif any(word in keyword_lower for word in ["recipe", "food", "cooking"]):
-        return f"{base_audience} appassionati di cucina"
-    elif any(word in keyword_lower for word in ["money", "finance", "invest"]):
-        return f"{base_audience} interessato a finanza personale"
-    else:
-        return f"{base_audience} generale"
