@@ -39,10 +39,127 @@ NEW: Segment-aware script generation
 ==============================================================================
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Callable
+import json
+import re
 from yt_autopilot.core.schemas import VideoPlan, VideoScript, SceneVoiceover, SeriesFormat, EditorialDecision
 from yt_autopilot.core.memory_store import get_brand_tone
 from yt_autopilot.core.logger import logger, log_fallback
+
+
+def _detect_content_type_with_llm(
+    topic: str,
+    strategic_angle: str,
+    editorial_format: str,
+    llm_generate_fn: Callable
+) -> Dict:
+    """
+    AI-driven content type detection with adaptive script guidelines (Pattern 3).
+
+    Analyzes topic to determine content archetype and returns type-specific
+    script generation guidelines. Full AI-driven - NO hardcoded templates.
+
+    Args:
+        topic: Video topic/title
+        strategic_angle: Strategic angle or why hot
+        editorial_format: Format from editorial decision
+        llm_generate_fn: LLM function for detection
+
+    Returns:
+        Dict with:
+            - content_type: str (workout, recipe, tutorial, story, analysis, etc.)
+            - script_style: str (direct, narrative, sequential, analytical)
+            - guidelines: List[str] (specific guidelines for this content type)
+            - avoid: List[str] (what NOT to do)
+            - example_bullet_format: str (how bullets should be structured)
+            - reasoning: str (why this content type)
+
+    Example:
+        >>> analysis = _detect_content_type_with_llm(
+        ...     topic="HIIT abs workout",
+        ...     strategic_angle="Popular workout trend",
+        ...     editorial_format="tutorial",
+        ...     llm_generate_fn=generate_text
+        ... )
+        >>> print(analysis['content_type'])  # "workout"
+        >>> print(analysis['guidelines'])  # ["Include timing cues", ...]
+    """
+    prompt = f"""You are a content strategist analyzing video topics for script writing.
+
+TOPIC ANALYSIS:
+- Title: "{topic}"
+- Strategic Angle: "{strategic_angle}"
+- Format: {editorial_format}
+
+TASK: Detect the PRIMARY content archetype and provide script guidelines.
+
+CONTENT ARCHETYPES:
+1. **WORKOUT/EXERCISE** → Direct, actionable, technical cues with timing
+2. **RECIPE/COOKING** → Step-by-step with ingredients, timing, visual cues
+3. **TUTORIAL/HOW-TO** → Sequential steps, prerequisites, checkpoints
+4. **STORY/NARRATIVE** → Character arc, emotional beats, resolution
+5. **ANALYSIS/BREAKDOWN** → Context → Data → Insight → Implication
+6. **NEWS/ALERT** → Facts → Impact → What's Next
+7. **COMPARISON/REVIEW** → Criteria → Evaluation → Recommendation
+
+RESPOND WITH JSON:
+{{
+  "content_type": "<workout|recipe|tutorial|story|analysis|news|comparison|generic>",
+  "script_style": "<direct|narrative|sequential|analytical>",
+  "guidelines": [
+    "<specific guideline 1 for THIS content type>",
+    "<specific guideline 2>",
+    "<specific guideline 3>"
+  ],
+  "avoid": [
+    "<what NOT to do for THIS content type>",
+    "<common mistake to avoid>"
+  ],
+  "example_bullet_format": "<how bullets should be structured>",
+  "reasoning": "<1-2 sentences WHY this content type was chosen>"
+}}
+
+CRITICAL: Respond ONLY with valid JSON, no markdown."""
+
+    try:
+        logger.debug(f"  🎯 Pattern 3: Detecting content type for '{topic[:50]}...'")
+
+        response = llm_generate_fn(
+            role="content_type_detector",
+            task=prompt,
+            context="",
+            style_hints={"response_format": "json", "temperature": 0.3, "max_tokens": 600}
+        )
+
+        # Parse JSON
+        cleaned = re.sub(r'^```(?:json)?\s*\n', '', response.strip())
+        cleaned = re.sub(r'\n```\s*$', '', cleaned)
+        content_analysis = json.loads(cleaned)
+
+        logger.info(f"  ✓ Content type detected: {content_analysis.get('content_type')}")
+        logger.info(f"    Style: {content_analysis.get('script_style')}")
+        logger.debug(f"    Guidelines: {len(content_analysis.get('guidelines', []))} rules")
+
+        return content_analysis
+
+    except Exception as e:
+        logger.warning(f"  ⚠️ Content type detection failed: {e}")
+        log_fallback(
+            component="SCRIPT_WRITER_CONTENT_TYPE",
+            fallback_type="GENERIC_NARRATIVE",
+            reason=f"LLM detection failed: {e}",
+            impact="MEDIUM"
+        )
+
+        # Fallback: Generic narrative style
+        return {
+            "content_type": "generic",
+            "script_style": "narrative",
+            "guidelines": ["Keep it engaging", "Clear structure", "Strong CTA"],
+            "avoid": ["Don't be boring", "Avoid overly complex language"],
+            "example_bullet_format": "Standard bullet points with key insights",
+            "reasoning": f"Fallback to generic narrative (detection failed: {e})"
+        }
 
 
 def _strip_quotes(text: str) -> str:
@@ -116,7 +233,8 @@ def _truncate_hook_deterministic(hook: str, max_chars: int = 200) -> str:
 def _fix_overlength_hook_with_llm(
     hook: str,
     plan: VideoPlan,
-    llm_generate_fn: Optional[callable] = None
+    llm_generate_fn: Optional[callable] = None,
+    target_language: str = 'en'
 ) -> str:
     """
     Layer 2: AI-driven hook shortening.
@@ -128,6 +246,7 @@ def _fix_overlength_hook_with_llm(
         hook: Original hook text (potentially over 200 chars)
         plan: Video plan for context
         llm_generate_fn: Optional LLM function for AI shortening
+        target_language: Target language code (e.g., 'it', 'en')
 
     Returns:
         Shortened hook (≤200 chars) or original if already short enough
@@ -144,7 +263,6 @@ def _fix_overlength_hook_with_llm(
 
     try:
         # Language mapping for explicit instruction (pattern from narrative_architect)
-        target_language = plan.language if hasattr(plan, 'language') else 'en'
         language_names = {
             "en": "ENGLISH",
             "it": "ITALIAN",
@@ -1054,6 +1172,19 @@ def write_script(
 
     logger.info(f"ScriptWriter generating script for: '{plan.working_title}'")
 
+    # Pattern 3: Content-type detection for adaptive script generation
+    content_analysis = None
+    if llm_generate_fn:
+        editorial_format = editorial_decision.format if editorial_decision else "generic"
+        content_analysis = _detect_content_type_with_llm(
+            topic=plan.working_title,
+            strategic_angle=plan.strategic_angle,
+            editorial_format=editorial_format,
+            llm_generate_fn=llm_generate_fn
+        )
+        logger.info(f"  Pattern 3: Content type = {content_analysis['content_type']} ({content_analysis['script_style']} style)")
+        logger.debug(f"    Guidelines: {', '.join(content_analysis.get('guidelines', [])[:3])}")
+
     if series_format:
         logger.info(f"  Using series format: {series_format.name} ({series_format.serie_id})")
 
@@ -1328,7 +1459,8 @@ def write_script(
     # Layer 2/3: Validate and fix hook length (max 200 chars for mobile display)
     if len(hook) > 200:
         logger.info(f"Hook validation: {len(hook)} chars exceeds 200 char limit")
-        hook = _fix_overlength_hook_with_llm(hook, plan, llm_generate_fn)
+        target_language = memory.get('target_language', 'en')
+        hook = _fix_overlength_hook_with_llm(hook, plan, llm_generate_fn, target_language)
         logger.info(f"✓ Hook adjusted to {len(hook)} chars")
     else:
         logger.info(f"✓ Hook length validated: {len(hook)} chars (within 200 char limit)")
