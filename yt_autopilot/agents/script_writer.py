@@ -51,7 +51,8 @@ def _detect_content_type_with_llm(
     topic: str,
     strategic_angle: str,
     editorial_format: str,
-    llm_generate_fn: Callable
+    llm_generate_fn: Callable,
+    target_language: str = 'en'
 ) -> Dict:
     """
     AI-driven content type detection with adaptive script guidelines (Pattern 3).
@@ -64,6 +65,7 @@ def _detect_content_type_with_llm(
         strategic_angle: Strategic angle or why hot
         editorial_format: Format from editorial decision
         llm_generate_fn: LLM function for detection
+        target_language: Target language code (e.g., 'it', 'en')
 
     Returns:
         Dict with:
@@ -79,12 +81,28 @@ def _detect_content_type_with_llm(
         ...     topic="HIIT abs workout",
         ...     strategic_angle="Popular workout trend",
         ...     editorial_format="tutorial",
-        ...     llm_generate_fn=generate_text
+        ...     llm_generate_fn=generate_text,
+        ...     target_language='it'
         ... )
         >>> print(analysis['content_type'])  # "workout"
         >>> print(analysis['guidelines'])  # ["Include timing cues", ...]
     """
+    # Language mapping for explicit instruction (pattern from narrative_architect)
+    language_names = {
+        "en": "ENGLISH",
+        "it": "ITALIAN",
+        "es": "SPANISH",
+        "fr": "FRENCH",
+        "de": "GERMAN",
+        "pt": "PORTUGUESE"
+    }
+    language_instruction = language_names.get(target_language.lower(), target_language.upper())
+
     prompt = f"""You are a content strategist analyzing video topics for script writing.
+
+⚠️ CRITICAL LANGUAGE REQUIREMENT ⚠️
+ALL TEXT FIELDS (guidelines, avoid, example_bullet_format, reasoning) MUST BE IN {language_instruction}.
+DO NOT mix languages. Write ALL output in {language_instruction}.
 
 TOPIC ANALYSIS:
 - Title: "{topic}"
@@ -107,19 +125,21 @@ RESPOND WITH JSON:
   "content_type": "<workout|recipe|tutorial|story|analysis|news|comparison|generic>",
   "script_style": "<direct|narrative|sequential|analytical>",
   "guidelines": [
-    "<specific guideline 1 for THIS content type>",
-    "<specific guideline 2>",
-    "<specific guideline 3>"
+    "<specific guideline 1 for THIS content type in {language_instruction}>",
+    "<specific guideline 2 in {language_instruction}>",
+    "<specific guideline 3 in {language_instruction}>"
   ],
   "avoid": [
-    "<what NOT to do for THIS content type>",
-    "<common mistake to avoid>"
+    "<what NOT to do for THIS content type in {language_instruction}>",
+    "<common mistake to avoid in {language_instruction}>"
   ],
-  "example_bullet_format": "<how bullets should be structured>",
-  "reasoning": "<1-2 sentences WHY this content type was chosen>"
+  "example_bullet_format": "<how bullets should be structured in {language_instruction}>",
+  "reasoning": "<1-2 sentences WHY this content type was chosen in {language_instruction}>"
 }}
 
-CRITICAL: Respond ONLY with valid JSON, no markdown."""
+CRITICAL RULES:
+- ALL text fields (guidelines, avoid, example_bullet_format, reasoning) MUST be in {language_instruction}
+- Respond ONLY with valid JSON, no markdown"""
 
     try:
         logger.debug(f"  🎯 Pattern 3: Detecting content type for '{topic[:50]}...'")
@@ -1176,11 +1196,13 @@ def write_script(
     content_analysis = None
     if llm_generate_fn:
         editorial_format = editorial_decision.format if editorial_decision else "generic"
+        target_language = memory.get('target_language', 'en')
         content_analysis = _detect_content_type_with_llm(
             topic=plan.working_title,
             strategic_angle=plan.strategic_angle,
             editorial_format=editorial_format,
-            llm_generate_fn=llm_generate_fn
+            llm_generate_fn=llm_generate_fn,
+            target_language=target_language
         )
         logger.info(f"  Pattern 3: Content type = {content_analysis['content_type']} ({content_analysis['script_style']} style)")
         logger.debug(f"    Guidelines: {', '.join(content_analysis.get('guidelines', [])[:3])}")
