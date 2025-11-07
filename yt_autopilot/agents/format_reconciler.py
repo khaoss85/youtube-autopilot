@@ -126,9 +126,25 @@ def reconcile_format_strategies(
     cpm_baseline = workspace_config.get('cpm_baseline', 12.0)
     vertical_id = workspace_config.get('vertical_id', 'unknown')
     brand_tone = workspace_config.get('brand_tone', 'Professional, educational')
+    target_language = workspace_config.get('target_language', 'en')
+
+    # Language mapping for explicit instruction (pattern from narrative_architect)
+    language_names = {
+        "en": "ENGLISH",
+        "it": "ITALIAN",
+        "es": "SPANISH",
+        "fr": "FRENCH",
+        "de": "GERMAN",
+        "pt": "PORTUGUESE"
+    }
+    language_instruction = language_names.get(target_language.lower(), target_language.upper())
 
     # Build LLM arbitration prompt
     prompt = f"""You are a YouTube strategy arbitrator resolving a duration conflict.
+
+⚠️ CRITICAL LANGUAGE REQUIREMENT ⚠️
+ALL TEXT FIELDS (reasoning) MUST BE IN {language_instruction}.
+DO NOT mix languages. If you see examples in other languages below, IGNORE their language and write in {language_instruction}.
 
 **EDITORIAL STRATEGIST DECISION:**
 - Target Duration: {editorial_duration}s ({editorial_duration // 60}min {editorial_duration % 60}s)
@@ -171,25 +187,30 @@ A. Use Editorial duration (prioritize narrative depth)
 B. Use Duration duration (prioritize monetization)
 C. Compromise (find middle ground that satisfies both)
 
-RESPOND ONLY WITH VALID JSON:
+ENGLISH example response:
 {{
-  "final_duration": <duration in seconds>,
-  "format_type": "<short|mid|long>",
-  "reasoning": "<2-3 sentences in workspace language explaining arbitration decision>
-    Examples:
-    - English: \"Chose 420s as compromise. Editorial needs 3-point breakdown, Duration wants mid-roll ad slots. This duration allows both.\"
-    - Italian: \"Scelto 420s come compromesso. Editorial necessita articolazione a 3 punti, Duration vuole slot pubblicitari mid-roll. Questa durata permette entrambi.\"",
-  "arbitration_source": "<editorial_strategist|duration_strategist|compromise>",
-  "editorial_weight": <0.0-1.0, how much editorial influenced decision>,
-  "duration_weight": <0.0-1.0, how much duration influenced decision>
+  "final_duration": 420,
+  "format_type": "long",
+  "reasoning": "Chose 420s as compromise. Editorial needs 3-point breakdown, Duration wants mid-roll ad slots. This duration allows both. Sacrificing 1 mid-roll slot for narrative clarity.",
+  "arbitration_source": "compromise",
+  "editorial_weight": 0.6,
+  "duration_weight": 0.4
+}}
+
+ITALIAN example response:
+{{
+  "final_duration": 420,
+  "format_type": "long",
+  "reasoning": "Scelto 420s come compromesso. Editorial necessita articolazione a 3 punti, Duration vuole slot pubblicitari mid-roll. Questa durata permette entrambi. Sacrificando 1 slot mid-roll per chiarezza narrativa.",
+  "arbitration_source": "compromise",
+  "editorial_weight": 0.6,
+  "duration_weight": 0.4
 }}
 
 IMPORTANT:
-- reasoning MUST be in workspace language (English/Italian/etc)
+- reasoning field MUST be in {language_instruction}
 - Be specific about WHY you chose this duration
 - Explain trade-offs clearly
-  * English example: \"Sacrificing 1 mid-roll slot for narrative clarity\"
-  * Italian example: \"Sacrificando 1 slot mid-roll per chiarezza narrativa\"
 - Weights should sum to 1.0
 """
 
