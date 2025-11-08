@@ -640,6 +640,15 @@ def save_script_draft(
         "ai_selected_format": ai_selected_format,
         "format_rationale": format_rationale,
 
+        # Priority 1: AI Decision Log - Store reasoning for transparency
+        "trend_selection_reasoning": ready.trend_selection_reasoning or '',
+        "editorial_strategy_reasoning": ready.editorial_strategy_reasoning or '',
+        "content_depth_reasoning": ready.content_depth_reasoning or '',
+        "duration_strategy_reasoning": ready.duration_strategy_reasoning or '',
+        "format_reconciliation_reasoning": ready.format_reconciliation_reasoning or '',
+        "narrative_design_reasoning": ready.narrative_design_reasoning or '',
+        "cta_strategy_reasoning": ready.cta_strategy_reasoning or '',
+
         # Placeholders (will be filled after Gate 2)
         "video_internal_id": None,  # Assigned when assets generated
         "youtube_video_id": None,

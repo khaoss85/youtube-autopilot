@@ -786,6 +786,63 @@ def cmd_review_show_script(args):
     print()
 
     # ========================================================================
+    # AI DECISION LOG (Priority 1: Show reasoning transparency)
+    # ========================================================================
+    # Check if any reasoning is available
+    has_reasoning = any([
+        draft.get('trend_selection_reasoning'),
+        draft.get('editorial_strategy_reasoning'),
+        draft.get('content_depth_reasoning'),
+        draft.get('duration_strategy_reasoning'),
+        draft.get('format_reconciliation_reasoning'),
+        draft.get('narrative_design_reasoning'),
+        draft.get('cta_strategy_reasoning')
+    ])
+
+    if has_reasoning:
+        print("=" * 70)
+        print("🤖 AI DECISION LOG")
+        print("=" * 70)
+        print()
+        print("Why did the AI make these choices? Here's the reasoning:")
+        print()
+
+        if draft.get('trend_selection_reasoning'):
+            print("1. TREND SELECTION:")
+            print(f"   {draft['trend_selection_reasoning']}")
+            print()
+
+        if draft.get('editorial_strategy_reasoning'):
+            print("2. EDITORIAL STRATEGY:")
+            print(f"   {draft['editorial_strategy_reasoning']}")
+            print()
+
+        if draft.get('content_depth_reasoning'):
+            print("3. CONTENT DEPTH ANALYSIS:")
+            print(f"   {draft['content_depth_reasoning']}")
+            print()
+
+        if draft.get('duration_strategy_reasoning'):
+            print("4. DURATION STRATEGY:")
+            print(f"   {draft['duration_strategy_reasoning']}")
+            print()
+
+        if draft.get('format_reconciliation_reasoning'):
+            print("5. FORMAT RECONCILIATION:")
+            print(f"   {draft['format_reconciliation_reasoning']}")
+            print()
+
+        if draft.get('narrative_design_reasoning'):
+            print("6. NARRATIVE DESIGN:")
+            print(f"   {draft['narrative_design_reasoning']}")
+            print()
+
+        if draft.get('cta_strategy_reasoning'):
+            print("7. CTA STRATEGY:")
+            print(f"   {draft['cta_strategy_reasoning']}")
+            print()
+
+    # ========================================================================
     # APPROVAL INSTRUCTIONS
     # ========================================================================
     print("=" * 70)

@@ -314,6 +314,19 @@ class ContentPackage(BaseModel):
         None,
         description="CTA Strategist reasoning: Why CTAs placed at these specific timestamps"
     )
+    # Priority 1: Additional reasoning fields for comprehensive AI Decision Log
+    editorial_strategy_reasoning: Optional[str] = Field(
+        None,
+        description="Editorial Strategist reasoning: Why serie/format/angle/CTA chosen for this topic"
+    )
+    content_depth_reasoning: Optional[str] = Field(
+        None,
+        description="Content Depth Strategist reasoning: Why this bullets count and time allocation"
+    )
+    trend_selection_reasoning: Optional[str] = Field(
+        None,
+        description="Trend Hunter reasoning: Why this trend selected over others (momentum, fit, timeliness)"
+    )
 
 
 class VideoMetrics(BaseModel):

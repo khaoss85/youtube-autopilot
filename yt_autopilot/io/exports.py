@@ -287,35 +287,60 @@ def export_content_package_to_markdown(
     markdown_lines.append(f"**Visual Style**: {visual_style}")
     markdown_lines.append("")
 
-    # AI Decision Rationale Section
+    # AI Decision Log Section (Priority 1: Comprehensive AI reasoning transparency)
     if any([
+        package.trend_selection_reasoning,
+        package.editorial_strategy_reasoning,
+        package.content_depth_reasoning,
         package.duration_strategy_reasoning,
         package.format_reconciliation_reasoning,
         package.narrative_design_reasoning,
         package.cta_strategy_reasoning
     ]):
-        markdown_lines.append("### AI Decision Rationale")
+        markdown_lines.append("### 🤖 AI Decision Log")
         markdown_lines.append("")
         markdown_lines.append("*Why did the AI make these specific choices? Here's the reasoning behind key decisions:*")
         markdown_lines.append("")
 
+        # Phase 1: Trend Selection
+        if package.trend_selection_reasoning:
+            markdown_lines.append("**1. Trend Selection**")
+            markdown_lines.append(f"> {package.trend_selection_reasoning}")
+            markdown_lines.append("")
+
+        # Phase 2: Editorial Strategy
+        if package.editorial_strategy_reasoning:
+            markdown_lines.append("**2. Editorial Strategy**")
+            markdown_lines.append(f"> {package.editorial_strategy_reasoning}")
+            markdown_lines.append("")
+
+        # Phase 3: Content Depth Analysis
+        if package.content_depth_reasoning:
+            markdown_lines.append("**3. Content Depth Analysis**")
+            markdown_lines.append(f"> {package.content_depth_reasoning}")
+            markdown_lines.append("")
+
+        # Phase 4: Duration Strategy
         if package.duration_strategy_reasoning:
-            markdown_lines.append("**Duration Strategy**")
+            markdown_lines.append("**4. Duration Strategy**")
             markdown_lines.append(f"> {package.duration_strategy_reasoning}")
             markdown_lines.append("")
 
+        # Phase 5: Format Reconciliation
         if package.format_reconciliation_reasoning:
-            markdown_lines.append("**Format Reconciliation**")
+            markdown_lines.append("**5. Format Reconciliation**")
             markdown_lines.append(f"> {package.format_reconciliation_reasoning}")
             markdown_lines.append("")
 
+        # Phase 6: Narrative Design
         if package.narrative_design_reasoning:
-            markdown_lines.append("**Narrative Design**")
+            markdown_lines.append("**6. Narrative Design**")
             markdown_lines.append(f"> {package.narrative_design_reasoning}")
             markdown_lines.append("")
 
+        # Phase 7: CTA Strategy
         if package.cta_strategy_reasoning:
-            markdown_lines.append("**CTA Strategy**")
+            markdown_lines.append("**7. CTA Strategy**")
             markdown_lines.append(f"> {package.cta_strategy_reasoning}")
             markdown_lines.append("")
 

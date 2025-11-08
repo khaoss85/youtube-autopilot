@@ -40,7 +40,7 @@ from yt_autopilot.core.schemas import (
     EditorialDecision,
     Timeline
 )
-from yt_autopilot.core.logger import logger
+from yt_autopilot.core.logger import logger, log_fallback
 
 # Forward declarations for type hints (actual imports happen in AgentRegistry)
 VisualPlan = Any  # Will be imported from visual_planner
@@ -700,6 +700,13 @@ class AgentCoordinator:
                         )
                         logger.debug(f"  Loaded thresholds for workspace={workspace_id}, format={format_type}")
                     except Exception as e:
+                        # 🚨 Log threshold loading failure fallback
+                        log_fallback(
+                            component="AGENT_COORDINATOR_THRESHOLDS",
+                            fallback_type="THRESHOLD_LOAD_FAILED",
+                            reason=f"Failed to load validation thresholds: {e}",
+                            impact="MEDIUM"
+                        )
                         logger.warning(f"  Failed to load thresholds: {e}. Using validator defaults.")
                         context.thresholds = {}  # Empty dict - validators will use defaults
 
@@ -740,6 +747,13 @@ class AgentCoordinator:
                                     logger.info(f"  ✅ Quality retry succeeded!")
 
                                 except Exception as retry_err:
+                                    # 🚨 Log quality retry failure fallback
+                                    log_fallback(
+                                        component=f"{agent_name.upper()}_QUALITY_RETRY",
+                                        fallback_type="QUALITY_RETRY_FAILED",
+                                        reason=f"Quality retry failed: {str(retry_err)[:100]}",
+                                        impact="HIGH"
+                                    )
                                     logger.error(f"  ❌ Quality retry failed: {str(retry_err)[:100]}")
                                     # Continue to next retry attempt
                                     raise
@@ -755,6 +769,13 @@ class AgentCoordinator:
                             logger.info(f"  ✅ Quality validation passed")
 
                     except Exception as val_err:
+                        # 🚨 Log quality validator failure fallback (continues with output)
+                        log_fallback(
+                            component=f"{agent_name.upper()}_VALIDATOR",
+                            fallback_type="VALIDATOR_FAILED",
+                            reason=f"Quality validator failed: {str(val_err)[:100]}",
+                            impact="MEDIUM"
+                        )
                         logger.error(f"  ❌ Quality validator itself failed: {str(val_err)[:100]}")
                         # Don't block pipeline if validator fails - log and continue
 
@@ -789,6 +810,13 @@ class AgentCoordinator:
                     continue
                 else:
                     # Max retries reached - use fallback or fail
+                    # 🚨 Log agent execution failure after max retries
+                    log_fallback(
+                        component=f"{agent_name.upper()}_EXECUTION",
+                        fallback_type="MAX_RETRIES_REACHED",
+                        reason=f"Agent failed after {retries + 1} attempts: {str(e)[:100]}",
+                        impact="HIGH"
+                    )
                     logger.error(f"  ❌ {agent_name} failed after {retries + 1} attempts")
 
                     if spec.fallback_strategy:
@@ -833,6 +861,13 @@ class AgentCoordinator:
                             )
 
                         except Exception as fallback_error:
+                            # 🚨 Log fallback strategy failure (CRITICAL - no recovery possible)
+                            log_fallback(
+                                component=f"{agent_name.upper()}_FALLBACK_STRATEGY",
+                                fallback_type="FALLBACK_STRATEGY_FAILED",
+                                reason=f"Fallback strategy failed: {fallback_error}",
+                                impact="CRITICAL"
+                            )
                             logger.error(f"  ❌ Fallback also failed: {fallback_error}")
                             # Fall through to failure case
                             e = fallback_error
@@ -1204,6 +1239,11 @@ class AgentCoordinator:
         narrative_reasoning = context.narrative_arc.get('reasoning', '') if context.narrative_arc else ''
         cta_reasoning = context.cta_strategy.get('reasoning', '') if context.cta_strategy else ''
 
+        # Priority 1: Capture missing reasoning for comprehensive AI Decision Log
+        editorial_reasoning = context.editorial_decision.reasoning_summary if context.editorial_decision else ''
+        content_depth_reasoning = context.content_depth_strategy.get('reasoning', '') if context.content_depth_strategy else ''
+        trend_reasoning = context.selected_trend.why_hot if context.selected_trend else ''
+
         return ContentPackage(
             status=status,
             video_plan=context.video_plan,
@@ -1217,7 +1257,10 @@ class AgentCoordinator:
             duration_strategy_reasoning=duration_reasoning,
             format_reconciliation_reasoning=format_reasoning,
             narrative_design_reasoning=narrative_reasoning,
-            cta_strategy_reasoning=cta_reasoning
+            cta_strategy_reasoning=cta_reasoning,
+            editorial_strategy_reasoning=editorial_reasoning,
+            content_depth_reasoning=content_depth_reasoning,
+            trend_selection_reasoning=trend_reasoning
         )
 
 
@@ -1291,7 +1334,7 @@ def validate_narrative_bullet_count(narrative_arc: Dict, context: AgentContext) 
             return False, f"Expected {recommended_bullets} bullets (±{max_deviation} allowed), got {actual_bullets} (deviation: {deviation})"
         else:
             # Lenient mode: log warning but allow (don't block pipeline)
-            from yt_autopilot.core.logger import logger
+            from yt_autopilot.core.logger import logger, log_fallback
             logger.warning(f"  Bullet count deviation: {deviation} > {max_deviation} (allowed in non-strict mode)")
             return True, None
 
@@ -1322,7 +1365,7 @@ def regenerate_narrative_with_bullet_constraint(
         bullet_count_constraint parameter (FASE 1.5).
     """
     from yt_autopilot.agents.narrative_architect import design_narrative_arc
-    from yt_autopilot.core.logger import logger
+    from yt_autopilot.core.logger import logger, log_fallback
 
     recommended_bullets = context.content_depth_strategy.get('recommended_bullets')
 
@@ -1395,7 +1438,14 @@ def validate_cta_semantic_match(
             from yt_autopilot.utils.semantic_similarity import semantic_similarity
             similarity = semantic_similarity(expected_cta, actual_cta, use_semantic=True)
             logger.debug(f"Semantic CTA similarity: {similarity:.2f}")
-        except ImportError:
+        except ImportError as e:
+            # 🚨 Log semantic similarity import failure fallback
+            log_fallback(
+                component="AGENT_COORDINATOR_CTA_SIMILARITY",
+                fallback_type="SEMANTIC_SIMILARITY_UNAVAILABLE",
+                reason=f"sentence-transformers not installed: {e}",
+                impact="LOW"
+            )
             logger.warning("sentence-transformers not installed, falling back to character-based")
             from difflib import SequenceMatcher
             similarity = SequenceMatcher(None, expected_cta, actual_cta).ratio()
