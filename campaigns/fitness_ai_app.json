@@ -1,0 +1,91 @@
+{
+  "campaign_id": "fitness_ai_app",
+  "campaign_name": "FitAI Pro - Best Fitness AI Apps Outreach",
+  "niche_id": "fitness",
+  "target_language": "en",
+  "search_queries": [
+    "best fitness AI apps 2024",
+    "top AI workout apps",
+    "AI personal trainer apps",
+    "best AI fitness tracker",
+    "AI workout planner apps"
+  ],
+  "product": {
+    "name": "FitAI Pro",
+    "tagline": "Your AI-powered personal trainer that adapts to your goals",
+    "website_url": "https://fitai.pro",
+    "category": "AI fitness app",
+    "key_features": [
+      "Personalized workout plans using AI",
+      "Real-time form correction with computer vision",
+      "Adaptive difficulty based on progress",
+      "Integration with wearables",
+      "Nutrition recommendations"
+    ],
+    "unique_value_prop": "The only fitness app that uses computer vision to correct your form in real-time, reducing injury risk by 60%",
+    "target_audience": "Fitness enthusiasts who want professional-level guidance without the cost of a personal trainer",
+    "pricing_info": "Free tier available, Pro at $9.99/month",
+    "founder_name": "Alex Chen",
+    "company_story": "Founded by a former Olympic coach and AI researcher who wanted to democratize access to professional fitness guidance"
+  },
+  "sender_persona": {
+    "enabled": true,
+    "name": "Sarah Miller",
+    "email": "sarah@fitai.pro",
+    "title": "Head of Partnerships",
+    "company": "FitAI Pro",
+    "tone_of_address": "friendly_professional",
+    "signature_style": "warm",
+    "credibility_markers": [
+      "Former fitness journalist",
+      "Certified personal trainer"
+    ],
+    "preferred_greetings": ["Hi", "Hello", "Hey"],
+    "preferred_closings": ["Best", "Cheers", "Thanks"]
+  },
+  "email_tone": "friendly_professional",
+  "avoid_mentions": [
+    "competitor names",
+    "pricing details in first email",
+    "pushy sales language"
+  ],
+  "contacted_articles": [],
+  "validation_gates": {
+    "post_discovery": {
+      "enabled": true,
+      "blocking": true,
+      "threshold": 0.5
+    },
+    "post_analysis": {
+      "enabled": true,
+      "blocking": true,
+      "threshold": 0.5
+    },
+    "post_email": {
+      "enabled": true,
+      "blocking": true,
+      "threshold": 0.6
+    },
+    "pre_send": {
+      "enabled": true,
+      "blocking": true,
+      "threshold": 0.7
+    }
+  },
+  "max_articles_per_run": 10,
+  "max_emails_per_day": 20,
+  "_ai_authority_notice": {
+    "version": "1.0",
+    "note": "Email angle, personalization level, and CTA type are decided by AI agents based on article and author analysis",
+    "ai_agents": [
+      "ArticleHunter",
+      "ArticleAnalyzer",
+      "ProductPositioner",
+      "AuthorProfiler",
+      "OutreachStrategist",
+      "EmailWriter",
+      "SpamChecker",
+      "PersonalizationScorer"
+    ]
+  }
+}
