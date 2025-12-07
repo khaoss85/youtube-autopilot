@@ -1,10 +1,11 @@
 """
-Email Writer Agent - Generate personalized outreach emails.
+Email Writer Agent - Generate natural, human-like outreach emails.
 
-Similar to ScriptWriter in youtube-autopilot.
-Creates compelling, human-like outreach emails.
+Philosophy: Real humans write short, direct, slightly imperfect emails.
+No templates, no sections, no marketing speak.
 """
 
+import random
 from typing import Dict, Optional, Callable
 
 from pr_outreach.core.schemas import (
@@ -20,6 +21,20 @@ from pr_outreach.core.schemas import (
 from yt_autopilot.core.logger import logger, log_fallback
 
 
+# Variability elements - real humans vary their style
+OPENING_STYLES = [
+    "casual",      # "Hey {name},"
+    "friendly",    # "Hi {name}!"
+    "professional" # "Hi {name},"
+]
+
+EMAIL_LENGTHS = [
+    "ultra_short",  # 3-4 sentences
+    "short",        # 5-6 sentences
+    "medium"        # 7-8 sentences max
+]
+
+
 def write_outreach_email(
     article: ArticleCandidate,
     author: AuthorProfile,
@@ -30,36 +45,38 @@ def write_outreach_email(
     llm_generate_fn: Optional[Callable] = None
 ) -> OutreachEmail:
     """
-    Write a personalized outreach email.
+    Write a natural, human-like outreach email.
 
-    Args:
-        article: Target article
-        author: Author profile
-        product: Product to promote
-        positioning: Positioning strategy
-        strategy: Outreach strategy
-        campaign_config: Campaign configuration
-        llm_generate_fn: LLM function for generation
-
-    Returns:
-        OutreachEmail with all components
+    Key principles:
+    - Short and direct (under 100 words ideal)
+    - No marketing buzzwords
+    - Genuine value, not flattery
+    - Easy to skim in 10 seconds
     """
     logger.info(f"Writing email to: {author.name}")
 
     sender = campaign_config.sender_persona
 
+    # Add variability - don't use same style every time
+    style_hints = {
+        "opening_style": random.choice(OPENING_STYLES),
+        "length": random.choice(EMAIL_LENGTHS),
+        "include_ps": random.random() > 0.6,  # 40% chance of P.S.
+    }
+
     if llm_generate_fn:
-        email = _write_with_llm(
-            article, author, product, positioning, strategy, sender, llm_generate_fn
+        email = _write_natural_email(
+            article, author, product, positioning,
+            strategy, sender, style_hints, llm_generate_fn
         )
     else:
-        email = _write_with_templates(
+        email = _write_simple_fallback(
             article, author, product, positioning, strategy, sender
         )
 
     # Calculate metadata
     email.word_count = len(email.full_body.split())
-    email.reading_time_seconds = email.word_count // 3  # ~200 wpm
+    email.reading_time_seconds = email.word_count // 3
 
     logger.info(f"  Subject: {email.subject_line}")
     logger.info(f"  Word count: {email.word_count}")
@@ -67,91 +84,101 @@ def write_outreach_email(
     return email
 
 
-def _write_with_llm(
+def _write_natural_email(
     article: ArticleCandidate,
     author: AuthorProfile,
     product: ProductInfo,
     positioning: PositioningStrategy,
     strategy: OutreachDecision,
     sender: SenderPersona,
+    style_hints: Dict,
     llm_generate_fn: Callable
 ) -> OutreachEmail:
-    """Generate email using LLM."""
-    prompt = f"""Write a PR outreach email following these specifications.
+    """Generate a natural email - no rigid templates."""
 
-RECIPIENT:
-- Name: {author.name}
-- Job Title: {author.job_title or 'Writer'}
-- Their Article: "{article.title}"
-- Article URL: {article.url}
-- Writing Style: {author.writing_style or 'Professional'}
-- Topics They Cover: {', '.join(author.topics_covered[:3]) if author.topics_covered else 'Various'}
+    first_name = author.name.split()[0] if author.name else ""
 
-PRODUCT TO PROMOTE:
-- Name: {product.name}
-- Tagline: {product.tagline}
-- Key Features: {', '.join(product.key_features[:3])}
-- Unique Value: {product.unique_value_prop}
-- Website: {product.website_url}
+    prompt = f"""Scrivi una email di outreach NATURALE e UMANA.
 
-POSITIONING:
-- Insertion Type: {positioning.insertion_type.value}
-- Target Section: {positioning.target_section[:200]}
-- Rationale: {positioning.positioning_rationale}
-- Suggested Text: {positioning.suggested_text[:300]}
-- Value to Readers: {positioning.value_to_readers}
+CHI SEI:
+{sender.name}, {sender.title} at {sender.company}
 
-STRATEGY:
-- Angle: {strategy.email_angle.value}
-- Personalization: {strategy.personalization_level}
-- CTA Type: {strategy.cta_type}
-- Tone: {strategy.tone}
+A CHI SCRIVI:
+{first_name} - ha scritto "{article.title}"
 
-SENDER:
-- Name: {sender.name}
-- Title: {sender.title}
-- Company: {sender.company}
-- Preferred Greetings: {', '.join(sender.preferred_greetings)}
-- Preferred Closings: {', '.join(sender.preferred_closings)}
+COSA VUOI:
+Suggerire {product.name} per il loro articolo.
+Motivo: {positioning.value_to_readers}
 
-REQUIREMENTS:
-1. Be genuinely helpful, not salesy
-2. Keep it short (under 150 words for body)
-3. Reference their specific article
-4. Explain value to THEIR readers, not just product benefits
-5. Soft CTA - make it easy to say yes or no
-6. Sound human, not templated
-7. No excessive flattery or buzzwords
+---
 
-Write the email in this format:
-SUBJECT: [subject line - max 50 chars, no spam words]
-SUBJECT_ALT: [alternative subject for A/B testing]
+REGOLE FONDAMENTALI:
 
-OPENING: [personalized opening line referencing their work]
+1. BREVITÀ ESTREMA
+   - Massimo {_get_sentence_limit(style_hints['length'])} frasi nel body
+   - Se puoi dirlo in meno parole, fallo
+   - Niente paragrafi lunghi
 
-CONNECTION: [why you're reaching out, the connection to their article]
+2. TONO CONVERSAZIONALE
+   - Scrivi come scriveresti a un collega
+   - Opening style: {style_hints['opening_style']}
+   - Niente "I hope this email finds you well"
+   - Niente "I wanted to reach out"
 
-VALUE_PROP: [what's in it for them/their readers - be specific]
+3. ZERO MARKETING SPEAK
+   - NO: "game-changing", "innovative", "cutting-edge", "revolutionary"
+   - NO: "I'm a big fan of your work" (falso e ovvio)
+   - NO: "I thought you might be interested" (presuntuoso)
+   - SÌ: linguaggio semplice e diretto
 
-SUGGESTION: [specific, helpful suggestion for how to include product]
+4. VALORE CONCRETO
+   - Spiega in 1 frase perché il loro lettore ne beneficerebbe
+   - Sii specifico, non generico
 
-CTA: [soft, non-pushy call to action]
+5. CTA SOFT
+   - Non chiedere troppo
+   - "Fammi sapere se ha senso" > "Would you be open to a call?"
+   - Rendi facile dire no
 
-PS: [optional P.S. line - conversational, adds personality]
+6. IMPERFEZIONI NATURALI
+   - Okay usare contrazioni ("I'm", "you're", "it's")
+   - Okay frasi brevi incomplete occasionalmente
+   - Non deve essere grammaticalmente perfetto
 
-SIGNATURE:
-{sender.name}
-{sender.title}, {sender.company}"""
+{"7. AGGIUNGI UN P.S." if style_hints['include_ps'] else "7. NIENTE P.S. questa volta"}
+   {"- Deve essere casual/personale, non sales" if style_hints['include_ps'] else ""}
+
+---
+
+OUTPUT FORMAT (esatto):
+
+SUBJECT: [subject line - max 6 parole, lowercase tranne prima lettera]
+
+BODY:
+[email completa qui - greeting, body, closing, firma]
+
+---
+
+ESEMPI DI SUBJECT LINE BUONI:
+- Quick thought on your article
+- Idea for your {product.category} piece
+- Suggestion for {article.title[:20]}...
+
+ESEMPI DI SUBJECT LINE CATTIVI:
+- 🚀 Amazing opportunity for you!
+- Partnership Proposal - {product.name}
+- I loved your article!!!
+"""
 
     try:
         response = llm_generate_fn(
             role="email_writer",
             task=prompt,
             context="",
-            style_hints={"tone": strategy.tone, "brevity": "high"}
+            style_hints={"natural": True, "brevity": "extreme"}
         )
 
-        return _parse_email_response(response, sender)
+        return _parse_natural_response(response, sender)
 
     except Exception as e:
         logger.warning(f"LLM email generation failed: {e}")
@@ -161,12 +188,102 @@ SIGNATURE:
             reason=str(e),
             impact="HIGH"
         )
-        return _write_with_templates(
+        return _write_simple_fallback(
             article, author, product, positioning, strategy, sender
         )
 
 
-def _write_with_templates(
+def _get_sentence_limit(length: str) -> str:
+    """Get sentence limit based on length style."""
+    limits = {
+        "ultra_short": "3-4",
+        "short": "5-6",
+        "medium": "7-8"
+    }
+    return limits.get(length, "5-6")
+
+
+def _parse_natural_response(response: str, sender: SenderPersona) -> OutreachEmail:
+    """Parse natural email response - simple extraction."""
+
+    lines = response.strip().split("\n")
+    subject = "Quick thought on your article"
+    body_lines = []
+    in_body = False
+
+    for line in lines:
+        line_stripped = line.strip()
+
+        if line_stripped.upper().startswith("SUBJECT:"):
+            subject = line_stripped.split(":", 1)[1].strip()
+            # Remove quotes if present
+            subject = subject.strip('"\'')
+
+        elif line_stripped.upper().startswith("BODY:"):
+            in_body = True
+            # Check if body content is on same line
+            remainder = line_stripped.split(":", 1)[1].strip() if ":" in line_stripped else ""
+            if remainder:
+                body_lines.append(remainder)
+
+        elif in_body:
+            body_lines.append(line)
+
+    # Clean up body
+    full_body = "\n".join(body_lines).strip()
+
+    # If parsing failed, use whole response as body
+    if not full_body:
+        # Try to extract anything that looks like an email
+        full_body = _extract_email_content(response, sender)
+
+    # Extract P.S. if present
+    ps_line = None
+    if "P.S." in full_body or "PS:" in full_body or "P.S:" in full_body:
+        parts = full_body.replace("PS:", "P.S.").replace("P.S:", "P.S.").split("P.S.")
+        if len(parts) > 1:
+            ps_line = "P.S." + parts[-1].strip()
+
+    return OutreachEmail(
+        subject_line=subject,
+        subject_line_alt=None,
+        opening_hook="",  # Not used in natural style
+        connection_point="",
+        value_proposition="",
+        insertion_suggestion="",
+        call_to_action="",
+        full_body=full_body,
+        ps_line=ps_line,
+        signature=f"{sender.name}\n{sender.title}, {sender.company}"
+    )
+
+
+def _extract_email_content(response: str, sender: SenderPersona) -> str:
+    """Extract email content from unstructured response."""
+    # Remove common LLM artifacts
+    content = response
+
+    # Remove markdown code blocks
+    if "```" in content:
+        parts = content.split("```")
+        # Take the part that looks most like an email
+        for part in parts:
+            if "Hi" in part or "Hey" in part or "@" in part:
+                content = part
+                break
+
+    # Remove XML-like tags
+    import re
+    content = re.sub(r'<[^>]+>', '', content)
+
+    # If no signature, add it
+    if sender.name not in content:
+        content = content.strip() + f"\n\n{sender.name}\n{sender.title}, {sender.company}"
+
+    return content.strip()
+
+
+def _write_simple_fallback(
     article: ArticleCandidate,
     author: AuthorProfile,
     product: ProductInfo,
@@ -174,199 +291,50 @@ def _write_with_templates(
     strategy: OutreachDecision,
     sender: SenderPersona
 ) -> OutreachEmail:
-    """Generate email using templates."""
+    """Simple, natural fallback - no LLM needed."""
+
     first_name = author.name.split()[0] if author.name else "there"
-    greeting = sender.preferred_greetings[0] if sender.preferred_greetings else "Hi"
-    closing = sender.preferred_closings[0] if sender.preferred_closings else "Best"
 
-    # Subject based on strategy
-    if strategy.email_angle.value == "direct_pitch":
-        subject = f"Quick suggestion for your {product.category} article"
-    elif strategy.email_angle.value == "update_request":
-        subject = f"Thought for updating your {product.category} piece"
-    elif strategy.email_angle.value == "resource_offer":
-        subject = f"Resource for your readers on {product.category}"
-    else:
-        subject = f"Idea for your {article.title[:30]} article"
+    # Randomize greeting
+    greetings = ["Hey", "Hi", "Hi there"]
+    greeting = random.choice(greetings)
 
-    # Opening
-    opening = f"{greeting} {first_name},"
+    # Keep it ultra simple
+    subject = f"Quick thought on your {product.category} article"
 
-    # Connection
-    connection = f"I came across your article \"{article.title}\" and thought it was a great resource for anyone looking into {product.category}."
+    # Natural, short body
+    body = f"""{greeting} {first_name},
 
-    # Value proposition
-    value_prop = f"I'm reaching out because I think your readers might find {product.name} helpful - {positioning.value_to_readers}"
+Saw your piece on "{article.title[:50]}". Good stuff.
 
-    # Suggestion
-    suggestion = f"If you're ever updating the article, {product.name} could be a good addition: {positioning.suggested_text[:200]}"
+I work on {product.name} - {product.tagline.lower() if product.tagline else 'a ' + product.category + ' tool'}.
 
-    # CTA
-    if strategy.cta_type == "update_article":
-        cta = "Would you be open to considering it for a future update?"
-    elif strategy.cta_type == "send_info":
-        cta = "Happy to send over more details if helpful!"
-    else:
-        cta = "Just wanted to put it on your radar - no pressure at all."
+Thought it might be worth mentioning for your readers since {positioning.value_to_readers[:100] if positioning.value_to_readers else 'it fits the topic well'}.
 
-    # Full body
-    full_body = f"""{opening}
+No pressure at all - just wanted to flag it.
 
-{connection}
-
-{value_prop}
-
-{suggestion}
-
-{cta}
-
-{closing},
 {sender.name}
-{sender.title}, {sender.company}"""
-
-    # P.S.
-    ps_line = f"P.S. Big fan of your work on {author.topics_covered[0] if author.topics_covered else 'tech'} topics!"
-
-    # Signature
-    signature = f"""{sender.name}
 {sender.title}, {sender.company}"""
 
     return OutreachEmail(
         subject_line=subject,
-        subject_line_alt=f"Quick thought on {article.title[:30]}...",
-        opening_hook=f"{opening}\n\n{connection}",
-        connection_point=connection,
-        value_proposition=value_prop,
-        insertion_suggestion=suggestion,
-        call_to_action=cta,
-        full_body=full_body,
-        ps_line=ps_line,
-        signature=signature
+        subject_line_alt=f"Idea for your {article.title[:25]}... piece",
+        opening_hook="",
+        connection_point="",
+        value_proposition="",
+        insertion_suggestion="",
+        call_to_action="",
+        full_body=body,
+        ps_line=None,
+        signature=f"{sender.name}\n{sender.title}, {sender.company}"
     )
 
 
-def _parse_email_response(response: str, sender: SenderPersona) -> OutreachEmail:
-    """Parse LLM response into OutreachEmail."""
-    result = {
-        "subject_line": "Quick thought on your article",
-        "subject_line_alt": None,
-        "opening_hook": "",
-        "connection_point": "",
-        "value_proposition": "",
-        "insertion_suggestion": "",
-        "call_to_action": "",
-        "full_body": "",
-        "ps_line": None,
-        "signature": f"{sender.name}\n{sender.title}, {sender.company}"
-    }
-
-    current_field = None
-    current_content = []
-
-    lines = response.strip().split("\n")
-
-    for line in lines:
-        line_stripped = line.strip()
-
-        if line_stripped.startswith("SUBJECT:"):
-            if current_field and current_content:
-                result[current_field] = "\n".join(current_content).strip()
-            current_field = None
-            result["subject_line"] = line_stripped.replace("SUBJECT:", "").strip()
-            current_content = []
-
-        elif line_stripped.startswith("SUBJECT_ALT:"):
-            result["subject_line_alt"] = line_stripped.replace("SUBJECT_ALT:", "").strip()
-
-        elif line_stripped.startswith("OPENING:"):
-            if current_field and current_content:
-                result[current_field] = "\n".join(current_content).strip()
-            current_field = "opening_hook"
-            current_content = [line_stripped.replace("OPENING:", "").strip()]
-
-        elif line_stripped.startswith("CONNECTION:"):
-            if current_field and current_content:
-                result[current_field] = "\n".join(current_content).strip()
-            current_field = "connection_point"
-            current_content = [line_stripped.replace("CONNECTION:", "").strip()]
-
-        elif line_stripped.startswith("VALUE_PROP:"):
-            if current_field and current_content:
-                result[current_field] = "\n".join(current_content).strip()
-            current_field = "value_proposition"
-            current_content = [line_stripped.replace("VALUE_PROP:", "").strip()]
-
-        elif line_stripped.startswith("SUGGESTION:"):
-            if current_field and current_content:
-                result[current_field] = "\n".join(current_content).strip()
-            current_field = "insertion_suggestion"
-            current_content = [line_stripped.replace("SUGGESTION:", "").strip()]
-
-        elif line_stripped.startswith("CTA:"):
-            if current_field and current_content:
-                result[current_field] = "\n".join(current_content).strip()
-            current_field = "call_to_action"
-            current_content = [line_stripped.replace("CTA:", "").strip()]
-
-        elif line_stripped.startswith("PS:"):
-            if current_field and current_content:
-                result[current_field] = "\n".join(current_content).strip()
-            current_field = None
-            result["ps_line"] = line_stripped.replace("PS:", "").strip()
-            current_content = []
-
-        elif line_stripped.startswith("SIGNATURE:"):
-            if current_field and current_content:
-                result[current_field] = "\n".join(current_content).strip()
-            current_field = "signature"
-            current_content = []
-
-        elif current_field and line_stripped:
-            current_content.append(line_stripped)
-
-    # Save last field
-    if current_field and current_content:
-        result[current_field] = "\n".join(current_content).strip()
-
-    # Build full body
-    parts = []
-    if result["opening_hook"]:
-        parts.append(result["opening_hook"])
-    if result["connection_point"] and result["connection_point"] not in result["opening_hook"]:
-        parts.append(result["connection_point"])
-    if result["value_proposition"]:
-        parts.append(result["value_proposition"])
-    if result["insertion_suggestion"]:
-        parts.append(result["insertion_suggestion"])
-    if result["call_to_action"]:
-        parts.append(result["call_to_action"])
-
-    body = "\n\n".join(parts)
-
-    if result["ps_line"]:
-        body += f"\n\n{result['ps_line']}"
-
-    body += f"\n\n{result['signature']}"
-
-    result["full_body"] = body
-
-    return OutreachEmail(**result)
-
-
 def get_email_preview(email: OutreachEmail) -> str:
-    """Generate a preview of the email."""
-    preview = f"""
-**Subject:** {email.subject_line}
+    """Generate a clean preview of the email."""
+    return f"""Subject: {email.subject_line}
 
-**Body:**
 {email.full_body}
 
 ---
-Word count: {email.word_count}
-Reading time: ~{email.reading_time_seconds}s
-""".strip()
-
-    if email.subject_line_alt:
-        preview = f"**Alt Subject:** {email.subject_line_alt}\n\n{preview}"
-
-    return preview
+{email.word_count} words"""
