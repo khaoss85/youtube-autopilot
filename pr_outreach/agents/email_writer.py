@@ -21,6 +21,40 @@ from pr_outreach.core.schemas import (
 from yt_autopilot.core.logger import logger, log_fallback
 
 
+def _load_product_context(campaign_config: CampaignConfig) -> Optional[str]:
+    """
+    Load product context from campaign's context module if specified.
+
+    Returns formatted context string for email writer, or None.
+    """
+    context_module = getattr(campaign_config, 'context_module', None)
+    if not context_module:
+        return None
+
+    try:
+        # Dynamic import of context module
+        import importlib
+        module = importlib.import_module(context_module)
+
+        # Try to get formatted email context
+        if hasattr(module, 'format_for_email_context'):
+            return module.format_for_email_context()
+        elif hasattr(module, 'ARVO_CONTEXT'):
+            # Fallback: build basic context from ARVO_CONTEXT
+            ctx = module.ARVO_CONTEXT
+            return f"""
+PRODOTTO: {ctx['snapshot']['name']}
+UVP: {ctx['uvp']['primary']}
+TARGET: {ctx['icp']['primary_segment']}
+TONO: {ctx['tone']['style']}
+""".strip()
+        return None
+
+    except Exception as e:
+        logger.warning(f"Failed to load product context: {e}")
+        return None
+
+
 # Variability elements - real humans vary their style
 OPENING_STYLES = [
     "casual",      # "Hey {name},"
@@ -57,6 +91,11 @@ def write_outreach_email(
 
     sender = campaign_config.sender_persona
 
+    # Load product context if available
+    product_context = _load_product_context(campaign_config)
+    if product_context:
+        logger.info("  Loaded product context for email generation")
+
     # Add variability - don't use same style every time
     style_hints = {
         "opening_style": random.choice(OPENING_STYLES),
@@ -67,7 +106,8 @@ def write_outreach_email(
     if llm_generate_fn:
         email = _write_natural_email(
             article, author, product, positioning,
-            strategy, sender, style_hints, llm_generate_fn
+            strategy, sender, style_hints, llm_generate_fn,
+            product_context=product_context
         )
     else:
         email = _write_simple_fallback(
@@ -92,11 +132,24 @@ def _write_natural_email(
     strategy: OutreachDecision,
     sender: SenderPersona,
     style_hints: Dict,
-    llm_generate_fn: Callable
+    llm_generate_fn: Callable,
+    product_context: Optional[str] = None
 ) -> OutreachEmail:
     """Generate a natural email - no rigid templates."""
 
     first_name = author.name.split()[0] if author.name else ""
+
+    # Build context section if available
+    context_section = ""
+    if product_context:
+        context_section = f"""
+---
+
+CONTESTO PRODOTTO (usa per scrivere email informata):
+{product_context}
+
+---
+"""
 
     prompt = f"""Scrivi una email di outreach NATURALE e UMANA.
 
@@ -109,7 +162,7 @@ A CHI SCRIVI:
 COSA VUOI:
 Suggerire {product.name} per il loro articolo.
 Motivo: {positioning.value_to_readers}
-
+{context_section}
 ---
 
 REGOLE FONDAMENTALI:

@@ -391,6 +391,12 @@ class CampaignConfig(BaseModel):
     max_articles_per_run: int = Field(default=10, description="Max articles to process per run")
     max_emails_per_day: int = Field(default=20, description="Max emails to send per day")
 
+    # Product context module (for agents to load detailed product info)
+    context_module: Optional[str] = Field(
+        None,
+        description="Python module path for product context (e.g., 'pr_outreach.context.arvo_product_context')"
+    )
+
     # AI authority notice (mirrors youtube-autopilot pattern)
     _ai_authority_notice: Dict = Field(
         default_factory=lambda: {

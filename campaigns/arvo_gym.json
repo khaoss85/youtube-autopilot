@@ -1,0 +1,147 @@
+{
+  "campaign_id": "arvo_gym",
+  "name": "Arvo - AI Fitness PR Outreach",
+  "description": "PR outreach campaign targeting fitness/bodybuilding articles to get Arvo mentioned",
+
+  "product": {
+    "name": "Arvo",
+    "tagline": "AI personal trainer che ti segue set-by-set in tempo reale",
+    "category": "AI Fitness App",
+    "website_url": "https://arvo.guru",
+    "key_features": [
+      "Real-time set-by-set coaching (peso, reps, recupero)",
+      "19 agenti AI specializzati che orchestrano decisioni",
+      "Progressive overload intelligente con MEV/MAV/MRV",
+      "Pattern recognition su history e preferenze",
+      "Spiega il perché di ogni scelta",
+      "Supporto metodologie PRO: Kuba Method, HIT, FST-7"
+    ],
+    "unique_value_prop": "Non programmi fissi '3x10' ma adattamento live alla tua performance reale, con 19 agenti AI specializzati che spiegano ogni decisione",
+    "target_audience": "Intermediate-advanced lifters che vogliono coaching evidence-based senza pagare 600$/mese per un PT"
+  },
+
+  "search_queries": [
+    "best AI workout apps 2024",
+    "best AI fitness apps 2025",
+    "AI personal trainer app review",
+    "best gym apps for bodybuilding",
+    "progressive overload app",
+    "workout tracking app AI",
+    "best strength training apps",
+    "AI fitness coach comparison",
+    "gym workout planner app",
+    "best apps for weightlifting"
+  ],
+
+  "target_domains": {
+    "preferred": [
+      "techradar.com",
+      "tomsguide.com",
+      "cnet.com",
+      "wired.com",
+      "menshealth.com",
+      "bodybuilding.com",
+      "t-nation.com",
+      "barbend.com",
+      "fitbod.me/blog",
+      "dr-muscle.com"
+    ],
+    "avoid": [
+      "reddit.com",
+      "quora.com",
+      "medium.com"
+    ],
+    "min_domain_authority": 30
+  },
+
+  "article_filters": {
+    "min_relevance_score": 0.6,
+    "max_age_days": 365,
+    "required_topics": ["AI", "workout", "fitness", "gym", "training"],
+    "preferred_formats": ["listicle", "review", "comparison", "guide"],
+    "avoid_topics": ["yoga", "running", "cardio only", "home workout only"]
+  },
+
+  "outreach_config": {
+    "max_emails_per_day": 10,
+    "min_days_between_followups": 7,
+    "max_followups": 2,
+    "preferred_angles": [
+      "update_request",
+      "resource_offer",
+      "new_tool_suggestion"
+    ]
+  },
+
+  "sender_persona": {
+    "name": "Diego",
+    "title": "Product",
+    "company": "Arvo",
+    "email": "diego@arvo.guru",
+    "preferred_greetings": ["Hey", "Hi", "Ciao"],
+    "preferred_closings": ["Cheers", "Best", "Thanks"],
+    "signature_style": "minimal",
+    "tone": "casual-professional",
+    "language": "en"
+  },
+
+  "email_guidelines": {
+    "max_words": 100,
+    "tone": "casual-professional, tech-savvy but not salesy",
+    "must_mention": [
+      "set-by-set real-time coaching",
+      "19 AI agents"
+    ],
+    "never_mention": [
+      "revolutionary",
+      "game-changing",
+      "best app ever",
+      "guaranteed results"
+    ],
+    "value_angles": [
+      "Readers looking for AI-powered workout tracking would find Arvo's set-by-set approach useful",
+      "Unlike generic AI fitness apps, Arvo explains WHY it makes each recommendation",
+      "For intermediate lifters who want evidence-based programming without PT costs"
+    ]
+  },
+
+  "positioning_hints": {
+    "vs_fitbod": "Arvo goes deeper with 19 specialized agents vs single AI, plus explains every decision",
+    "vs_strong": "Strong is great for logging, Arvo adds real-time AI coaching on top",
+    "vs_pt": "Same intelligence as a good PT at 1/10 the cost",
+    "insertion_suggestions": [
+      "Add to 'Best AI Fitness Apps' lists",
+      "Include in 'Apps for Serious Lifters' sections",
+      "Mention in 'Progressive Overload Tools' roundups"
+    ]
+  },
+
+  "validation_gates": {
+    "post_discovery": {
+      "enabled": true,
+      "min_articles": 3,
+      "require_author_info": false
+    },
+    "post_analysis": {
+      "enabled": true,
+      "min_relevance": 0.6,
+      "require_insertion_opportunity": true
+    },
+    "post_email": {
+      "enabled": true,
+      "max_spam_score": 0.3,
+      "min_personalization_score": 0.6
+    },
+    "pre_send": {
+      "enabled": true,
+      "require_human_approval": true
+    }
+  },
+
+  "context_module": "pr_outreach.context.arvo_product_context",
+
+  "contacted_articles": [],
+
+  "created_at": "2024-12-08",
+  "updated_at": "2024-12-08"
+}
