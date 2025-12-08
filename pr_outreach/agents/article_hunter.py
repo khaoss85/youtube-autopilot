@@ -3,9 +3,15 @@ Article Hunter Agent - Discover articles for PR outreach.
 
 Similar to TrendHunter in youtube-autopilot.
 Searches multiple sources to find relevant articles.
+
+Search priority:
+1. OpenAI web search (if available) - FREE with OpenAI API
+2. Google Custom Search API
+3. SerpAPI (fallback)
 """
 
 import os
+import json
 from typing import List, Dict, Optional, Callable
 from datetime import datetime, timedelta
 from urllib.parse import urlparse, quote_plus
@@ -23,7 +29,8 @@ def hunt_articles(
     campaign_config: CampaignConfig,
     max_results: int = 50,
     contacted_articles: List[str] = None,
-    llm_generate_fn: Optional[Callable] = None
+    llm_generate_fn: Optional[Callable] = None,
+    use_openai_search: bool = True
 ) -> List[ArticleCandidate]:
     """
     Hunt for articles relevant to the product.
@@ -35,6 +42,7 @@ def hunt_articles(
         max_results: Maximum articles to return
         contacted_articles: URLs already contacted (to skip)
         llm_generate_fn: LLM function for relevance scoring
+        use_openai_search: Use OpenAI's built-in web search (recommended)
 
     Returns:
         List of ArticleCandidate objects, sorted by composite score
@@ -49,11 +57,18 @@ def hunt_articles(
     for query in search_queries:
         logger.info(f"  Searching: {query}")
 
-        # Try Google Custom Search
+        # Try OpenAI web search first (free with API)
+        if use_openai_search:
+            openai_results = _search_openai_web(query, product, max_results=15)
+            if openai_results:
+                all_articles.extend(openai_results)
+                continue  # Skip other sources if OpenAI worked
+
+        # Fallback: Try Google Custom Search
         google_results = _search_google(query, max_results=20)
         all_articles.extend(google_results)
 
-        # Try news-specific search
+        # Fallback: Try news-specific search
         news_results = _search_news(query, max_results=10)
         all_articles.extend(news_results)
 
@@ -88,6 +103,97 @@ def hunt_articles(
     logger.info(f"  Returning top {len(top_articles)} articles")
 
     return top_articles
+
+
+def _search_openai_web(
+    query: str,
+    product: ProductInfo,
+    max_results: int = 15
+) -> List[ArticleCandidate]:
+    """
+    Search using OpenAI's built-in web search tool.
+
+    This uses the Responses API with web_search_preview tool.
+    FREE with OpenAI API - no additional subscription needed.
+    """
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        logger.debug("OpenAI API key not configured")
+        return []
+
+    articles = []
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+
+        # Use Responses API with web search tool
+        response = client.responses.create(
+            model="gpt-4.1-mini",  # or gpt-4.1 for better results
+            tools=[{"type": "web_search_preview"}],
+            input=f"""Search the web for: {query}
+
+Find articles that could mention {product.name} ({product.category}).
+
+For each relevant article found, extract:
+- URL
+- Title
+- Author name (if visible)
+- Brief description/excerpt
+
+Focus on:
+- Listicle articles ("Best X", "Top 10", etc.)
+- Review/comparison articles
+- Guide articles
+- Recent articles (2024-2025)
+
+Return results as JSON array:
+[
+  {{"url": "...", "title": "...", "author": "...", "excerpt": "..."}},
+  ...
+]
+
+Return ONLY the JSON array, no other text.""",
+            tool_choice="required"
+        )
+
+        # Parse the response
+        result_text = response.output_text if hasattr(response, 'output_text') else str(response)
+
+        # Try to extract JSON from response
+        try:
+            # Find JSON array in response
+            import re
+            json_match = re.search(r'\[[\s\S]*\]', result_text)
+            if json_match:
+                results = json.loads(json_match.group())
+
+                for item in results[:max_results]:
+                    if not item.get("url"):
+                        continue
+
+                    article = ArticleCandidate(
+                        url=item.get("url", ""),
+                        title=item.get("title", ""),
+                        domain=urlparse(item.get("url", "")).netloc,
+                        author_name=item.get("author"),
+                        content_excerpt=item.get("excerpt", ""),
+                        source="openai_web"
+                    )
+                    articles.append(article)
+
+                logger.info(f"    OpenAI web search found {len(articles)} articles")
+
+        except json.JSONDecodeError:
+            logger.debug("Could not parse OpenAI search results as JSON")
+
+    except ImportError:
+        logger.debug("OpenAI package not installed or outdated")
+    except Exception as e:
+        logger.debug(f"OpenAI web search failed: {e}")
+        # Don't log as error - just fall back to other methods
+
+    return articles
 
 
 def _search_google(query: str, max_results: int = 20) -> List[ArticleCandidate]:
