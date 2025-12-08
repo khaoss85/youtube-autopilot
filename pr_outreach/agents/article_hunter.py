@@ -129,7 +129,7 @@ def _search_openai_web(
 
         # Use Responses API with web search tool
         response = client.responses.create(
-            model="gpt-4.1",  # Cost-effective model with web search support
+            model="gpt-5.1",  # Latest model with native web search
             tools=[{"type": "web_search_preview"}],
             input=f"""Search the web for: {query}
 
