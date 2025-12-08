@@ -67,6 +67,10 @@ def main():
         elif cmd == '5':
             review_emails(campaign_id)
         elif cmd == '6':
+            send_emails(campaign_id)
+        elif cmd == '7':
+            list_data(campaign_id)
+        elif cmd == '8':
             show_full_status(campaign_id, config)
         elif cmd == 'r':
             run_full_pipeline(campaign_id, config)
@@ -139,9 +143,10 @@ def show_status(campaign_id, config):
 def show_menu():
     """Show command menu and get input."""
     console.print("[bold]Commands:[/bold]")
-    console.print("  [cyan]1[/cyan]) Search articles    [cyan]4[/cyan]) Draft emails")
-    console.print("  [cyan]2[/cyan]) Analyze articles   [cyan]5[/cyan]) Review & approve")
-    console.print("  [cyan]3[/cyan]) Find contacts      [cyan]6[/cyan]) Full status")
+    console.print("  [cyan]1[/cyan]) Search articles    [cyan]5[/cyan]) Review & approve")
+    console.print("  [cyan]2[/cyan]) Analyze articles   [cyan]6[/cyan]) Send emails")
+    console.print("  [cyan]3[/cyan]) Find contacts      [cyan]7[/cyan]) List data")
+    console.print("  [cyan]4[/cyan]) Draft emails       [cyan]8[/cyan]) Full status")
     console.print()
     console.print("  [green]r[/green]) Run full pipeline  [dim]c[/dim]) Clear  [dim]q[/dim]) Quit")
     console.print()
@@ -396,6 +401,164 @@ def review_emails(campaign_id):
             break
         else:
             console.print("[dim]Skipped[/dim]\n")
+
+
+def send_emails(campaign_id):
+    """Send approved emails."""
+    emails = load_outreach(campaign_id, status="approved")
+
+    if not emails:
+        console.print("\n[yellow]No approved emails to send.[/yellow]")
+        console.input("\n[dim]Press Enter to continue...[/dim]")
+        return
+
+    console.print(f"\n[bold]📤 {len(emails)} approved emails ready to send[/bold]\n")
+
+    # Show list
+    table = Table()
+    table.add_column("#", style="dim")
+    table.add_column("To")
+    table.add_column("Subject")
+
+    for i, e in enumerate(emails, 1):
+        table.add_row(str(i), e['author_email'], e['subject'][:40] + "...")
+
+    console.print(table)
+
+    console.print("\n[green]a[/green]) Send ALL  [cyan]#[/cyan]) Send specific  [dim]q[/dim]) Cancel")
+    action = console.input("\n[bold]>[/bold] ").strip().lower()
+
+    if action == 'q':
+        return
+
+    to_send = emails if action == 'a' else []
+
+    if action.isdigit():
+        idx = int(action) - 1
+        if 0 <= idx < len(emails):
+            to_send = [emails[idx]]
+
+    if not to_send:
+        console.print("[yellow]Nothing selected[/yellow]")
+        return
+
+    confirm = console.input(f"\n[bold]Send {len(to_send)} email(s)? (y/N):[/bold] ")
+    if confirm.lower() != 'y':
+        console.print("[dim]Cancelled[/dim]")
+        return
+
+    from pr_outreach.services.email_sender import send_email
+
+    sent = 0
+    for email in to_send:
+        try:
+            success, result, provider = send_email(
+                to_email=email['author_email'],
+                subject=email['subject'],
+                body=email['body']
+            )
+
+            if success:
+                full_email = find_outreach(email['outreach_id'])
+                if full_email:
+                    full_email['status'] = 'sent'
+                    full_email['sent_at'] = datetime.now().isoformat()
+                    full_email['message_id'] = result
+                    update_outreach(full_email)
+                sent += 1
+                console.print(f"[green]✓[/green] Sent to {email['author_email']}")
+            else:
+                console.print(f"[red]✗[/red] Failed: {email['author_email']} - {result}")
+        except Exception as e:
+            console.print(f"[red]✗[/red] Error: {email['author_email']} - {str(e)[:30]}")
+
+    console.print(f"\n[green]✓ Sent {sent}/{len(to_send)} emails[/green]")
+    console.input("\n[dim]Press Enter to continue...[/dim]")
+
+
+def list_data(campaign_id):
+    """List articles, contacts, or emails."""
+    console.print("\n[bold]List:[/bold]")
+    console.print("  [cyan]1[/cyan]) Articles")
+    console.print("  [cyan]2[/cyan]) Contacts")
+    console.print("  [cyan]3[/cyan]) Emails")
+    console.print()
+
+    choice = console.input("[bold]>[/bold] ").strip()
+
+    if choice == '1':
+        articles = load_articles(campaign_id)
+        if not articles:
+            console.print("\n[yellow]No articles found.[/yellow]")
+        else:
+            table = Table(title=f"Articles ({len(articles)})")
+            table.add_column("Score", justify="center", style="cyan")
+            table.add_column("Title")
+            table.add_column("Author")
+
+            for a in articles:
+                score = a.get('relevance_score')
+                score_str = f"{score:.2f}" if isinstance(score, float) else "-"
+                table.add_row(
+                    score_str,
+                    a.get('title', 'Unknown')[:45] + "...",
+                    a.get('author_name', '-')[:20]
+                )
+
+            console.print(table)
+
+    elif choice == '2':
+        articles = load_articles(campaign_id)
+        contacts = [a for a in articles if a.get('author_email')]
+
+        if not contacts:
+            console.print("\n[yellow]No contacts found.[/yellow]")
+        else:
+            table = Table(title=f"Contacts ({len(contacts)})")
+            table.add_column("Name")
+            table.add_column("Email")
+            table.add_column("LinkedIn", style="dim")
+
+            for a in contacts:
+                table.add_row(
+                    a.get('author_name', 'Unknown')[:25],
+                    a.get('author_email', '-'),
+                    "✓" if a.get('author_linkedin') else "-"
+                )
+
+            console.print(table)
+
+    elif choice == '3':
+        emails = load_outreach(campaign_id)
+
+        if not emails:
+            console.print("\n[yellow]No emails found.[/yellow]")
+        else:
+            table = Table(title=f"Emails ({len(emails)})")
+            table.add_column("ID", style="dim")
+            table.add_column("Status")
+            table.add_column("To")
+            table.add_column("Subject")
+
+            status_style = {
+                'pending_review': 'yellow',
+                'approved': 'green',
+                'sent': 'blue',
+                'rejected': 'red'
+            }
+
+            for e in emails:
+                status = e['status']
+                table.add_row(
+                    e['outreach_id'][:8],
+                    f"[{status_style.get(status, 'white')}]{status}[/]",
+                    e.get('author_email', '-')[:25],
+                    e.get('subject', '-')[:35] + "..."
+                )
+
+            console.print(table)
+
+    console.input("\n[dim]Press Enter to continue...[/dim]")
 
 
 def show_full_status(campaign_id, config):
