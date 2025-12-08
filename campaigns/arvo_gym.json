@@ -1,6 +1,8 @@
 {
   "campaign_id": "arvo_gym",
-  "name": "Arvo - AI Fitness PR Outreach",
+  "campaign_name": "Arvo - AI Fitness PR Outreach",
+  "niche_id": "fitness",
+  "target_language": "en",
   "description": "PR outreach campaign targeting fitness/bodybuilding articles to get Arvo mentioned",
 
   "product": {

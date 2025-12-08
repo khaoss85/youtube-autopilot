@@ -486,7 +486,8 @@ def load_campaign(campaign_id: str) -> CampaignConfig:
             contacted_articles=data.get('contacted_articles', []),
             validation_gates=gates,
             max_articles_per_run=data.get('max_articles_per_run', 10),
-            max_emails_per_day=data.get('max_emails_per_day', 20)
+            max_emails_per_day=data.get('max_emails_per_day', 20),
+            context_module=data.get('context_module')
         )
 
     except Exception as e:
