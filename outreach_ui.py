@@ -161,39 +161,47 @@ def run_search(campaign_id, config):
     max_results = console.input("[dim]Max articles per query (default 5):[/dim] ").strip()
     max_results = int(max_results) if max_results.isdigit() else 5
 
-    from pr_outreach.agents.article_hunter import search_articles
-
-    all_articles = []
+    from pr_outreach.agents.article_hunter import hunt_articles
 
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
         console=console
     ) as progress:
-        for query in config.search_queries:
-            task = progress.add_task(f"Searching: {query[:40]}...", total=None)
+        task = progress.add_task(f"Searching {len(config.search_queries)} queries...", total=None)
 
-            try:
-                articles = search_articles(query, config.product, max_results=max_results)
-                all_articles.extend(articles)
-                progress.update(task, description=f"[green]✓[/green] Found {len(articles)}: {query[:30]}...")
-            except Exception as e:
-                progress.update(task, description=f"[red]✗[/red] Error: {query[:30]}...")
+        try:
+            all_articles = hunt_articles(config.search_queries, config.product, config, max_results=max_results)
+            progress.update(task, description=f"[green]✓[/green] Found {len(all_articles)} articles")
+        except Exception as e:
+            progress.update(task, description=f"[red]✗[/red] Error: {str(e)[:50]}...")
+            all_articles = []
 
-            progress.stop_task(task)
+        progress.stop_task(task)
 
-    # Dedupe
-    seen = set()
-    unique = []
+    # Load existing articles to merge (preserve analyzed ones!)
+    existing_articles = load_articles(campaign_id)
+    existing_urls = {a.get('url') for a in existing_articles}
+
+    # Dedupe new articles against existing
+    seen = set(existing_urls)
+    new_unique = []
     for a in all_articles:
         url = a.url if hasattr(a, 'url') else a.get('url')
         if url and url not in seen:
             seen.add(url)
-            unique.append(a)
+            # Convert to dict if needed
+            if hasattr(a, 'model_dump'):
+                a = a.model_dump()
+            elif hasattr(a, '__dict__'):
+                a = {k: v for k, v in a.__dict__.items() if not k.startswith('_')}
+            new_unique.append(a)
 
-    save_articles(campaign_id, unique)
+    # Merge: existing + new
+    merged = existing_articles + new_unique
+    save_articles(campaign_id, merged)
 
-    console.print(f"\n[green]✓ Found {len(unique)} unique articles[/green]")
+    console.print(f"\n[green]✓ Found {len(new_unique)} new articles (total: {len(merged)})[/green]")
     console.input("\n[dim]Press Enter to continue...[/dim]")
 
 
@@ -210,6 +218,7 @@ def run_analyze(campaign_id, config):
     console.print(f"\n[bold]📊 Analyzing {len(to_analyze)} articles...[/bold]\n")
 
     from pr_outreach.agents.article_analyzer import analyze_article
+    from pr_outreach.core.schemas import ArticleCandidate
 
     with Progress(
         SpinnerColumn(),
@@ -221,18 +230,23 @@ def run_analyze(campaign_id, config):
             task = progress.add_task(f"Analyzing: {title}...", total=None)
 
             try:
-                result = analyze_article(article, config.product)
+                # Convert dict to ArticleCandidate
+                article_obj = ArticleCandidate(**{k: v for k, v in article.items() if k in ArticleCandidate.model_fields})
+                result = analyze_article(article_obj, config.product)
 
+                # Access attributes from ArticleCandidate object
                 article["analyzed"] = True
-                article["relevance_score"] = result.get("relevance_score", 0)
-                article["fit_reasoning"] = result.get("reasoning", "")
-                article["positioning_angle"] = result.get("positioning_angle", "")
+                article["relevance_score"] = result.opportunity_score or 0
+                article["fit_reasoning"] = ""
+                article["positioning_angle"] = ""
+                article["insertion_type"] = str(result.insertion_type.value) if result.insertion_type else None
+                article["insertion_opportunities"] = result.insertion_opportunities or []
 
                 score = article["relevance_score"]
                 icon = "✓" if score >= 0.5 else "✗"
                 progress.update(task, description=f"[{'green' if score >= 0.5 else 'red'}]{icon}[/] {title}... ({score:.2f})")
             except Exception as e:
-                progress.update(task, description=f"[red]✗[/red] Error: {title}...")
+                progress.update(task, description=f"[red]✗[/red] Error: {str(e)[:40]}...")
 
             progress.stop_task(task)
 
@@ -257,7 +271,7 @@ def run_contacts(campaign_id, config):
 
     console.print(f"\n[bold]👤 Finding {len(to_find)} contacts...[/bold]\n")
 
-    from pr_outreach.agents.contact_finder import find_author_contact
+    from pr_outreach.services.author_finder import find_author_contacts
 
     found = 0
 
@@ -267,22 +281,27 @@ def run_contacts(campaign_id, config):
         console=console
     ) as progress:
         for article in to_find:
-            name = article.get('author_name', 'Unknown')[:25]
+            name = (article.get('author_name') or 'Unknown')[:25]
             task = progress.add_task(f"Finding: {name}...", total=None)
 
             try:
-                contact = find_author_contact(
+                contact = find_author_contacts(
                     author_name=article.get("author_name", ""),
-                    article_url=article.get("url", ""),
-                    domain=article.get("domain", "")
+                    domain=article.get("domain", ""),
+                    article_url=article.get("url", "")
                 )
 
-                if contact and contact.get("email"):
+                # Only save contacts with confidence >= 0.5 (skip pattern_guess fakes)
+                confidence = contact.get("email_confidence", 0) if contact else 0
+                if contact and contact.get("email") and confidence >= 0.5:
                     article["author_email"] = contact.get("email")
-                    article["author_linkedin"] = contact.get("linkedin")
-                    article["author_twitter"] = contact.get("twitter")
+                    article["author_linkedin"] = contact.get("linkedin_url")
+                    article["author_twitter"] = contact.get("twitter_handle")
+                    article["contact_confidence"] = confidence
                     found += 1
                     progress.update(task, description=f"[green]✓[/green] {name}: {contact['email']}")
+                elif contact and contact.get("email") and confidence < 0.5:
+                    progress.update(task, description=f"[yellow]−[/yellow] {name}: low confidence ({confidence:.1f})")
                 else:
                     progress.update(task, description=f"[yellow]−[/yellow] {name}: no email")
             except Exception as e:
@@ -325,7 +344,7 @@ def run_draft(campaign_id, config):
         console=console
     ) as progress:
         for article in to_draft:
-            name = article.get('author_name', 'Unknown')[:25]
+            name = (article.get('author_name') or 'Unknown')[:25]
             task = progress.add_task(f"Drafting: {name}...", total=None)
 
             try:
@@ -619,8 +638,15 @@ def run_full_pipeline(campaign_id, config):
     # Temporarily modify for pipeline
     original_queries = config.search_queries
 
+    # Check for existing unanalyzed articles
+    existing_articles = load_articles(campaign_id)
+    not_analyzed = [a for a in existing_articles if not a.get('analyzed')]
+
     console.print("\n[bold cyan]Step 1/4: Search[/bold cyan]")
-    run_search(campaign_id, config)
+    if not_analyzed:
+        console.print(f"[yellow]⏭️  Skipping search: {len(not_analyzed)} articles pending analysis[/yellow]")
+    else:
+        run_search(campaign_id, config)
 
     console.print("\n[bold cyan]Step 2/4: Analyze[/bold cyan]")
     run_analyze(campaign_id, config)

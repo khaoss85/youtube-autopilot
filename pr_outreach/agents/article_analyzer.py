@@ -44,6 +44,10 @@ def analyze_article(
                 article.author_name = scraped["author"]
             if scraped["publish_date"] and not article.publication_date:
                 article.publication_date = scraped["publish_date"]
+        else:
+            # Use content_excerpt as fallback when scraping fails
+            logger.info(f"  ⚠️ Scraping failed, using excerpt for analysis")
+            article.full_content = article.content_excerpt or ""
 
     # Identify insertion opportunities
     if llm_generate_fn and article.full_content:
@@ -180,7 +184,11 @@ def _identify_opportunities_heuristic(
 
     # Check for outdated content
     if article.publication_date:
-        age_days = (datetime.now() - article.publication_date).days
+        # Handle both timezone-aware and naive datetimes
+        pub_date = article.publication_date
+        if hasattr(pub_date, 'tzinfo') and pub_date.tzinfo is not None:
+            pub_date = pub_date.replace(tzinfo=None)
+        age_days = (datetime.now() - pub_date).days
         if age_days > 365:
             primary_type = InsertionType.UPDATE_EXISTING
             opportunities.append(f"Article is {age_days} days old - may need updating")

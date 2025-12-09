@@ -5,6 +5,9 @@ Uses newspaper3k and trafilatura for robust article extraction.
 Fallback chain: newspaper3k -> trafilatura -> basic requests
 """
 
+import warnings
+warnings.filterwarnings("ignore", message="urllib3 v2 only supports OpenSSL")
+
 import re
 from typing import Dict, Optional, Tuple
 from datetime import datetime
@@ -49,6 +52,21 @@ def scrape_article(url: str, timeout: int = 30) -> Dict:
         - method: Which method was used
     """
     logger.info(f"Scraping article: {url}")
+
+    # LinkedIn requires authentication - skip scraping
+    if "linkedin.com" in url:
+        logger.info(f"  ⚠️ LinkedIn URL - skipping scraping (auth required)")
+        return {
+            "title": "",
+            "content": "",
+            "author": None,
+            "publish_date": None,
+            "excerpt": "",
+            "word_count": 0,
+            "success": False,
+            "method": "skipped_linkedin",
+            "error": "LinkedIn requires authentication"
+        }
 
     # Try newspaper3k first
     if NEWSPAPER_AVAILABLE:

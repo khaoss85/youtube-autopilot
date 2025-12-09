@@ -66,11 +66,19 @@ def hunt_articles(
 
         # Fallback: Try Google Custom Search
         google_results = _search_google(query, max_results=20)
-        all_articles.extend(google_results)
+        if google_results:
+            all_articles.extend(google_results)
+            continue
 
         # Fallback: Try news-specific search
         news_results = _search_news(query, max_results=10)
-        all_articles.extend(news_results)
+        if news_results:
+            all_articles.extend(news_results)
+            continue
+
+        # Final fallback: DuckDuckGo or SerpAPI
+        fallback_results = _search_fallback(query, max_results=15)
+        all_articles.extend(fallback_results)
 
     # Deduplicate by URL
     seen_urls = set()
@@ -116,7 +124,7 @@ def _search_openai_web(
     This uses the Responses API with web_search_preview tool.
     FREE with OpenAI API - no additional subscription needed.
     """
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = os.getenv("OPENAI_API_KEY") or os.getenv("LLM_OPENAI_API_KEY")
     if not api_key:
         logger.debug("OpenAI API key not configured")
         return []
@@ -154,38 +162,70 @@ Return results as JSON array:
 ]
 
 Return ONLY the JSON array, no other text.""",
-            tool_choice="required"
+            reasoning={"effort": "low"},
+            text={"verbosity": "low"}
         )
 
-        # Parse the response
-        result_text = response.output_text if hasattr(response, 'output_text') else str(response)
+        # Parse the response - extract text and URL annotations from output
+        result_text = ""
+        url_annotations = []
 
-        # Try to extract JSON from response
+        if hasattr(response, 'output') and response.output:
+            for item in response.output:
+                if hasattr(item, 'content') and item.content:
+                    for content in item.content:
+                        if hasattr(content, 'text'):
+                            result_text += content.text + " "
+                        # Extract URL citations from annotations
+                        if hasattr(content, 'annotations') and content.annotations:
+                            for ann in content.annotations:
+                                if hasattr(ann, 'url') and ann.url:
+                                    url_annotations.append({
+                                        'url': ann.url.split('?')[0],  # Remove tracking params
+                                        'title': getattr(ann, 'title', '')
+                                    })
+
+        # First try to parse JSON from response
         try:
-            # Find JSON array in response
             import re
-            json_match = re.search(r'\[[\s\S]*\]', result_text)
+            # Match JSON array - greedy to get full array
+            json_match = re.search(r'\[\s*\{[\s\S]*\}\s*\]', result_text)
             if json_match:
-                results = json.loads(json_match.group())
-
+                json_str = json_match.group()
+                results = json.loads(json_str)
                 for item in results[:max_results]:
-                    if not item.get("url"):
+                    url = item.get("url", "")
+                    if not url:
                         continue
-
                     article = ArticleCandidate(
-                        url=item.get("url", ""),
+                        url=url,
                         title=item.get("title", ""),
-                        domain=urlparse(item.get("url", "")).netloc,
+                        domain=urlparse(url).netloc,
                         author_name=item.get("author"),
                         content_excerpt=item.get("excerpt", ""),
                         source="openai_web"
                     )
                     articles.append(article)
+                logger.debug(f"Parsed {len(articles)} articles from JSON")
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.debug(f"JSON parse failed: {e}")
 
-                logger.info(f"    OpenAI web search found {len(articles)} articles")
+        # If no JSON results, use URL annotations directly
+        if not articles and url_annotations:
+            for ann in url_annotations[:max_results]:
+                url = ann['url']
+                # Skip non-article URLs
+                if any(skip in url for skip in ['google.com', 'youtube.com', 'facebook.com', 'twitter.com']):
+                    continue
+                article = ArticleCandidate(
+                    url=url,
+                    title=ann.get('title', ''),
+                    domain=urlparse(url).netloc,
+                    source="openai_web"
+                )
+                articles.append(article)
 
-        except json.JSONDecodeError:
-            logger.debug("Could not parse OpenAI search results as JSON")
+        logger.info(f"    OpenAI web search found {len(articles)} articles")
 
     except ImportError:
         logger.debug("OpenAI package not installed or outdated")
@@ -307,9 +347,36 @@ def _search_news(query: str, max_results: int = 10) -> List[ArticleCandidate]:
 
 def _search_fallback(query: str, max_results: int) -> List[ArticleCandidate]:
     """
-    Fallback search using SerpAPI or direct scraping.
+    Fallback search using DuckDuckGo or SerpAPI.
     """
-    # Try SerpAPI
+    # Try DuckDuckGo (free, no API key needed)
+    try:
+        from ddgs import DDGS
+        articles = []
+
+        with DDGS() as ddgs:
+            results = list(ddgs.text(query, max_results=max_results))
+
+            for item in results:
+                article = ArticleCandidate(
+                    url=item.get("href", ""),
+                    title=item.get("title", ""),
+                    domain=urlparse(item.get("href", "")).netloc,
+                    content_excerpt=item.get("body", ""),
+                    source="duckduckgo"
+                )
+                articles.append(article)
+
+        if articles:
+            logger.info(f"    DuckDuckGo found {len(articles)} articles")
+            return articles
+
+    except ImportError:
+        logger.debug("duckduckgo-search not installed")
+    except Exception as e:
+        logger.debug(f"DuckDuckGo search failed: {e}")
+
+    # Try SerpAPI as secondary fallback
     serp_key = os.getenv("SERP_API_KEY")
     if serp_key:
         return _search_serpapi(query, serp_key, max_results)

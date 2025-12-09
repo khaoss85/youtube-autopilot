@@ -39,6 +39,18 @@ def find_author_contacts(
     """
     logger.info(f"Finding contacts for author: {author_name} @ {domain}")
 
+    # Handle missing author name
+    if not author_name or not author_name.strip():
+        logger.warning("No author name provided, skipping contact search")
+        return {
+            "email": None,
+            "email_confidence": 0.0,
+            "linkedin_url": None,
+            "twitter_handle": None,
+            "personal_website": None,
+            "sources": []
+        }
+
     result = {
         "email": None,
         "email_confidence": 0.0,
@@ -48,13 +60,22 @@ def find_author_contacts(
         "sources": []
     }
 
-    # Try Hunter.io
+    # Try Hunter.io first (if API key available)
     hunter_result = _search_hunter(author_name, domain)
     if hunter_result.get("email"):
         result["email"] = hunter_result["email"]
         result["email_confidence"] = hunter_result.get("confidence", 0.5)
         result["sources"].append("hunter.io")
         logger.info(f"  ✓ Found email via Hunter.io: {result['email']}")
+
+    # Try OpenAI Web Search as fallback (uses GPT-5.1 with web_search_preview)
+    if not result["email"]:
+        openai_result = _search_openai_web(author_name, domain, article_url)
+        if openai_result.get("email"):
+            result["email"] = openai_result["email"]
+            result["email_confidence"] = openai_result.get("confidence", 0.5)
+            result["sources"].append("openai_web_search")
+            logger.info(f"  ✓ Found email via OpenAI: {result['email']}")
 
     # Try to find LinkedIn
     linkedin_url = _search_linkedin(author_name, domain)
@@ -89,6 +110,86 @@ def find_author_contacts(
         logger.warning(f"  ✗ No contacts found for {author_name}")
 
     return result
+
+
+def _search_openai_web(author_name: str, domain: str, article_url: Optional[str] = None) -> Dict:
+    """
+    Search for author email using OpenAI GPT-5.1 web search.
+
+    Uses Responses API with web_search_preview tool for real-time web search.
+    This is a free fallback (only normal OpenAI API costs).
+    """
+    api_key = os.getenv("OPENAI_API_KEY") or os.getenv("LLM_OPENAI_API_KEY")
+    if not api_key:
+        logger.debug("OpenAI API key not configured for web search")
+        return {}
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+
+        # Build search prompt
+        search_prompt = f"""Find the email address for author "{author_name}" who writes for {domain}.
+
+Search the web for:
+- Author's profile/bio page on {domain}
+- Author's LinkedIn profile
+- Author's Twitter/X bio
+- Author's personal website or blog
+- Contact pages mentioning this author
+
+Look for email addresses in the format: name@domain.com
+
+Return ONLY a valid JSON object with this exact structure:
+{{"email": "found@email.com", "confidence": 0.8, "source": "where you found it"}}
+
+If no email found after searching, return:
+{{"email": null, "confidence": 0, "source": null}}
+
+Do NOT explain or add any text outside the JSON."""
+
+        response = client.responses.create(
+            model="gpt-5.1",
+            tools=[{"type": "web_search_preview"}],
+            input=search_prompt,
+            reasoning={"effort": "low"},
+            text={"verbosity": "low"}
+        )
+
+        # Parse response - extract text from output messages
+        result_text = ""
+        if hasattr(response, 'output') and response.output:
+            for item in response.output:
+                if hasattr(item, 'content') and item.content:
+                    for content in item.content:
+                        if hasattr(content, 'text'):
+                            result_text += content.text + " "
+
+        if not result_text:
+            result_text = str(response)
+
+        logger.debug(f"OpenAI web search response: {result_text[:200]}...")
+
+        # Extract email from response text
+        email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+        emails_found = re.findall(email_pattern, result_text)
+
+        if emails_found:
+            # Take first valid email found
+            email = emails_found[0]
+            logger.info(f"  ✓ OpenAI web search found email: {email}")
+            return {
+                "email": email,
+                "confidence": 0.7,  # High confidence from web search
+                "source": "openai_web_search"
+            }
+
+    except ImportError:
+        logger.debug("OpenAI package not installed or outdated")
+    except Exception as e:
+        logger.debug(f"OpenAI web search failed: {e}")
+
+    return {}
 
 
 def _search_hunter(author_name: str, domain: str) -> Dict:

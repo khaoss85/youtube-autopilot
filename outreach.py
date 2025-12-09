@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# Suppress urllib3 SSL warning before any imports
+import warnings
+warnings.filterwarnings("ignore", message="urllib3 v2 only supports OpenSSL")
+
 """
 PR Outreach CLI - Media PR outreach automation.
 
@@ -133,6 +137,8 @@ Workflow example:
     run_p.add_argument("campaign", help="Campaign ID")
     run_p.add_argument("--max", "-m", type=int, default=3, help="Max articles to process")
     run_p.add_argument("--dry-run", action="store_true", help="Preview without saving")
+    run_p.add_argument("--force-search", "-f", action="store_true",
+                       help="Force new search even if unanalyzed articles exist")
 
     args = parser.parse_args()
 
@@ -182,35 +188,46 @@ def cmd_search(args):
         print(f"Campaign not found: {args.campaign}")
         return
 
+    # Load existing articles to merge
+    existing_articles = load_articles(args.campaign)
+    existing_urls = {a.get('url') for a in existing_articles}
+
     print(f"\n🔍 Searching articles for: {config.campaign_name}")
     print(f"   Product: {config.product.name}")
     print(f"   Max results: {args.max}")
+    if existing_articles:
+        not_analyzed = [a for a in existing_articles if not a.get('analyzed')]
+        print(f"   Existing: {len(existing_articles)} ({len(not_analyzed)} not analyzed)")
     print()
 
-    from pr_outreach.agents.article_hunter import search_articles
+    from pr_outreach.agents.article_hunter import hunt_articles
 
     # Use custom query or campaign queries
     queries = [args.query] if args.query else config.search_queries
 
-    all_articles = []
-    for query in queries:
-        print(f"   Searching: {query[:50]}...")
-        articles = search_articles(query, config.product, max_results=args.max)
-        all_articles.extend(articles)
-        print(f"   Found: {len(articles)} articles")
+    print(f"   Queries: {len(queries)}")
+    all_articles = hunt_articles(queries, config.product, config, max_results=args.max)
+    print(f"   Found: {len(all_articles)} articles")
 
-    # Dedupe by URL
-    seen = set()
-    unique = []
+    # Dedupe and merge with existing
+    new_count = 0
     for a in all_articles:
-        if a.url not in seen:
-            seen.add(a.url)
-            unique.append(a)
+        url = a.url if hasattr(a, 'url') else a.get('url')
+        if url and url not in existing_urls:
+            existing_urls.add(url)
+            # Convert to dict if needed
+            if hasattr(a, 'model_dump'):
+                article_dict = a.model_dump()
+            else:
+                article_dict = a if isinstance(a, dict) else {}
+            article_dict['analyzed'] = False  # Mark as not analyzed
+            existing_articles.append(article_dict)
+            new_count += 1
 
-    # Save to datastore
-    save_articles(args.campaign, unique)
+    # Save merged articles
+    save_articles(args.campaign, existing_articles)
 
-    print(f"\n✓ Found {len(unique)} unique articles")
+    print(f"\n✓ Added {new_count} new articles (total: {len(existing_articles)})")
     print(f"  Saved to: data/outreach/{args.campaign}/articles.jsonl")
     print(f"\nNext: python outreach.py analyze {args.campaign}")
 
@@ -232,28 +249,46 @@ def cmd_analyze(args):
     print()
 
     from pr_outreach.agents.article_analyzer import analyze_article
+    from pr_outreach.core.schemas import ArticleCandidate
 
     analyzed = []
     for i, article in enumerate(articles):
         if article.get("analyzed"):
-            print(f"   [{i+1}/{len(articles)}] Already analyzed: {article['title'][:40]}...")
+            print(f"   [{i+1}/{len(articles)}] Already analyzed: {article.get('title', 'N/A')[:40]}...")
             analyzed.append(article)
             continue
 
-        print(f"   [{i+1}/{len(articles)}] Analyzing: {article['title'][:40]}...")
+        print(f"   [{i+1}/{len(articles)}] Analyzing: {article.get('title', 'N/A')[:40]}...")
 
-        result = analyze_article(article, config.product)
+        try:
+            # Convert dict to ArticleCandidate if needed
+            article_obj = ArticleCandidate(**{k: v for k, v in article.items() if k in ArticleCandidate.model_fields})
+            result = analyze_article(article_obj, config.product)
 
-        article["analyzed"] = True
-        article["relevance_score"] = result.get("relevance_score", 0)
-        article["fit_reasoning"] = result.get("reasoning", "")
-        article["positioning_angle"] = result.get("positioning_angle", "")
+            # Update article dict with results
+            if hasattr(result, 'model_dump'):
+                result_dict = result.model_dump()
+            else:
+                result_dict = result if isinstance(result, dict) else {}
+
+            article["analyzed"] = True
+            article["relevance_score"] = getattr(result, 'opportunity_score', 0) or result_dict.get("opportunity_score", 0)
+            article["fit_reasoning"] = result_dict.get("fit_reasoning", "")
+            article["positioning_angle"] = result_dict.get("positioning_angle", "")
+            article["insertion_type"] = getattr(result, 'insertion_type', None) or result_dict.get("insertion_type")
+            article["insertion_opportunities"] = result_dict.get("insertion_opportunities", [])
+
+            score = article["relevance_score"]
+            status = "✓" if score >= args.min_score else "✗"
+            print(f"      {status} Score: {score:.2f}")
+
+        except Exception as e:
+            print(f"      ✗ Error analyzing: {e}")
+            article["analyzed"] = True
+            article["relevance_score"] = 0.0
+            article["analysis_error"] = str(e)
 
         analyzed.append(article)
-
-        score = article["relevance_score"]
-        status = "✓" if score >= args.min_score else "✗"
-        print(f"      {status} Score: {score:.2f}")
 
     # Save updated articles
     save_articles(args.campaign, analyzed)
@@ -281,7 +316,7 @@ def cmd_contacts(args):
     print(f"\n👤 Extracting contacts from {len(good_articles)} articles...")
     print()
 
-    from pr_outreach.agents.contact_finder import find_author_contact
+    from pr_outreach.services.author_finder import find_author_contacts
 
     contacts_found = 0
     for i, article in enumerate(good_articles):
@@ -292,17 +327,17 @@ def cmd_contacts(args):
 
         print(f"   [{i+1}/{len(good_articles)}] Finding: {article.get('author_name', 'Unknown')}...")
 
-        contact = find_author_contact(
+        contact = find_author_contacts(
             author_name=article.get("author_name", ""),
-            article_url=article.get("url", ""),
-            domain=article.get("domain", "")
+            domain=article.get("domain", ""),
+            article_url=article.get("url", "")
         )
 
         if contact:
             article["author_email"] = contact.get("email")
-            article["author_linkedin"] = contact.get("linkedin")
-            article["author_twitter"] = contact.get("twitter")
-            article["contact_confidence"] = contact.get("confidence", 0)
+            article["author_linkedin"] = contact.get("linkedin_url")
+            article["author_twitter"] = contact.get("twitter_handle")
+            article["contact_confidence"] = contact.get("email_confidence", 0)
 
             if contact.get("email"):
                 contacts_found += 1
@@ -569,16 +604,26 @@ def cmd_run(args):
         print("   [DRY RUN]")
     print()
 
+    # Check if there are unanalyzed articles
+    existing_articles = load_articles(args.campaign)
+    not_analyzed = [a for a in existing_articles if not a.get('analyzed')]
+
     # Reuse individual commands
     class Args:
         pass
 
-    # Search
-    search_args = Args()
-    search_args.campaign = args.campaign
-    search_args.max = args.max
-    search_args.query = None
-    cmd_search(search_args)
+    # Skip search if we have unanalyzed articles (unless --force-search)
+    force_search = getattr(args, 'force_search', False)
+    if not_analyzed and not force_search:
+        print(f"⏭️  Skipping search: {len(not_analyzed)} articles pending analysis")
+        print(f"   Use --force-search to search anyway\n")
+    else:
+        # Search
+        search_args = Args()
+        search_args.campaign = args.campaign
+        search_args.max = args.max
+        search_args.query = None
+        cmd_search(search_args)
 
     # Analyze
     analyze_args = Args()
@@ -822,11 +867,11 @@ def save_articles(campaign_id, articles):
     path = os.path.join(get_data_path(campaign_id), "articles.jsonl")
     with open(path, 'w') as f:
         for a in articles:
-            if hasattr(a, 'dict'):
-                a = a.dict()
+            if hasattr(a, 'model_dump'):
+                a = a.model_dump()
             elif hasattr(a, '__dict__'):
                 a = {k: v for k, v in a.__dict__.items() if not k.startswith('_')}
-            f.write(json.dumps(a) + '\n')
+            f.write(json.dumps(a, default=str) + '\n')
 
 
 def load_articles(campaign_id):
@@ -873,7 +918,7 @@ def save_outreach(campaign_id, article, email, config):
 
     path = os.path.join(get_data_path(campaign_id), "outreach.jsonl")
     with open(path, 'a') as f:
-        f.write(json.dumps(record) + '\n')
+        f.write(json.dumps(record, default=str) + '\n')
 
     return outreach_id
 
@@ -941,7 +986,7 @@ def update_outreach(record):
 
     with open(path, 'w') as f:
         for r in records:
-            f.write(json.dumps(r) + '\n')
+            f.write(json.dumps(r, default=str) + '\n')
 
 
 if __name__ == "__main__":
